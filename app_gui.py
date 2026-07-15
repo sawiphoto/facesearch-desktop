@@ -643,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 3")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 4")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -704,7 +704,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 3",
+            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 4",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1308,13 +1308,6 @@ class FaceSearchApp(ctk.CTk):
                 if not (name_match or id_match):
                     continue
 
-    def filter_student_list(self):
-        self.load_student_list()
-
-    def clear_student_search(self):
-        if hasattr(self, 'entry_student_search'):
-            self.entry_student_search.delete(0, "end")
-            self.load_student_list()
             # สร้างเฟรมแถวรายชื่อนักเรียนแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.student_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)
@@ -1343,6 +1336,14 @@ class FaceSearchApp(ctk.CTk):
                 command=lambda sid=s['id'], sname=s['name']: self.delete_selected_student_by_id(sid, sname)
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
+
+    def filter_student_list(self):
+        self.load_student_list()
+
+    def clear_student_search(self):
+        if hasattr(self, 'entry_student_search'):
+            self.entry_student_search.delete(0, "end")
+            self.load_student_list()
 
     def select_student_item(self, student_id, student_name, student_code, photo_count):
         self.selected_student_id = student_id
@@ -1952,13 +1953,6 @@ class FaceSearchApp(ctk.CTk):
             if search_term and search_term not in s['name'].lower():
                 continue
 
-    def filter_staff_list(self):
-        self.load_staff_list()
-
-    def clear_staff_search(self):
-        if hasattr(self, 'entry_staff_search'):
-            self.entry_staff_search.delete(0, "end")
-            self.load_staff_list()
             # สร้างเฟรมแถวรายชื่อครูแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.staff_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)
@@ -1987,6 +1981,14 @@ class FaceSearchApp(ctk.CTk):
                 command=lambda sid=s['id'], sname=s['name']: self.delete_selected_staff_by_id(sid, sname)
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
+
+    def filter_staff_list(self):
+        self.load_staff_list()
+
+    def clear_staff_search(self):
+        if hasattr(self, 'entry_staff_search'):
+            self.entry_staff_search.delete(0, "end")
+            self.load_staff_list()
 
     def select_staff_item(self, staff_id, staff_name, photo_count):
         self.selected_staff_id = staff_id
