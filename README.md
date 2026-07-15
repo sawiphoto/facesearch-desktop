@@ -60,6 +60,55 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.7.2 Changelog
+
+**Developer Agent:** Claude (Anthropic)
+**Model:** Opus 4.7 (1M context)
+**Model ID:** `claude-opus-4-7`
+**Date:** 15 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. ปรับปรุงชื่อเมนู Sidebar
+- **ปัญหา:** ชื่อเมนูยาวเกินไป
+- **วิธีแก้ไข:**
+  - เปลี่ยน "ลงทะเบียนครูต้นแบบ" → "ลงทะเบียนครู"
+  - เปลี่ยน "ลงทะเบียนนักเรียนต้นแบอน" → "ลงทะเบียนนักเรียน"
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+#### 2. ลบปุ่มนำเข้านักเรียนยกโฟลเดอร์อัตโนมัติ
+- **ปัญหา:** มีปุ่มซ้ำซ้อนกับ Batch Import จาก Sheets
+- **วิธีแก้ไข:**
+  - ลบปุ่ม "นำเข้านักเรียนยกโฟลเดอร์อัตโนมัติ" ออก
+  - ลบ method `batch_import_students()` ที่เกี่ยวข้อง
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+#### 3. ระบบ Browse Spreadsheet แทนการกรอก Sheet ID
+- **ปัญหา:** ต้องก๊อปปี้ Sheet ID มาวาง ไม่สะดวก
+- **วิธีแก้ไข:**
+  - เพิ่มปุ่ม "🔍 เลือก Sheet..." แทน entry กรอก Sheet ID
+  - เพิ่ม dialog ย่อยแสดงรายการ Spreadsheets ทั้งหมดใน Drive
+  - เพิ่ม method `list_spreadsheets()` ใน `gdrive_sync.py`
+  - บันทึก Sheet ID ล่าสุด (`last_import_sheet_id`, `last_import_sheet_name`) ไว้ใน settings
+  - ครั้งต่อไปเปิด dialog จะโหลดค่าล่าสุดมาแสดงอัตโนมัติ
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+#### 4. ตรวจสอบนักเรียนก่อนบันทึก + Popup สรุปผล
+- **ปัญหา:** ไม่มีการตรวจสอบข้อมูลซ้ำ และไม่มี popup สรุปผล
+- **วิธีแก้ไข:**
+  - เพิ่ม method `find_student_by_code_and_name()` ใน `db_manager.py`
+  - เพิ่ม method `get_student_photo_count()` ใน `db_manager.py`
+  - **3 เงื่อนไขการตรวจสอบ:**
+    1. ไม่มีรหัสและชื่อเลย → บันทึกใหม่
+    2. มีข้อมูลอยู่แล้วแต่ยังไม่มีภาพ → เพิ่มภาพใหม่
+    3. มีข้อมูลอยู่แล้วและมีภาพเดิม → เพิ่มภาพเพิ่มเติม
+  - รองรับภาพเพิ่มเติมจากหลาย column (E, F, G, H, ...)
+  - แสดง Popup สรุปผล: บันทึกใหม่ (X คน), เพิ่มภาพเติม (Y คน), ล้มเหลว (Z คน)
+  - แสดงรายละเอียดแต่ละรายการใน Scrollable Textbox
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+---
+
 ## 📋 Version 1.7.1 Changelog
 
 **Developer Agent:** Claude (Anthropic)

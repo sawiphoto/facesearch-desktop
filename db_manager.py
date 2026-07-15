@@ -215,6 +215,30 @@ class DatabaseManager:
             cursor.execute("SELECT id FROM staff_members WHERE student_id = ? AND role = 'student'", (student_id,))
             return cursor.fetchone() is not None
 
+    def find_student_by_code_and_name(self, student_id, name):
+        """
+        ค้นหานักเรียนจากรหัสและชื่อ
+        คืนค่า: dict มีคีย์ 'id', 'name', 'student_id' ถ้าเจอ, None ถ้าไม่เจอ
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, student_id FROM staff_members WHERE student_id = ? AND role = 'student'",
+                (student_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {"id": row[0], "name": row[1], "student_id": row[2]}
+            return None
+
+    def get_student_photo_count(self, staff_id):
+        """ดึงจำนวนภาพที่ลงทะเบียนไว้ของนักเรียนคนหนึ่ง"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = ?", (staff_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
     def register_member(self, name, role='teacher', student_id=None):
         """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student) และ student_id (สำหรับนักเรียน)"""
         with self.get_connection() as conn:

@@ -429,3 +429,35 @@ class GoogleSyncManager:
             logger.error(f"Error reading sheet: {e}")
             return None
 
+    def list_spreadsheets(self):
+        """
+        ดึงรายการ Spreadsheet ทั้งหมดจาก Google Drive
+        คืนค่า: list ของ dict ที่มีคีย์ {'id', 'name', 'url'}
+        """
+        if not self.connected:
+            return []
+
+        try:
+            # ค้นหาไฟล์ประเภท Spreadsheet ทั้งหมดใน Drive
+            query = "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+            results = self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, webViewLink)",
+                pageSize=100
+            ).execute()
+
+            files = results.get("files", [])
+            spreadsheets = []
+            for file in files:
+                spreadsheets.append({
+                    "id": file.get("id"),
+                    "name": file.get("name"),
+                    "url": file.get("webViewLink")
+                })
+
+            logger.info(f"Found {len(spreadsheets)} spreadsheets in Google Drive")
+            return spreadsheets
+        except Exception as e:
+            logger.error(f"Error listing spreadsheets: {e}")
+            return []
+

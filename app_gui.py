@@ -317,8 +317,16 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.sync_manager = parent.sync_manager
 
         self.title("นำเข้านักเรียนจาก Google Sheets")
-        self.geometry("550x420")
+        self.geometry("550x480")
         self.resizable(False, False)
+
+        # เก็บ Sheet ID ที่เลือก
+        self.selected_sheet_id = None
+        self.selected_sheet_name = None
+
+        # โหลดค่าล่าสุดจาก settings (ถ้ามี)
+        self.last_sheet_id = parent.settings.get("last_import_sheet_id", "")
+        self.last_sheet_name = parent.settings.get("last_import_sheet_name", "")
 
         # ทำให้เป็น Modal dialog
         self.transient(parent)
@@ -332,18 +340,32 @@ class SheetsImportDialog(ctk.CTkToplevel):
         ctk.CTkLabel(main_frame, text="ตั้งค่าการนำเข้าจาก Google Sheets",
                    font=ctk.CTkFont(size=16, weight="bold"), text_color="white").pack(pady=(0, 15))
 
-        # Sheet ID
+        # Sheet Selection
         sheet_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         sheet_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(sheet_frame, text="Sheet ID:", width=100, anchor="w",
+        ctk.CTkLabel(sheet_frame, text="Google Sheet:", width=100, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
-        self.entry_sheet_id = ctk.CTkEntry(sheet_frame, placeholder_text="วาง Sheet ID ที่นี่...")
-        self.entry_sheet_id.pack(side="left", fill="x", expand=True, padx=(5, 0))
+
+        # ปุ่ม Browse Sheet
+        self.btn_browse = ctk.CTkButton(sheet_frame, text="🔍 เลือก Sheet...",
+                                        fg_color="#3498DB", hover_color="#2980B9",
+                                        command=self.browse_sheets, width=120)
+        self.btn_browse.pack(side="right", padx=(5, 0))
+
+        # Label แสดง Sheet ที่เลือก
+        self.lbl_selected_sheet = ctk.CTkLabel(sheet_frame, text=self.last_sheet_name if self.last_sheet_name else "ยังไม่ได้เลือก",
+                                               text_color="#F39C12", anchor="w")
+        self.lbl_selected_sheet.pack(side="left", fill="x", expand=True, padx=(5, 0))
+
+        # โหลดค่าล่าสุด (ถ้ามี)
+        if self.last_sheet_id:
+            self.selected_sheet_id = self.last_sheet_id
+            self.selected_sheet_name = self.last_sheet_name
 
         # คอลัมน์รหัสประจำตัว
         col1_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col1_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col1_frame, text="คอลัมน์รหัสประจำตัว:", width=100, anchor="w",
+        ctk.CTkLabel(col1_frame, text="คอลัมน์รหัสประจำตัว:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_id = ctk.CTkOptionMenu(col1_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
         self.col_id.set("A")
@@ -354,7 +376,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # คอลัมน์ชื่อ-นามสกุล
         col2_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col2_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col2_frame, text="คอลัมน์ชื่อ-นามสกุล:", width=100, anchor="w",
+        ctk.CTkLabel(col2_frame, text="คอลัมน์ชื่อ-นามสกุล:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_name = ctk.CTkOptionMenu(col2_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
         self.col_name.set("B")
@@ -365,7 +387,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # คอลัมน์รูปหน้าตรง
         col3_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col3_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col3_frame, text="คอลัมน์รูปหน้าตรง:", width=100, anchor="w",
+        ctk.CTkLabel(col3_frame, text="คอลัมน์รูปหน้าตรง:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_front = ctk.CTkOptionMenu(col3_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
         self.col_front.set("C")
@@ -376,7 +398,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # คอลัมน์รูปหันซ้าย
         col4_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col4_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col4_frame, text="คอลัมน์รูปหันซ้าย:", width=100, anchor="w",
+        ctk.CTkLabel(col4_frame, text="คอลัมน์รูปหันซ้าย:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_left = ctk.CTkOptionMenu(col4_frame, values=["-", "A", "B", "C", "D", "E", "F", "G", "H"])
         self.col_left.set("-")
@@ -387,7 +409,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # คอลัมน์รูปหันขวา
         col5_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col5_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col5_frame, text="คอลัมน์รูปหันขวา:", width=100, anchor="w",
+        ctk.CTkLabel(col5_frame, text="คอลัมน์รูปหันขวา:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_right = ctk.CTkOptionMenu(col5_frame, values=["-", "A", "B", "C", "D", "E", "F", "G", "H"])
         self.col_right.set("-")
@@ -399,7 +421,8 @@ class SheetsImportDialog(ctk.CTkToplevel):
         desc_label = ctk.CTkLabel(main_frame,
                                   text="• 1 คน = 1 แถว (รหัส + ชื่อ)\n"
                                       "• รูปหน้าตรง: บังคับต้องมี\n"
-                                      "• รูปหันซ้าย/ขวา: เลือกได้ (ถ้ามี)",
+                                      "• รูปหันซ้าย/ขวา: เลือกได้ (ถ้ามี)\n"
+                                      "• รูปเพิ่มเติม: Column E, F, G, ... ได้",
                                   text_color="#6CA6CD", font=ctk.CTkFont(size=11),
                                   justify="left")
         desc_label.pack(pady=(15, 10), anchor="w")
@@ -416,20 +439,114 @@ class SheetsImportDialog(ctk.CTkToplevel):
                                         command=self.on_start)
         self.btn_start.pack(side="right")
 
+    def browse_sheets(self):
+        """เปิด dialog เลือก Spreadsheet จาก Google Drive"""
+        # สร้าง dialog ย่อยสำหรับเลือก Sheet
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("เลือก Google Sheet")
+        dialog.geometry("500x400")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Frame หลัก
+        main_frame = ctk.CTkFrame(dialog, fg_color="#101B2B")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # หัวข้อ
+        ctk.CTkLabel(main_frame, text="รายการ Google Sheets ใน Drive",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="white").pack(pady=(0, 10))
+
+        # Listbox แสดงรายการ
+        import tkinter as tk
+        list_frame = ctk.CTkFrame(main_frame, fg_color="#0A111A")
+        list_frame.pack(fill="both", expand=True, pady=(5, 10))
+
+        sheets_listbox = tk.Listbox(list_frame, bg="#0A111A", fg="#2ECC71",
+                                     selectbackground="#1F3A60", selectforeground="white",
+                                     font=("Consolas", 10), borderwidth=0, highlightthickness=0)
+        sheets_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Scrollbar
+        scrollbar = ctk.CTkScrollbar(main_frame, command=sheets_listbox.yview)
+        scrollbar.pack(side="right", fill="y", padx=(0, 5))
+        sheets_listbox.configure(yscrollcommand=scrollbar.set)
+
+        # ปุ่มด้านล่าง
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        def on_select():
+            selection = sheets_listbox.curselection()
+            if not selection:
+                return
+            idx = selection[0]
+            sheet_data = sheets_listbox.get(idx)
+            # ดึง ID จาก string format: "Sheet Name (ID: ...)"
+            if "(ID:" in sheet_data:
+                sheet_id = sheet_data.split("(ID:")[1].rstrip(")").strip()
+                sheet_name = sheet_data.split("(ID:")[0].strip()
+                self.selected_sheet_id = sheet_id
+                self.selected_sheet_name = sheet_name
+                self.lbl_selected_sheet.configure(text=sheet_name, text_color="#27AE60")
+                dialog.destroy()
+
+        ctk.CTkButton(btn_frame, text="เลือก", fg_color="#27AE60", hover_color="#229954",
+                     command=on_select, width=80).pack(side="right", padx=(5, 0))
+        ctk.CTkButton(btn_frame, text="ปิด", fg_color="#C0392B", hover_color="#962D22",
+                     command=dialog.destroy, width=80).pack(side="right")
+
+        # โหลดรายการ Sheets แบบ async
+        def load_sheets():
+            try:
+                if not self.sync_manager.connected:
+                    self.sync_manager.connect()
+
+                sheets = self.sync_manager.list_spreadsheets()
+
+                # อัปเดต UI ใน main thread
+                def update_ui():
+                    sheets_listbox.delete(0, tk.END)
+                    if not sheets:
+                        sheets_listbox.insert(tk.END, "ไม่พบ Google Sheets ใน Drive")
+                        return
+
+                    for sheet in sheets:
+                        display_text = f"{sheet['name']} (ID: {sheet['id']})"
+                        sheets_listbox.insert(tk.END, display_text)
+
+                    # เลือก sheet ล่าสุด (ถ้ามี)
+                    if self.last_sheet_id:
+                        for i, sheet in enumerate(sheets):
+                            if sheet['id'] == self.last_sheet_id:
+                                sheets_listbox.selection_set(i)
+                                sheets_listbox.see(i)
+                                break
+
+                self.after(0, update_ui)
+            except Exception as e:
+                self.after(0, lambda: sheets_listbox.insert(tk.END, f"Error: {e}"))
+
+        threading.Thread(target=load_sheets, daemon=True).start()
+
     def on_start(self):
-        sheet_id = self.entry_sheet_id.get().strip()
-        if not sheet_id:
-            messagebox.showwarning("คำเตือน", "กรุณาระบุ Sheet ID")
+        if not self.selected_sheet_id:
+            messagebox.showwarning("คำเตือน", "กรุณาเลือก Google Sheet ก่อน")
             return
 
         settings = {
-            "sheet_id": sheet_id,
+            "sheet_id": self.selected_sheet_id,
+            "sheet_name": self.selected_sheet_name,
             "col_id": self.col_id.get(),
             "col_name": self.col_name.get(),
             "col_front": self.col_front.get(),
             "col_left": self.col_left.get(),
             "col_right": self.col_right.get()
         }
+
+        # บันทึกค่าล่าสุด
+        self.parent.settings["last_import_sheet_id"] = self.selected_sheet_id
+        self.parent.settings["last_import_sheet_name"] = self.selected_sheet_name
+        self.parent.save_settings()
 
         self.destroy()
         if self.callback:
@@ -444,7 +561,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.6.9+")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -472,6 +589,9 @@ class FaceSearchApp(ctk.CTk):
         self.is_paused = False
         self.selected_staff_ids_for_scan = []  # รายชื่อ ID ครูที่เลือกสำหรับสแกนแบบเจาะจง (Selective Matching)
         self.dashboard_sort_desc = True  # True = เรียงมากไปน้อย, False = เรียงน้อยไปมาก
+
+        # Settings cache
+        self.settings = {}
 
         # --- จัดทำเลย์เอาต์หลัก ---
         # แบ่งซ้าย (Sidebar Menu) และขวา (Content Pane)
@@ -502,7 +622,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7",
+            text="FACE MATCHING\nSYSTEM v1.7.2",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -517,14 +637,14 @@ class FaceSearchApp(ctk.CTk):
         self.btn_dashboard.grid(row=1, column=0, padx=15, pady=8, sticky="ew")
 
         self.btn_registry = ctk.CTkButton(
-            self.sidebar_frame, text="ลงทะเบียนครูต้นแบบ",
+            self.sidebar_frame, text="ลงทะเบียนครู",
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("registry")
         )
         self.btn_registry.grid(row=2, column=0, padx=15, pady=8, sticky="ew")
 
         self.btn_student_registry = ctk.CTkButton(
-            self.sidebar_frame, text="ลงทะเบียนนักเรียนต้นแบอน",
+            self.sidebar_frame, text="ลงทะเบียนนักเรียน",
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("student_registry")
         )
@@ -1015,13 +1135,6 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_import_from_sheets.pack(fill="x", padx=20, pady=(2, 5))
 
-        # ปุ่มนำเข้ายกโฟลเดอร์อัตโนมัติ (คลาสสิก)
-        btn_batch_import_students = ctk.CTkButton(
-            self.student_form_frame, text="📁 นำเข้านักเรียนยกโฟลเดอร์อัตโนมัติ",
-            fg_color="#1F3A60", hover_color="#20334F", command=self.batch_import_students
-        )
-        btn_batch_import_students.pack(fill="x", padx=20, pady=(2, 10))
-
         # จัดการภาพใบหน้านักเรียนที่เลือก
         ctk.CTkLabel(self.student_form_frame, text="2. จัดการภาพใบหน้าต้นแบบ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
 
@@ -1433,83 +1546,8 @@ class FaceSearchApp(ctk.CTk):
         """เปิด Dialog ตั้งค่าการนำเข้าจาก Google Sheets"""
         SheetsImportDialog(self, callback=self.batch_import_from_sheets)
 
-    def batch_import_students(self):
-        """นำเข้านักเรียนยกโฟลเดอร์อัตโนมัติ"""
-        folder_path = filedialog.askdirectory(title="เลือกโฟลเดอร์ที่มีรูปนักเรียน")
-        if not folder_path:
-            return
-
-        def process_batch():
-            logger.info(f"Starting batch student import from: {folder_path}")
-
-            # หาไฟล์รูปทั้งหมดในโฟลเดอร์
-            image_extensions = ('.jpg', '.jpeg', '.png', '.webp')
-            image_files = []
-
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith(image_extensions):
-                        image_files.append(os.path.join(root, file))
-
-            if not image_files:
-                self.after(0, lambda: messagebox.showinfo("ไม่พบรูป", "ไม่พบไฟล์รูปภาพในโฟลเดอร์ที่เลือก"))
-                return
-
-            # วิเคราะห์โครงสร้างโฟลเดอร์เพื่อดึงชื่อนักเรียน
-            # สมมติว่าโครงสร้างคือ: โฟลเดอร์หลัก/ชื่อนักเรียน/รูป*.jpg
-            student_dict = {}
-            for img_path in image_files:
-                rel_path = os.path.relpath(img_path, folder_path)
-                parts = rel_path.split(os.sep)
-
-                # ถ้ามีโฟลเดอร์ย่อย ให้ใช้ชื่อโฟลเดอร์ย่อยเป็นชื่อนักเรียน
-                if len(parts) > 1:
-                    student_name = parts[0]
-                else:
-                    # ถ้าไม่มีโฟลเดอร์ย่อย ให้ใช้ชื่อไฟล์เป็นชื่อนักเรียน
-                    student_name = os.path.splitext(os.path.basename(img_path))[0]
-
-                if student_name not in student_dict:
-                    student_dict[student_name] = []
-                student_dict[student_name].append(img_path)
-
-            logger.info(f"Found {len(student_dict)} students with {sum(len(v) for v in student_dict.values())} images")
-
-            # ลงทะเบียนนักเรียนและรูปภาพ
-            analyzer = FaceAnalyzer(use_gpu=False)
-            if not analyzer.initialize():
-                self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเริ่มต้น FaceAnalyzer ได้"))
-                return
-
-            total_success = 0
-            for student_name, img_paths in student_dict.items():
-                # สร้างรหัสชั่วคราวจากชื่อสำหรับ batch import (แนะนำให้ลงทะเบียนแบบระบุรหัสแทน)
-                temp_student_id = student_name.replace(" ", "_")[:20]
-                student_id = self.db.register_member(student_name, role='student', student_id=temp_student_id)
-                logger.info(f"Processing student: {student_name} (ID: {student_id}, Code: {temp_student_id})")
-
-                success_count = 0
-                for img_path in img_paths:
-                    try:
-                        faces = analyzer.detect_and_extract_faces(img_path)
-                        if len(faces) == 1:
-                            face = faces[0]
-                            student_face_path = self.save_cropped_student_face(student_id, temp_student_id, img_path, face["bbox"], success_count)
-                            self.db.add_staff_embedding(student_id, student_face_path, face["embedding"])
-                            success_count += 1
-                    except Exception as e:
-                        logger.error(f"Error processing {img_path}: {e}")
-
-                total_success += success_count
-                logger.info(f"Registered {success_count} faces for {student_name}")
-
-            self.after(0, self.load_student_list)
-            self.after(0, lambda: messagebox.showinfo("นำเข้าสำเร็จ", f"นำเข้านักเรียน {len(student_dict)} คน\nรวม {total_success} รูปภาพ"))
-
-        threading.Thread(target=process_batch, daemon=True).start()
-
     def batch_import_from_sheets(self, settings):
-        """นำเข้านักเรียนจาก Google Sheets"""
+        """นำเข้านักเรียนจาก Google Sheets พร้อมตรวจสอบข้อมูลเดิม"""
         def process_import():
             try:
                 sheet_id = settings["sheet_id"]
@@ -1528,7 +1566,8 @@ class FaceSearchApp(ctk.CTk):
 
                 # แปลงตัวอักษรคอลัมน์เป็นตัวเลข (0-based)
                 col_map = {
-                    "A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5, "G": 6, "H": 7
+                    "A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5, "G": 6, "H": 7,
+                    "I": 8, "J": 9, "K": 10, "L": 11, "M": 12, "N": 13, "O": 14, "P": 15
                 }
                 col_id = col_map.get(settings["col_id"], 0)
                 col_name = col_map.get(settings["col_name"], 1)
@@ -1539,7 +1578,7 @@ class FaceSearchApp(ctk.CTk):
                 # ข้ามแถวหัวคอลัมน์
                 data_rows = sheet_data[1:]
 
-                # จัดกลุ่มข้อมูลตาม รหัส + ชื่อ
+                # จัดกลุ่มข้อมูลตาม รหัส + ชื่อ + รวบรวม URL ภาพทั้งหมด
                 student_dict = {}
                 for row in data_rows:
                     if len(row) <= max(col_id, col_name, col_front):
@@ -1547,16 +1586,28 @@ class FaceSearchApp(ctk.CTk):
 
                     student_code = row[col_id].strip() if col_id < len(row) else ""
                     student_name = row[col_name].strip() if col_name < len(row) else ""
-                    front_url = row[col_front].strip() if col_front < len(row) else ""
-                    left_url = row[col_left].strip() if col_left is not None and col_left < len(row) else ""
-                    right_url = row[col_right].strip() if col_right is not None and col_right < len(row) else ""
 
-                    if not student_code or not student_name or not front_url:
+                    if not student_code or not student_name:
+                        continue
+
+                    # รวบรวม URL ภาพทั้งหมดจากทุก column ที่มี
+                    photo_urls = []
+                    for col_name_char, col_idx in col_map.items():
+                        # เริ่มเก็บจาก column หน้าตรงเป็นต้นไป
+                        if col_idx < col_front:
+                            continue
+                        if col_idx >= len(row):
+                            break
+                        url = row[col_idx].strip() if col_idx < len(row) else ""
+                        if url and url != "-":
+                            photo_urls.append((col_name_char, url))
+
+                    if not photo_urls:
                         continue
 
                     key = (student_code, student_name)
                     if key not in student_dict:
-                        student_dict[key] = {"front": front_url, "left": left_url, "right": right_url}
+                        student_dict[key] = {"photos": photo_urls}
 
                 logger.info(f"Found {len(student_dict)} students from sheet")
 
@@ -1566,78 +1617,167 @@ class FaceSearchApp(ctk.CTk):
                     self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเริ่มต้น FaceAnalyzer ได้"))
                     return
 
-                total_success = 0
-                no_face_count = 0
+                # เก็บผลลัพธ์
+                registered_list = []   # บันทึกใหม่
+                updated_list = []      # เพิ่มภาพเติม
+                failed_list = []       # ล้มเหลว
 
-                for (student_code, student_name), urls in student_dict.items():
-                    # ลงทะเบียนนักเรียน (หรืออัปเดต)
-                    student_id = self.db.register_member(student_name, role='student', student_id=student_code)
-                    logger.info(f"Processing: {student_name} (ID: {student_code}, DB ID: {student_id})")
+                for (student_code, student_name), data in student_dict.items():
+                    try:
+                        # ตรวจสอบว่ามีข้อมูลอยู่แล้วหรือไม่
+                        existing = self.db.find_student_by_code_and_name(student_code, student_name)
 
-                    # ดำเนินการกับรูปแต่ละมุม
-                    for angle, url in [("front", urls["front"]), ("left", urls["left"]), ("right", urls["right"])]:
-                        if not url or url == "-":
-                            continue
+                        if existing is None:
+                            # กรณีที่ 1: ไม่มีข้อมูล → บันทึกใหม่
+                            student_id = self.db.register_member(student_name, role='student', student_id=student_code)
+                            is_new = True
+                            logger.info(f"New student: {student_name} (ID: {student_code}, DB ID: {student_id})")
+                        else:
+                            # กรณีที่ 2-3: มีข้อมูลอยู่แล้ว → ใช้ ID เดิม
+                            student_id = existing["id"]
+                            is_new = False
+                            logger.info(f"Existing student: {student_name} (ID: {student_code}, DB ID: {student_id})")
 
-                        try:
-                            # ดาวน์โหลดรูปจาก Drive URL
-                            temp_dir = os.path.join(get_project_root(), "data", "temp")
-                            os.makedirs(temp_dir, exist_ok=True)
-                            temp_path = os.path.join(temp_dir, f"temp_{student_code}_{angle}.jpg")
+                        # นับจำนวนภาพเก่า
+                        old_photo_count = self.db.get_student_photo_count(student_id)
 
-                            image_bytes = self.sync_manager.download_image_from_url(url)
-                            if not image_bytes:
-                                logger.warning(f"Failed to download {angle} image for {student_name}")
-                                continue
-
-                            # บันทึก bytes เป็นไฟล์ชั่วคราว
-                            with open(temp_path, 'wb') as f:
-                                f.write(image_bytes)
-
-                            # ตรวจจับใบหน้า
-                            faces = analyzer.detect_and_extract_faces(temp_path)
-
-                            if len(faces) == 0:
-                                logger.warning(f"No face detected in {angle} image for {student_name} - SKIPPED")
-                                no_face_count += 1
-                                continue
-                            elif len(faces) > 1:
-                                logger.warning(f"Multiple faces ({len(faces)}) in {angle} image for {student_name} - using largest")
-                                face = max(faces, key=lambda f: (f["bbox"][2]-f["bbox"][0]) * (f["bbox"][3]-f["bbox"][1]))
-                            else:
-                                face = faces[0]
-
-                            # บันทึกใบหน้า
-                            face_path = self.save_cropped_student_face(student_id, student_code, temp_path, face["bbox"], total_success)
-                            self.db.add_staff_embedding(student_id, face_path, face["embedding"])
-                            total_success += 1
-                            logger.info(f"Registered {angle} face for {student_name}")
-
-                            # ลบไฟล์ชั่วคราว
+                        # ประมวลผลภาพทั้งหมด
+                        success_count = 0
+                        for col_char, url in data["photos"]:
                             try:
-                                os.remove(temp_path)
-                            except:
-                                pass
+                                # ดาวน์โหลดรูปจาก Drive URL
+                                temp_dir = os.path.join(get_project_root(), "data", "temp")
+                                os.makedirs(temp_dir, exist_ok=True)
+                                temp_path = os.path.join(temp_dir, f"temp_{student_code}_{col_char}.jpg")
 
-                        except Exception as e:
-                            logger.error(f"Error processing {angle} image for {student_name}: {e}")
+                                image_bytes = self.sync_manager.download_image_from_url(url)
+                                if not image_bytes:
+                                    logger.warning(f"Failed to download image from column {col_char} for {student_name}")
+                                    continue
 
-                logger.info(f"Batch import completed: {len(student_dict)} students, {total_success} faces registered, {no_face_count} skipped")
+                                # บันทึก bytes เป็นไฟล์ชั่วคราว
+                                with open(temp_path, 'wb') as f:
+                                    f.write(image_bytes)
+
+                                # ตรวจจับใบหน้า
+                                faces = analyzer.detect_and_extract_faces(temp_path)
+
+                                if len(faces) == 0:
+                                    logger.warning(f"No face detected in column {col_char} for {student_name}")
+                                    continue
+                                elif len(faces) > 1:
+                                    logger.warning(f"Multiple faces ({len(faces)}) in column {col_char} for {student_name} - using largest")
+                                    face = max(faces, key=lambda f: (f["bbox"][2]-f["bbox"][0]) * (f["bbox"][3]-f["bbox"][1]))
+                                else:
+                                    face = faces[0]
+
+                                # บันทึกใบหน้า
+                                face_path = self.save_cropped_student_face(student_id, student_code, temp_path, face["bbox"], success_count)
+                                self.db.add_staff_embedding(student_id, face_path, face["embedding"])
+                                success_count += 1
+                                logger.info(f"Registered face from column {col_char} for {student_name}")
+
+                                # ลบไฟล์ชั่วคราว
+                                try:
+                                    os.remove(temp_path)
+                                except:
+                                    pass
+
+                            except Exception as e:
+                                logger.error(f"Error processing column {col_char} for {student_name}: {e}")
+
+                        if success_count > 0:
+                            if is_new:
+                                registered_list.append(f"{student_code} - {student_name} (+{success_count} รูป)")
+                            else:
+                                updated_list.append(f"{student_code} - {student_name} ({old_photo_count}→{old_photo_count + success_count} รูป)")
+                        else:
+                            failed_list.append(f"{student_code} - {student_name} (ไม่พบใบหน้า)")
+
+                    except Exception as e:
+                        logger.error(f"Error processing student {student_name}: {e}")
+                        failed_list.append(f"{student_code} - {student_name} (Error: {e})")
+
+                logger.info(f"Batch import completed: {len(registered_list)} new, {len(updated_list)} updated, {len(failed_list)} failed")
 
                 # รีเฟรชและแจ้งผล
                 self.after(0, self.load_student_list)
-                self.after(0, lambda: messagebox.showinfo(
-                    "นำเข้าสำเร็จ",
-                    f"นำเข้านักเรียน {len(student_dict)} คน\n"
-                    f"ลงทะเบียนรูปสำเร็จ: {total_success} รูป\n"
-                    f"ไม่พบใบหน้า/ข้าม: {no_face_count} รูป"
-                ))
+                self.after(0, lambda: self.show_import_summary(registered_list, updated_list, failed_list))
 
             except Exception as e:
                 logger.error(f"Batch import from sheets failed: {e}", exc_info=True)
                 self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาด: {e}"))
 
         threading.Thread(target=process_import, daemon=True).start()
+
+    def show_import_summary(self, registered_list, updated_list, failed_list):
+        """แสดง Popup สรุปผลการนำเข้านักเรียน"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("สรุปผลการนำเข้านักเรียน")
+        dialog.geometry("600x500")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Frame หลัก
+        main_frame = ctk.CTkFrame(dialog, fg_color="#101B2B")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # หัวข้อ
+        ctk.CTkLabel(main_frame, text="สรุปผลการนำเข้านักเรียนจาก Google Sheets",
+                   font=ctk.CTkFont(size=16, weight="bold"), text_color="white").pack(pady=(0, 15))
+
+        # สถิติ
+        stats_frame = ctk.CTkFrame(main_frame, fg_color="#1C2D42")
+        stats_frame.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(stats_frame, text=f"✅ บันทึกใหม่: {len(registered_list)} คน",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="#27AE60").pack(side="left", padx=20, pady=10)
+        ctk.CTkLabel(stats_frame, text=f"📝 เพิ่มภาพเติม: {len(updated_list)} คน",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="#F39C12").pack(side="left", padx=20, pady=10)
+        ctk.CTkLabel(stats_frame, text=f"❌ ล้มเหลว: {len(failed_list)} คน",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C").pack(side="left", padx=20, pady=10)
+
+        # รายละเอียด (Scrollable)
+        detail_frame = ctk.CTkFrame(main_frame, fg_color="#0A111A")
+        detail_frame.pack(fill="both", expand=True)
+
+        import tkinter as tk
+        detail_text = tk.Text(detail_frame, bg="#0A111A", fg="#2ECC71",
+                              font=("Consolas", 10), borderwidth=0, highlightthickness=0,
+                              wrap="word", state="disabled")
+        detail_text.pack(fill="both", expand=True, padx=5, pady=5)
+
+        scrollbar = ctk.CTkScrollbar(detail_frame, command=detail_text.yview)
+        scrollbar.pack(side="right", fill="y")
+        detail_text.configure(yscrollcommand=scrollbar.set)
+
+        # เติมข้อมูล
+        detail_text.config(state="normal")
+        if registered_list:
+            detail_text.insert("end", "═══ บันทึกใหม่ ═══\n", "header")
+            detail_text.tag_configure("header", foreground="#27AE60", font=("Consolas", 10, "bold"))
+            for item in registered_list:
+                detail_text.insert("end", f"• {item}\n")
+            detail_text.insert("end", "\n")
+
+        if updated_list:
+            detail_text.insert("end", "═══ เพิ่มภาพเติม ═══\n", "header2")
+            detail_text.tag_configure("header2", foreground="#F39C12", font=("Consolas", 10, "bold"))
+            for item in updated_list:
+                detail_text.insert("end", f"• {item}\n")
+            detail_text.insert("end", "\n")
+
+        if failed_list:
+            detail_text.insert("end", "═══ ล้มเหลว ═══\n", "header3")
+            detail_text.tag_configure("header3", foreground="#E74C3C", font=("Consolas", 10, "bold"))
+            for item in failed_list:
+                detail_text.insert("end", f"• {item}\n")
+
+        detail_text.config(state="disabled")
+
+        # ปุ่มปิด
+        ctk.CTkButton(main_frame, text="ปิด", width=100, fg_color="#3498DB",
+                     hover_color="#2980B9", command=dialog.destroy).pack(pady=(15, 0))
 
     def load_staff_list(self):
         # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
@@ -2738,7 +2878,10 @@ class FaceSearchApp(ctk.CTk):
         try:
             with open(settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-            
+
+            # เก็บ settings ไว้ใน self.settings สำหรับใช้งานทั่วไป
+            self.settings = settings
+
             if "credentials_path" in settings and settings["credentials_path"]:
                 self.entry_cred_path.delete(0, "end")
                 self.entry_cred_path.insert(0, settings["credentials_path"])
