@@ -131,6 +131,13 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create unique index for student_id: {e}")
 
+            # Migration: เพิ่มคอลัมน์ source_url ใน staff_embeddings (v1.7.2 Fix 2)
+            try:
+                cursor.execute("ALTER TABLE staff_embeddings ADD COLUMN source_url TEXT")
+                logger.info("Migration: added source_url to staff_embeddings.")
+            except Exception:
+                pass  # คอลัมน์อาจจะมีอยู่แล้ว
+
             conn.commit()
         logger.info("SQLite database initialized successfully.")
 
@@ -150,19 +157,35 @@ class DatabaseManager:
                 row = cursor.fetchone()
                 return row[0]
 
-    def add_staff_embedding(self, staff_id, image_path, embedding_vector):
-        """บันทึกเวกเตอร์ใบหน้า (embedding_vector ต้องเป็น numpy array หรือ list ขนาด 512 มิติ)"""
+    def check_embedding_url_exists(self, staff_id, source_url):
+        """
+        ตรวจสอบว่ามี embedding ที่มี source_url เดียวกันอยู่แล้วหรือไม่
+        คืนค่า: True ถ้ามีอยู่แล้ว, False ถ้ายังไม่มี
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM staff_embeddings WHERE staff_id = ? AND source_url = ?",
+                (staff_id, source_url)
+            )
+            return cursor.fetchone() is not None
+
+    def add_staff_embedding(self, staff_id, image_path, embedding_vector, source_url=None):
+        """
+        บันทึกเวกเตอร์ใบหน้า (embedding_vector ต้องเป็น numpy array หรือ list ขนาด 512 มิติ)
+        source_url: ลิงค์ที่มาของรูป (ถ้ามี) - ใช้สำหรับตรวจสอบรูปซ้ำใน Batch Import
+        """
         if isinstance(embedding_vector, list):
             embedding_vector = np.array(embedding_vector, dtype=np.float32)
-        
+
         # แปลง numpy array เป็น bytes
         embedding_blob = embedding_vector.astype(np.float32).tobytes()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO staff_embeddings (staff_id, image_path, embedding) VALUES (?, ?, ?)",
-                (staff_id, image_path, embedding_blob)
+                "INSERT INTO staff_embeddings (staff_id, image_path, embedding, source_url) VALUES (?, ?, ?, ?)",
+                (staff_id, image_path, embedding_blob, source_url)
             )
             conn.commit()
             logger.debug(f"Saved embedding for staff_id {staff_id} from {os.path.basename(image_path)}")

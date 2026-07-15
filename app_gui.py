@@ -643,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 1")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 2")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -704,7 +704,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 1",
+            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 2",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1576,13 +1576,17 @@ class FaceSearchApp(ctk.CTk):
 
     def select_student_thumbnail(self, path, widget):
         """เลือกรูปภาพย่อของนักเรียน"""
-        # รีเซ็ตสีของ widget เก่า
+        # รีเซ็ตสีของ widget เก่า (เหมือนเมนูครู)
         if self.selected_student_thumb_widget:
-            self.selected_student_thumb_widget.configure(fg_color="transparent")
+            try:
+                self.selected_student_thumb_widget.configure(fg_color="transparent", border_width=0, border_color="transparent")
+            except Exception:
+                pass
 
         self.selected_student_thumb_path = path
         self.selected_student_thumb_widget = widget
-        widget.configure(fg_color="#1F3A60")
+        # แสดงไฮไลต์สีแดงรอบขอบเฟรม (เหมือนเมนูครู)
+        widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
         self.btn_delete_student_photo.configure(state="normal")
 
     def delete_selected_student_photo(self):
@@ -1697,6 +1701,7 @@ class FaceSearchApp(ctk.CTk):
                 registered_list = []   # บันทึกใหม่
                 updated_list = []      # เพิ่มภาพเติม
                 failed_list = []       # ล้มเหลว
+                skipped_list = []      # ข้ามรูปซ้ำ
 
                 for (student_code, student_name), data in student_dict.items():
                     try:
@@ -1719,8 +1724,16 @@ class FaceSearchApp(ctk.CTk):
 
                         # ประมวลผลภาพทั้งหมด
                         success_count = 0
+                        skipped_count = 0
                         for col_char, url in data["photos"]:
                             try:
+                                # เช็คว่าลิงค์นี้บันทึกไปแล้วหรือยัง (v1.7.2 Fix 2)
+                                if self.db.check_embedding_url_exists(student_id, url):
+                                    logger.info(f"Skipped duplicate URL from column {col_char} for {student_name}")
+                                    skipped_count += 1
+                                    skipped_list.append(f"{student_code} - {student_name} (คอลัมน์ {col_char})")
+                                    continue
+
                                 # ดาวน์โหลดรูปจาก Drive URL
                                 temp_dir = os.path.join(get_project_root(), "data", "temp")
                                 os.makedirs(temp_dir, exist_ok=True)
@@ -1747,9 +1760,9 @@ class FaceSearchApp(ctk.CTk):
                                 else:
                                     face = faces[0]
 
-                                # บันทึกใบหน้า
+                                # บันทึกใบหน้า พร้อม source_url (v1.7.2 Fix 2)
                                 face_path = self.save_cropped_student_face(student_id, student_code, temp_path, face["bbox"], success_count)
-                                self.db.add_staff_embedding(student_id, face_path, face["embedding"])
+                                self.db.add_staff_embedding(student_id, face_path, face["embedding"], source_url=url)
                                 success_count += 1
                                 logger.info(f"Registered face from column {col_char} for {student_name}")
 
@@ -1767,6 +1780,9 @@ class FaceSearchApp(ctk.CTk):
                                 registered_list.append(f"{student_code} - {student_name} (+{success_count} รูป)")
                             else:
                                 updated_list.append(f"{student_code} - {student_name} ({old_photo_count}→{old_photo_count + success_count} รูป)")
+                        elif skipped_count == len(data["photos"]):
+                            # กรณีทุกรูปซ้ำหมด
+                            failed_list.append(f"{student_code} - {student_name} (รูปทั้งหมดซ้ำ)")
                         else:
                             failed_list.append(f"{student_code} - {student_name} (ไม่พบใบหน้า)")
 
@@ -1774,11 +1790,11 @@ class FaceSearchApp(ctk.CTk):
                         logger.error(f"Error processing student {student_name}: {e}")
                         failed_list.append(f"{student_code} - {student_name} (Error: {e})")
 
-                logger.info(f"Batch import completed: {len(registered_list)} new, {len(updated_list)} updated, {len(failed_list)} failed")
+                logger.info(f"Batch import completed: {len(registered_list)} new, {len(updated_list)} updated, {len(failed_list)} failed, {len(skipped_list)} skipped")
 
                 # รีเฟรชและแจ้งผล
                 self.after(0, self.load_student_list)
-                self.after(0, lambda: self.show_import_summary(registered_list, updated_list, failed_list))
+                self.after(0, lambda: self.show_import_summary(registered_list, updated_list, failed_list, skipped_list))
 
             except Exception as e:
                 logger.error(f"Batch import from sheets failed: {e}", exc_info=True)
@@ -1786,8 +1802,11 @@ class FaceSearchApp(ctk.CTk):
 
         threading.Thread(target=process_import, daemon=True).start()
 
-    def show_import_summary(self, registered_list, updated_list, failed_list):
+    def show_import_summary(self, registered_list, updated_list, failed_list, skipped_list=None):
         """แสดง Popup สรุปผลการนำเข้านักเรียน"""
+        if skipped_list is None:
+            skipped_list = []
+
         dialog = ctk.CTkToplevel(self)
         dialog.title("สรุปผลการนำเข้านักเรียน")
         dialog.geometry("600x500")
@@ -1812,6 +1831,8 @@ class FaceSearchApp(ctk.CTk):
                    font=ctk.CTkFont(size=14, weight="bold"), text_color="#F39C12").pack(side="left", padx=20, pady=10)
         ctk.CTkLabel(stats_frame, text=f"❌ ล้มเหลว: {len(failed_list)} คน",
                    font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C").pack(side="left", padx=20, pady=10)
+        ctk.CTkLabel(stats_frame, text=f"⏭️ ข้ามรูปซ้ำ: {len(skipped_list)} รูป",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="#95A5A6").pack(side="left", padx=20, pady=10)
 
         # รายละเอียด (Scrollable)
         detail_frame = ctk.CTkFrame(main_frame, fg_color="#0A111A")
@@ -1840,6 +1861,13 @@ class FaceSearchApp(ctk.CTk):
             detail_text.insert("end", "═══ เพิ่มภาพเติม ═══\n", "header2")
             detail_text.tag_configure("header2", foreground="#F39C12", font=("Consolas", 10, "bold"))
             for item in updated_list:
+                detail_text.insert("end", f"• {item}\n")
+            detail_text.insert("end", "\n")
+
+        if skipped_list:
+            detail_text.insert("end", "═══ ข้ามรูปซ้ำ ═══\n", "header4")
+            detail_text.tag_configure("header4", foreground="#95A5A6", font=("Consolas", 10, "bold"))
+            for item in skipped_list:
                 detail_text.insert("end", f"• {item}\n")
             detail_text.insert("end", "\n")
 
