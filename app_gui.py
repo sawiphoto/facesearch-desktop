@@ -1129,7 +1129,7 @@ class FaceSearchApp(ctk.CTk):
         # พื้นที่แสดงรูปภาพใบหน้าครูต้นแบบ (เป็น Grid ใน Scrollable Frame แบบแนวนอน)
         # พื้นที่แสดงรูปภาพใบหน้าครูต้นแบบ (เป็นตาราง Grid ใน Scrollable Frame แนวตั้ง)
         self.thumbs_frame = ctk.CTkFrame(self.form_frame, fg_color="#101B2B", height=180)
-        self.thumbs_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
+        self.thumbs_frame.pack(fill="x", expand=False, padx=20, pady=(5, 10))
         self.thumbs_frame.pack_propagate(False)
         
         ctk.CTkLabel(self.thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(5, 0))
@@ -1236,7 +1236,7 @@ class FaceSearchApp(ctk.CTk):
 
         # พื้นที่แสดงรูปภาพใบหน้านักเรียนต้นแบบ (เป็นตาราง Grid ใน Scrollable Frame แนวตั้ง)
         self.student_thumbs_frame = ctk.CTkFrame(self.student_form_frame, fg_color="#101B2B", height=180)
-        self.student_thumbs_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
+        self.student_thumbs_frame.pack(fill="x", expand=False, padx=20, pady=(5, 10))
         self.student_thumbs_frame.pack_propagate(False)
 
         ctk.CTkLabel(self.student_thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(5, 0))
