@@ -643,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.3")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.4")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -670,6 +670,8 @@ class FaceSearchApp(ctk.CTk):
         self.is_scanning = False
         self.is_paused = False
         self.selected_staff_ids_for_scan = []  # รายชื่อ ID ครูที่เลือกสำหรับสแกนแบบเจาะจง (Selective Matching)
+        self.selected_teacher_ids = []  # v1.7.4 รายชื่อ ID ครูที่เลือกสแกนเฉพาะเจาะจง
+        self.selected_student_ids = []  # v1.7.4 รายชื่อ ID นักเรียนที่เลือกสแกนเฉพาะเจาะจง
         self.dashboard_sort_desc = True  # True = เรียงมากไปน้อย, False = เรียงน้อยไปมาก
 
         # Settings cache
@@ -704,7 +706,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.3",
+            text="FACE MATCHING\nSYSTEM v1.7.4",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1093,7 +1095,7 @@ class FaceSearchApp(ctk.CTk):
                 # อัปเดตไฟล์ JSON บน Google Drive
                 json_folder_id = self.entry_json_folder_id.get().strip()
                 if json_folder_id:
-                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
                     logger.info("[GSHEETS] Manual Sync: Google Sheets & Drive JSON Sync Completed.")
                 else:
                     logger.warning("[GSHEETS] Manual Sync: Google Sheets Sync Completed (Drive JSON Skipped - no Folder ID).")
@@ -2342,19 +2344,55 @@ class FaceSearchApp(ctk.CTk):
         self.chk_re_scan = ctk.CTkCheckBox(device_frame, text="เปิดฟังก์ชั่นให้แสกนรูปภาพเดิมซ้ำ (Re-scan)", text_color="#A2B5CD")
         self.chk_re_scan.pack(anchor="e", pady=(2, 5))
 
-        # แถวที่ 1 สำหรับการสแกนจับคู่เฉพาะเจาะจงบุคคล (v1.6.7)
-        self.chk_match_selected = ctk.CTkCheckBox(
-            option_panel, text="สแกนเปรียบเทียบเฉพาะบุคลากรที่เลือก", 
-            text_color="#A2B5CD", command=self.toggle_selective_matching
-        )
-        self.chk_match_selected.grid(row=1, column=0, sticky="w", pady=(8, 0))
-
-        self.btn_select_staff = ctk.CTkButton(
-            option_panel, text="เลือกรายชื่อคุณครู (0 คน)", 
+        # เฟรมเลือกเป้าหมายการจับคู่ใบหน้า (Matching Target Panel v1.7.4)
+        self.match_target_box = ctk.CTkFrame(option_panel, fg_color="#101B2B")
+        self.match_target_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0), padx=5)
+        
+        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=15, pady=(8, 2))
+        
+        self.match_mode = ctk.StringVar(value="all")
+        
+        # 1. ครู+นักเรียน ทั้งหมด
+        self.rad_all = ctk.CTkRadioButton(self.match_target_box, text="ครู + นักเรียน ทั้งหมด", variable=self.match_mode, value="all", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_all.pack(anchor="w", padx=25, pady=3)
+        
+        # 2. ครูทั้งหมด
+        self.rad_teachers = ctk.CTkRadioButton(self.match_target_box, text="คุณครูทั้งหมด", variable=self.match_mode, value="teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_teachers.pack(anchor="w", padx=25, pady=3)
+        
+        # 3. นักเรียนทั้งหมด
+        self.rad_students = ctk.CTkRadioButton(self.match_target_box, text="นักเรียนทั้งหมด", variable=self.match_mode, value="students", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_students.pack(anchor="w", padx=25, pady=3)
+        
+        # 4. เลือกเฉพาะครูบางคน
+        self.rad_sel_teachers = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะคุณครูบางคน", variable=self.match_mode, value="selected_teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_sel_teachers.pack(anchor="w", padx=25, pady=3)
+        
+        # เฟรมย่อยปุ่มกดเลือกครู
+        self.teachers_sel_frame = ctk.CTkFrame(self.match_target_box, fg_color="transparent")
+        self.teachers_sel_frame.pack(anchor="w", padx=50, pady=(2, 5))
+        self.btn_select_teachers = ctk.CTkButton(
+            self.teachers_sel_frame, text="เลือกรายชื่อคุณครู (0 คน)...", 
             fg_color="#1F3A60", hover_color="#20334F", text_color="white",
-            state="disabled", command=self.show_staff_selection_popup
+            height=26, font=ctk.CTkFont(size=11), state="disabled",
+            command=self.show_teachers_selection_popup
         )
-        self.btn_select_staff.grid(row=1, column=1, sticky="e", pady=(8, 0))
+        self.btn_select_teachers.pack(side="left")
+        
+        # 5. เลือกเฉพาะนักเรียนบางคน
+        self.rad_sel_students = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะนักเรียนบางคน", variable=self.match_mode, value="selected_students", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_sel_students.pack(anchor="w", padx=25, pady=3)
+        
+        # เฟรมย่อยปุ่มกดเลือกนักเรียน
+        self.students_sel_frame = ctk.CTkFrame(self.match_target_box, fg_color="transparent")
+        self.students_sel_frame.pack(anchor="w", padx=50, pady=(2, 8))
+        self.btn_select_students = ctk.CTkButton(
+            self.students_sel_frame, text="เลือกรายชื่อนักเรียน (0 คน)...", 
+            fg_color="#1F3A60", hover_color="#20334F", text_color="white",
+            height=26, font=ctk.CTkFont(size=11), state="disabled",
+            command=self.show_students_selection_popup
+        )
+        self.btn_select_students.pack(side="left")
 
         # ปุ่มกดทำสแกนและ Progress Bar (เลื่อนไป row 5)
         self.action_panel = ctk.CTkFrame(self.scan_settings_frame, fg_color="transparent")
@@ -2392,40 +2430,79 @@ class FaceSearchApp(ctk.CTk):
     def update_thresh_label(self, val):
         self.lbl_threshold.configure(text=f"ค่า Threshold ความคล้ายใบหน้า: {val:.2f}")
 
-    def toggle_selective_matching(self):
-        if self.chk_match_selected.get():
-            self.btn_select_staff.configure(state="normal")
+    def update_match_mode_ui(self):
+        mode = self.match_mode.get()
+        if mode == "selected_teachers":
+            self.btn_select_teachers.configure(state="normal")
+            self.btn_select_students.configure(state="disabled")
+        elif mode == "selected_students":
+            self.btn_select_teachers.configure(state="disabled")
+            self.btn_select_students.configure(state="normal")
         else:
-            self.btn_select_staff.configure(state="disabled")
+            self.btn_select_teachers.configure(state="disabled")
+            self.btn_select_students.configure(state="disabled")
 
-    def show_staff_selection_popup(self):
+    def show_teachers_selection_popup(self):
         popup = ctk.CTkToplevel(self)
-        popup.title("เลือกบุคลากรในการ Matching")
+        popup.title("เลือกคุณครูในการ Matching")
         popup.geometry("380x450")
-        popup.grab_set() # ป้องกันไม่ให้แอดมินคลิกหน้าจอหลักเบื้องหลัง
+        popup.grab_set()
         
-        lbl_title = ctk.CTkLabel(popup, text="เลือกบุคลากรเป้าหมาย", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_title = ctk.CTkLabel(popup, text="เลือกคุณครูเป้าหมาย", font=ctk.CTkFont(size=14, weight="bold"))
         lbl_title.pack(pady=10)
         
         scr_popup = ctk.CTkScrollableFrame(popup, fg_color="transparent")
         scr_popup.pack(fill="both", expand=True, padx=20, pady=(0, 15))
         
-        # ดึงรายชื่อบุคลากรทั้งหมด
-        staff_members = self.db.get_all_staff_members()
+        teachers = self.db.get_all_teachers()
         checkbox_vars = {}
         
-        for member in staff_members:
-            s_id = member["id"]
-            s_name = member["name"]
-            var = ctk.BooleanVar(value=(s_id in self.selected_staff_ids_for_scan))
+        for t in teachers:
+            s_id = t["id"]
+            s_name = t["name"]
+            var = ctk.BooleanVar(value=(s_id in self.selected_teacher_ids))
             checkbox_vars[s_id] = var
             
-            cb = ctk.CTkCheckBox(scr_popup, text=f"{s_name} ({s_id})", variable=var)
+            cb = ctk.CTkCheckBox(scr_popup, text=f"{s_name} (ID: {s_id})", variable=var)
             cb.pack(anchor="w", pady=4, padx=10)
             
         def save_and_close():
-            self.selected_staff_ids_for_scan = [s_id for s_id, var in checkbox_vars.items() if var.get()]
-            self.btn_select_staff.configure(text=f"เลือกรายชื่อคุณครู ({len(self.selected_staff_ids_for_scan)} คน)")
+            self.selected_teacher_ids = [s_id for s_id, var in checkbox_vars.items() if var.get()]
+            self.btn_select_teachers.configure(text=f"เลือกรายชื่อคุณครู ({len(self.selected_teacher_ids)} คน)...")
+            popup.destroy()
+            
+        btn_save = ctk.CTkButton(popup, text="บันทึกรายชื่อที่เลือก", fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=save_and_close)
+        btn_save.pack(pady=(0, 15))
+
+    def show_students_selection_popup(self):
+        popup = ctk.CTkToplevel(self)
+        popup.title("เลือกนักเรียนในการ Matching")
+        popup.geometry("380x450")
+        popup.grab_set()
+        
+        lbl_title = ctk.CTkLabel(popup, text="เลือกนักเรียนเป้าหมาย", font=ctk.CTkFont(size=14, weight="bold"))
+        lbl_title.pack(pady=10)
+        
+        scr_popup = ctk.CTkScrollableFrame(popup, fg_color="transparent")
+        scr_popup.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+        
+        students = self.db.get_all_students()
+        checkbox_vars = {}
+        
+        for s in students:
+            s_id = s["id"]
+            s_name = s["name"]
+            s_sid = s.get("student_id", "")
+            disp_text = f"{s_name} (ID: {s_sid})" if s_sid else f"{s_name}"
+            var = ctk.BooleanVar(value=(s_id in self.selected_student_ids))
+            checkbox_vars[s_id] = var
+            
+            cb = ctk.CTkCheckBox(scr_popup, text=disp_text, variable=var)
+            cb.pack(anchor="w", pady=4, padx=10)
+            
+        def save_and_close():
+            self.selected_student_ids = [s_id for s_id, var in checkbox_vars.items() if var.get()]
+            self.btn_select_students.configure(text=f"เลือกรายชื่อนักเรียน ({len(self.selected_student_ids)} คน)...")
             popup.destroy()
             
         btn_save = ctk.CTkButton(popup, text="บันทึกรายชื่อที่เลือก", fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=save_and_close)
@@ -2552,37 +2629,64 @@ class FaceSearchApp(ctk.CTk):
             logger.info("Loading staff template vectors from SQLite...")
             templates = self.db.get_all_embeddings()
             
-            # ลอจิก v1.6.7: กรองเวกเตอร์ใบหน้าหากเลือก Matching เฉพาะเจาะจงบางคน
-            if self.chk_match_selected.get():
-                if not self.selected_staff_ids_for_scan:
-                    logger.error("[SYSTEM] Selective Matching is enabled but no staff members were selected! Halting.")
-                    self.after(0, lambda: messagebox.showwarning("ยังไม่ได้เลือกรายชื่อ", "กรุณากดเลือกรายชื่อคุณครูอย่างน้อย 1 ท่านก่อนเริ่มสแกน"))
-                    self.after(0, self.reset_scan_ui)
-                    return
-                
-                filtered_embeddings = []
-                filtered_names = []
-                filtered_staff_ids = []
-                for i, s_id in enumerate(templates["staff_ids"]):
-                    if s_id in self.selected_staff_ids_for_scan:
+            # ลอจิก v1.7.4: กรองเวกเตอร์ใบหน้าตามตัวเลือกเป้าหมายที่เลือก
+            match_mode = self.match_mode.get()
+            filtered_embeddings = []
+            filtered_names = []
+            filtered_staff_ids = []
+            
+            if match_mode == "all":
+                filtered_embeddings = list(templates["embeddings"])
+                filtered_names = templates["names"]
+                filtered_staff_ids = templates["staff_ids"]
+            elif match_mode == "teachers":
+                for i, role in enumerate(templates.get("roles", [])):
+                    if role == "teacher":
                         filtered_embeddings.append(templates["embeddings"][i])
                         filtered_names.append(templates["names"][i])
                         filtered_staff_ids.append(templates["staff_ids"][i])
-                
-                templates = {
-                    "embeddings": np.array(filtered_embeddings) if filtered_embeddings else np.empty((0, 512)),
-                    "names": filtered_names,
-                    "staff_ids": filtered_staff_ids
-                }
-                logger.info(f"[SYSTEM] Selective Matching active: Filtering to {len(filtered_staff_ids)} staff members.")
+            elif match_mode == "students":
+                for i, role in enumerate(templates.get("roles", [])):
+                    if role == "student":
+                        filtered_embeddings.append(templates["embeddings"][i])
+                        filtered_names.append(templates["names"][i])
+                        filtered_staff_ids.append(templates["staff_ids"][i])
+            elif match_mode == "selected_teachers":
+                if not self.selected_teacher_ids:
+                    logger.error("[SYSTEM] Selective matching for teachers is active but no teachers were selected!")
+                    self.after(0, lambda: messagebox.showwarning("ยังไม่ได้เลือกรายชื่อ", "กรุณากดเลือกรายชื่อคุณครูอย่างน้อย 1 ท่านก่อนเริ่มสแกน"))
+                    self.after(0, self.reset_scan_ui)
+                    return
+                for i, role in enumerate(templates.get("roles", [])):
+                    if role == "teacher" and templates["staff_ids"][i] in self.selected_teacher_ids:
+                        filtered_embeddings.append(templates["embeddings"][i])
+                        filtered_names.append(templates["names"][i])
+                        filtered_staff_ids.append(templates["staff_ids"][i])
+            elif match_mode == "selected_students":
+                if not self.selected_student_ids:
+                    logger.error("[SYSTEM] Selective matching for students is active but no students were selected!")
+                    self.after(0, lambda: messagebox.showwarning("ยังไม่ได้เลือกรายชื่อ", "กรุณากดเลือกรายชื่อนักเรียนอย่างน้อย 1 ท่านก่อนเริ่มสแกน"))
+                    self.after(0, self.reset_scan_ui)
+                    return
+                for i, role in enumerate(templates.get("roles", [])):
+                    if role == "student" and templates["staff_ids"][i] in self.selected_student_ids:
+                        filtered_embeddings.append(templates["embeddings"][i])
+                        filtered_names.append(templates["names"][i])
+                        filtered_staff_ids.append(templates["staff_ids"][i])
+
+            templates = {
+                "embeddings": np.array(filtered_embeddings) if len(filtered_embeddings) > 0 else np.empty((0, 512), dtype=np.float32),
+                "names": filtered_names,
+                "staff_ids": filtered_staff_ids
+            }
             
             if len(templates["embeddings"]) == 0:
-                logger.error("No registered staff embeddings found in database. Please register teacher faces before scanning!")
-                self.after(0, lambda: messagebox.showerror("ไม่พบข้อมูลต้นแบบ", "ไม่พบเวกเตอร์ใบหน้าคุณครูต้นแบบในฐานข้อมูล กรุณาลงทะเบียนครูและอัปโหลดรูปต้นแบบก่อนเริ่มสแกน"))
+                logger.error("No matching target embeddings found. Please register faces first!")
+                self.after(0, lambda: messagebox.showerror("ไม่พบข้อมูลต้นแบบ", "ไม่พบเวกเตอร์ใบหน้าต้นแบบตามเงื่อนไขที่เลือก กรุณาลงทะเบียนใบหน้าก่อนเริ่มสแกน"))
                 self.after(0, self.reset_scan_ui)
                 return
 
-            logger.info(f"Loaded {len(templates['embeddings'])} templates in SQLite.")
+            logger.info(f"Loaded {len(templates['embeddings'])} matching templates according to target mode: {match_mode}")
             
             # 2. เชื่อมต่อ Google APIs
             self.lbl_progress_text.configure(text="กำลังเชื่อมต่อ Google Drive & Sheets...")
@@ -2740,7 +2844,7 @@ class FaceSearchApp(ctk.CTk):
                         self.after(0, update_summary_only)
                         
                         # ปรับปรุงผลลัพธ์ลง SQLite (ลบแมตช์เดิมตามเงื่อนไขที่เลือก และเขียนแมตช์ใหม่ลงไป โดยไม่ลบแคช)
-                        if self.chk_match_selected.get():
+                        if self.match_mode.get() != "all":
                             self.db.delete_photo_matches_selective(existing_photo_id, templates["staff_ids"])
                         else:
                             self.db.delete_photo_matches(existing_photo_id)
@@ -2921,7 +3025,7 @@ class FaceSearchApp(ctk.CTk):
                 sync_data = self.db.get_all_sync_data()
                 if json_folder_id:
                     try:
-                        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode=self.match_mode.get())
                         logger.info("Successfully updated Drive JSON indexes.")
                     except Exception as json_err:
                         logger.error(f"Error updating Drive JSON indexes: {json_err}")

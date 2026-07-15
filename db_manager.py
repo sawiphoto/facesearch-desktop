@@ -310,7 +310,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT e.staff_id, s.name, e.embedding, e.image_path
+                SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role
                 FROM staff_embeddings e
                 JOIN staff_members s ON e.staff_id = s.id
             """)
@@ -320,21 +320,24 @@ class DatabaseManager:
             names = []
             staff_ids = []
             image_paths = []
+            roles = []
             
             for row in rows:
-                staff_id, name, blob, img_path = row
+                staff_id, name, blob, img_path, role = row
                 # แปลง bytes กลับเป็น numpy array
                 vec = np.frombuffer(blob, dtype=np.float32)
                 embeddings.append(vec)
                 names.append(name)
                 staff_ids.append(staff_id)
                 image_paths.append(img_path)
+                roles.append(role if role else "teacher")
                 
             return {
                 "embeddings": np.array(embeddings) if embeddings else np.empty((0, 512), dtype=np.float32),
                 "names": names,
                 "staff_ids": staff_ids,
-                "image_paths": image_paths
+                "image_paths": image_paths,
+                "roles": roles
             }
 
     # --- ส่วนการจัดการภาพสแกนกิจกรรม (Photo Matching DB) ---
@@ -385,7 +388,7 @@ class DatabaseManager:
             
             # ข้อมูลชีท faces (ดึงชื่อคนแทนไอดีเพื่อบันทึกลงชีท พร้อมดึงไอดีแถวการสแกนเป็น face_id)
             cursor.execute("""
-                SELECT df.id, s.name, df.photo_id
+                SELECT df.id, s.name, df.photo_id, s.role, s.student_id
                 FROM detected_faces df
                 JOIN staff_members s ON df.staff_id = s.id
             """)
@@ -393,7 +396,7 @@ class DatabaseManager:
             
             return {
                 "photos": [{"photo_id": p[0], "event": p[1], "drive_link": p[2], "date": p[3] if p[3] else ""} for p in photos],
-                "faces": [{"face_id": f[0], "person": f[1], "photo_id": f[2]} for f in faces]
+                "faces": [{"face_id": f[0], "person": f[1], "photo_id": f[2], "role": f[3] if f[3] else "teacher", "student_id": f[4] if f[4] else ""} for f in faces]
             }
 
     def clear_scan_history(self):

@@ -275,10 +275,11 @@ class GoogleSyncManager:
             logger.error(f"[EXCEL BACKUP] Error saving local Excel mirror: {e}", exc_info=True)
             return False
 
-    def update_json_indexes_on_drive(self, sync_data, json_folder_id):
+    def update_json_indexes_on_drive(self, sync_data, json_folder_id, scan_mode="all"):
         """
-        สร้างข้อมูลดัชนี JSON สองไฟล์ (person_index.json และ photo_index.json) 
+        สร้างข้อมูลดัชนี JSON สามไฟล์ (person_index.json (ครู), student_index.json (นักเรียน) และ photo_index.json) 
         แล้วทำการอัปโหลดทับ (Overwrite) ไฟล์เป้าหมายที่มีอยู่แล้วบน Google Drive ในโฟลเดอร์ที่แอดมินระบุไว้
+        โดยจะเลือกสร้างและอัปโหลดเฉพาะไฟล์ที่มีส่วนเกี่ยวข้องกับการสแกนเพื่อลดโหลดเครือข่ายและ API
         """
         if not self.connected or not self.drive_service:
             logger.error("Google Drive service not connected.")
@@ -289,15 +290,29 @@ class GoogleSyncManager:
             return False
 
         try:
-            # 1. สร้างโครงสร้างข้อมูลสำหรับ person_index.json
+            # 1. แยกกลุ่มและสร้างดัชนีสำหรับ person_index.json (ครู) และ student_index.json (นักเรียน)
             person_index = {}
+            student_index = {}
+            has_teachers = False
+            has_students = False
+
             for item in sync_data["faces"]:
+                role = item.get("role", "teacher")
                 person = item["person"]
                 photo_id = item["photo_id"]
-                if person not in person_index:
-                    person_index[person] = []
-                if photo_id not in person_index[person]:
-                    person_index[person].append(photo_id)
+                
+                if role == "student":
+                    has_students = True
+                    if person not in student_index:
+                        student_index[person] = []
+                    if photo_id not in student_index[person]:
+                        student_index[person].append(photo_id)
+                else:
+                    has_teachers = True
+                    if person not in person_index:
+                        person_index[person] = []
+                    if photo_id not in person_index[person]:
+                        person_index[person].append(photo_id)
 
             # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json
             photo_index = {}
@@ -308,6 +323,23 @@ class GoogleSyncManager:
                     "drive_link": item["drive_link"],
                     "date": item.get("date", "")
                 }
+
+            # พิจารณาการอัปโหลดตามโหมดสแกน
+            upload_person = False
+            upload_student = False
+
+            if scan_mode == "all":
+                # โหมดสแกนทั้งหมด/Manual Sync: อัปโหลดตามข้อมูลที่มีจริง
+                if has_teachers:
+                    upload_person = True
+                if has_students:
+                    upload_student = True
+            elif scan_mode in ["teachers", "selected_teachers"]:
+                # สแกนเฉพาะครู: อัปโหลดเฉพาะครู
+                upload_person = True
+            elif scan_mode in ["students", "selected_students"]:
+                # สแกนเฉพาะนักเรียน: อัปโหลดเฉพาะนักเรียน
+                upload_student = True
 
             # ฟังก์ชันช่วยอัปโหลดทับไฟล์เดิมบน Google Drive
             def upload_overwrite_json(file_name, data_dict):
@@ -328,8 +360,8 @@ class GoogleSyncManager:
                     file_id = files[0]['id']
                     logger.info(f"[GDRIVE JSON] Updating existing file '{file_name}' (ID: {file_id}) in specified folder...")
                     self.drive_service.files().update(
-                        fileId=file_id,
-                        media_body=media
+                         fileId=file_id,
+                         media_body=media
                     ).execute()
                     logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
                 else:
@@ -362,9 +394,16 @@ class GoogleSyncManager:
                         ).execute()
                         logger.info(f"[GDRIVE JSON] Created new '{file_name}' (ID: {new_file.get('id')}) on Drive.")
 
-            # ดำเนินการอัปเดตไฟล์ทั้งสอง
-            upload_overwrite_json("person_index.json", person_index)
-            upload_overwrite_json("photo_index.json", photo_index)
+            # ดำเนินการอัปเดตไฟล์ตามความเกี่ยวข้อง
+            if upload_person:
+                upload_overwrite_json("person_index.json", person_index)
+            if upload_student:
+                upload_overwrite_json("student_index.json", student_index)
+                
+            # ดัชนีรูปภาพอัปโหลดเสมอหากมีการอัปเดต
+            if upload_person or upload_student:
+                upload_overwrite_json("photo_index.json", photo_index)
+                
             return True
         except Exception as e:
             logger.error(f"[GDRIVE JSON] Error updating JSON search indexes: {e}", exc_info=True)
@@ -460,4 +499,37 @@ class GoogleSyncManager:
         except Exception as e:
             logger.error(f"Error listing spreadsheets: {e}")
             return []
+
+    def list_spreadsheets_with_folders(self):
+        """
+        ดึงรายการ Spreadsheet และ Folder ทั้งหมดจาก Google Drive
+        คืนค่า: dict ที่มีคีย์ "sheets" (list) และ "folders" (list)
+        """
+        if not self.connected:
+            return {"sheets": [], "folders": []}
+
+        try:
+            # ดึงเฉพาะ Spreadsheet
+            sheets_query = "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+            sheets_results = self.drive_service.files().list(
+                q=sheets_query,
+                fields="files(id, name, parents, webViewLink)",
+                pageSize=200
+            ).execute()
+            sheets = sheets_results.get("files", [])
+
+            # ดึงเฉพาะ Folder
+            folders_query = "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            folders_results = self.drive_service.files().list(
+                q=folders_query,
+                fields="files(id, name, parents)",
+                pageSize=200
+            ).execute()
+            folders = folders_results.get("files", [])
+
+            logger.info(f"Found {len(sheets)} spreadsheets and {len(folders)} folders in Google Drive")
+            return {"sheets": sheets, "folders": folders}
+        except Exception as e:
+            logger.error(f"Error listing spreadsheets with folders: {e}")
+            return {"sheets": [], "folders": []}
 
