@@ -182,6 +182,15 @@ All SQLite DB verification tests passed successfully:
   - รีเซ็ตค่าให้ครบ: `fg_color="transparent", border_width=0, border_color="transparent"`
 - **สถานะ:** ✅ **ได้ implement แล้ว**
 
+#### 3. แก้ไขปุ่ม "ลบรูปภาพที่เลือก" ไม่แสดงในเมนูนักเรียน
+- **ปัญหา:**
+  - ปุ่ม "ลบรูปภาพที่เลือก" ในเมนูนักเรียนไม่แสดงบนหน้าจอ
+  - แม้ฟังก์ชันจะทำงานถูกต้อง (enable ปุ่มสำเร็จ) แต่ปุ่มถูกซ่อนไว้หลัง thumbs_frame
+- **วิธีแก้ไข:**
+  - ย้ายปุ่ม `btn_delete_student_photo` มาอยู่ **ก่อน** `student_thumbs_frame`
+  - ปรับ `thumbs_frame` ใช้ `expand=False` เพื่อให้ควบคุมขนาดได้ดีขึ้น
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
 ---
 
 ## 📋 Version 1.7.1 Changelog
