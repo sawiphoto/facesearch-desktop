@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 4
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.3
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -143,6 +143,41 @@ All SQLite DB verification tests passed successfully:
   คนที่ 3: รูปหน้าตรง | รูปเอน   | รูปยิ้ม | (ว่าง)  → เก็บ 3 รูป
   ```
 - **สถานะ:** ✅ **ได้ implement แล้ว**
+
+---
+
+## 📋 Version 1.7.3 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini 3.5 Flash (Low)
+**Model ID:** `gemini-3-5-flash`
+**Date:** 15 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. แยกการซิงค์แผ่นงาน Google Sheets ไปเป็นปุ่มแมนนวล (Manual Sync)
+- **ปัญหา:** ระหว่างกระบวนการสแกนใบหน้า โปรแกรมต้องหยุดเชื่อมต่ออินเทอร์เน็ตเพื่อซิงค์ข้อมูลขึ้น Google Sheets และไฟล์ Excel สำรองเครื่อง ทุกๆ 500 รูป ซึ่งทำให้ขั้นตอนการสแกนช้าลงอย่างมาก และเสี่ยงต่อการติดโควตา (Rate Limit) ของ Google API หากสแกนไฟล์จำนวนมหาศาล
+- **วิธีแก้ไข:**
+  - **ลบ Incremental Sync ออกจากลูปสแกน:** เอาโค้ดส่วน `if success_scan_count % 500 == 0:` ออกทั้งในสแกนปกติและสแกนด่วน (Fast Re-scan) ทำการประมวลผลเซฟลง SQLite ท้องถิ่นในคอมพิวเตอร์อย่างรวดเร็วแทน
+  - **ลดความซ้ำซ้อนท้ายการสแกน:** เมื่อสแกนเสร็จสิ้น ระบบจะอัปโหลดเฉพาะไฟล์ JSON ดัชนีหลัก (`person_index.json`, `photo_index.json`) ขึ้น Drive อัตโนมัติ เพื่อให้หน้าเว็บแอปค้นหาทำงานได้ทันที แต่จะข้ามการยิงซิงค์ Sheets และ Excel
+  - **ปุ่ม Manual Sync บน Dashboard:** เพิ่มปุ่ม "📤 ซิงค์ข้อมูลขึ้น Google Sheets" เหนือเมนูสถานะแถวซ้ายล่าง เพื่อให้แอดมินเลือกกดซิงค์ข้อมูลจาก SQLite ขึ้น Google Sheets และสำรองไฟล์ Excel ตอนไหนก็ได้ตามใจชอบ
+  - โค้ดสำคัญใน `app_gui.py`:
+    ```python
+    def run_manual_sync(self):
+        # ... ตรวจสอบสิทธิ์เชื่อมต่อ API ...
+        self.btn_manual_sync.configure(state="disabled", text="กำลังซิงค์ข้อมูล...")
+        def do_sync():
+            try:
+                sync_data = self.db.get_all_sync_data()
+                self.sync_manager.sync_to_google_sheet(sync_data)
+                self.sync_manager.save_local_excel_mirror(sync_data)
+                if json_folder_id:
+                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                # ... แจ้งผลสำเร็จ ...
+            finally:
+                self.btn_manual_sync.configure(state="normal", text="📤 ซิงค์ข้อมูลขึ้น Google Sheets")
+        threading.Thread(target=do_sync, daemon=True).start()
+    ```
 
 ---
 

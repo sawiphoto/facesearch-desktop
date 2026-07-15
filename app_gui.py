@@ -643,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 4")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.3")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -704,7 +704,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 4",
+            text="FACE MATCHING\nSYSTEM v1.7.3",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -906,7 +906,20 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_model_status.pack(anchor="w", padx=20, pady=5)
         
         self.lbl_db_status = ctk.CTkLabel(self.status_box, text="ตรวจสอบฐานข้อมูล: เชื่อมต่อแล้ว (SQLite)", text_color="#A2B5CD", font=ctk.CTkFont(size=12))
-        self.lbl_db_status.pack(anchor="w", padx=20, pady=(5, 15))
+        self.lbl_db_status.pack(anchor="w", padx=20, pady=(5, 10))
+
+        # ส่วนซิงค์ข้อมูล Google Sheets แบบ Manual
+        lbl_sync_title = ctk.CTkLabel(self.status_box, text="การซิงค์ข้อมูลคลาวด์", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD")
+        lbl_sync_title.pack(anchor="w", padx=20, pady=(10, 5))
+        
+        self.btn_manual_sync = ctk.CTkButton(
+            self.status_box, 
+            text="📤 ซิงค์ข้อมูลขึ้น Google Sheets", 
+            fg_color="#27AE60", hover_color="#229954", text_color="white",
+            font=ctk.CTkFont(weight="bold"),
+            command=self.run_manual_sync
+        )
+        self.btn_manual_sync.pack(anchor="w", padx=20, pady=(5, 15))
 
         # 2.2 กล่องจำนวนภาพของบุคลากร (ฝั่งขวาของแถว 2)
         self.most_faces_box = ctk.CTkFrame(self.frame_dashboard, fg_color="#101B2B")
@@ -1050,9 +1063,51 @@ class FaceSearchApp(ctk.CTk):
                 
         except Exception as e:
             logger.error(f"Error loading dashboard stats: {e}")
+
+    def run_manual_sync(self):
+        # ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต/Google Drive
+        if not self.sync_manager.connected:
+            cred_path = self.entry_cred_path.get().strip()
+            if not os.path.exists(cred_path):
+                messagebox.showerror("ข้อผิดพลาด", "ไม่พบไฟล์ Service Account JSON กรุณาตั้งค่าในหน้าตั้งค่าระบบก่อน")
+                return
+            success, msg = self.sync_manager.authenticate(cred_path)
+            if not success:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเชื่อมต่อ Google API ได้: {msg}")
+                return
+
+        # ปิดปุ่มชั่วคราวเพื่อป้องกันการกดซ้ำ
+        self.btn_manual_sync.configure(state="disabled", text="กำลังซิงค์ข้อมูล...")
+
+        def do_sync():
+            try:
+                logger.info("[GSHEETS] Manual Sync Started: Syncing all SQLite data to Google Sheets & Drive JSON...")
+                sync_data = self.db.get_all_sync_data()
                 
-        except Exception as e:
-            logger.error(f"Error loading dashboard stats: {e}")
+                # ซิงค์ไป Google Sheets
+                self.sync_manager.sync_to_google_sheet(sync_data)
+                
+                # บันทึก Excel สำรองในเครื่อง
+                self.sync_manager.save_local_excel_mirror(sync_data)
+                
+                # อัปเดตไฟล์ JSON บน Google Drive
+                json_folder_id = self.entry_json_folder_id.get().strip()
+                if json_folder_id:
+                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                    logger.info("[GSHEETS] Manual Sync: Google Sheets & Drive JSON Sync Completed.")
+                else:
+                    logger.warning("[GSHEETS] Manual Sync: Google Sheets Sync Completed (Drive JSON Skipped - no Folder ID).")
+
+                # แจ้งความสำเร็จทาง GUI
+                self.after(0, lambda: messagebox.showinfo("ซิงค์สำเร็จ", "ซิงค์ข้อมูลทั้งหมดไปยัง Google Sheets, Excel Backup และ JSON บน Drive สำเร็จเรียบร้อย!"))
+            except Exception as e:
+                logger.error(f"[GSHEETS] Manual Sync Error: {e}")
+                self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการซิงค์ข้อมูล: {e}"))
+            finally:
+                # เปิดปุ่มให้ใช้งานได้อีกครั้ง
+                self.after(0, lambda: self.btn_manual_sync.configure(state="normal", text="📤 ซิงค์ข้อมูลขึ้น Google Sheets"))
+
+        threading.Thread(target=do_sync, daemon=True).start()
 
     # ==================== (2) หน้าลงทะเบียนครู (Staff Registry) ====================
     def setup_registry_ui(self):
@@ -2691,19 +2746,6 @@ class FaceSearchApp(ctk.CTk):
                             self.db.delete_photo_matches(existing_photo_id)
                         self.db.save_detected_faces(existing_photo_id, matches_in_photo)
                         success_scan_count += 1
-                        
-                        # อัปเดตขึ้น Sheets เป็นระยะๆ (ทุกๆ 500 รูป)
-                        if success_scan_count % 500 == 0:
-                            logger.info(f"[GSHEETS] Incremental Sync: Syncing first {success_scan_count} photos to Google Sheets...")
-                            try:
-                                sync_data = self.db.get_all_sync_data()
-                                self.sync_manager.sync_to_google_sheet(sync_data)
-                                self.sync_manager.save_local_excel_mirror(sync_data)
-                                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
-                                logger.info(f"[GSHEETS] Incremental Sync: Successfully synced {success_scan_count} photos.")
-                            except Exception as sheet_err:
-                                logger.error(f"[GSHEETS] Incremental Sync Error: {sheet_err}")
-                        
                         continue
                 
                 # หากแอดมินติ๊กสแกนซ้ำ แต่ไม่มีข้อมูลแคช ให้ทำการล้างประวัติใน SQLite ก่อนเพื่อรับการวิเคราะห์ใหม่ (Full Re-scan)
@@ -2870,28 +2912,19 @@ class FaceSearchApp(ctk.CTk):
                 self.db.save_photo_face_embeddings(photo_id, faces)
                 
                 success_scan_count += 1
-                
-                # ทุกๆ 500 รูปภาพที่สแกนสำเร็จ ทำการส่งข้อมูลขึ้น Google Sheets (Incremental Sync)
-                if success_scan_count % 500 == 0:
-                    logger.info(f"[GSHEETS] Incremental Sync: Syncing first {success_scan_count} photos to Google Sheets...")
-                    try:
-                        sync_data = self.db.get_all_sync_data()
-                        self.sync_manager.sync_to_google_sheet(sync_data)
-                        self.sync_manager.save_local_excel_mirror(sync_data)
-                        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
-                        logger.info(f"[GSHEETS] Incremental Sync: Successfully synced {success_scan_count} photos.")
-                    except Exception as sheet_err:
-                        logger.error(f"[GSHEETS] Incremental Sync Error: {sheet_err}")
             
-            # 8. สแกนจบหรือกดยกเลิก -> ซิงค์ครั้งสุดท้ายขึ้น Google Sheets, Excel และ JSON บน Drive
+            # 8. สแกนจบหรือกดยกเลิก -> อัปเดตไฟล์ JSON บน Drive
             if success_scan_count > 0:
-                logger.info("Performing final database index sync...")
-                self.lbl_progress_text.configure(text="กำลังส่งข้อมูลขึ้น Google & Excel...")
+                logger.info("Performing final Drive JSON index update...")
+                self.lbl_progress_text.configure(text="กำลังอัปเดตไฟล์ดัชนีบน Drive...")
                 
                 sync_data = self.db.get_all_sync_data()
-                self.sync_manager.sync_to_google_sheet(sync_data)
-                self.sync_manager.save_local_excel_mirror(sync_data)
-                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                if json_folder_id:
+                    try:
+                        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
+                        logger.info("Successfully updated Drive JSON indexes.")
+                    except Exception as json_err:
+                        logger.error(f"Error updating Drive JSON indexes: {json_err}")
                 
                 # บันทึกประวัติสแกนโฟลเดอร์สำเร็จ
                 for curr_fid in folder_ids:
@@ -2902,8 +2935,8 @@ class FaceSearchApp(ctk.CTk):
                         folder_name = "Unknown Folder"
                     self.record_matched_folder(curr_fid, folder_name)
                 
-                logger.info(f"Successfully processed and synced final {success_scan_count} photos.")
-                self.after(0, lambda: messagebox.showinfo("สแกนสำเร็จ", f"สแกนรูปภาพกิจกรรมเสร็จสิ้นสำเร็จ {success_scan_count} รูป และปรับปรุงข้อมูลขึ้น Google Sheets, Excel Backup & Drive Cache เรียบร้อยแล้ว!"))
+                logger.info(f"Successfully processed final {success_scan_count} photos.")
+                self.after(0, lambda: messagebox.showinfo("สแกนสำเร็จ", f"สแกนรูปภาพกิจกรรมเสร็จสิ้นสำเร็จ {success_scan_count} รูป (ดัชนีบนเว็บแอปฯ ได้รับการอัปเดตเรียบร้อยแล้ว)\n\n*หมายเหตุ: กรุณากดปุ่มซิงค์ข้อมูลบนหน้าแรกเพื่ออัปเดตแผ่นงาน Google Sheets ล่าสุด"))
             else:
                 logger.warning("No new photos were successfully scanned.")
                 
