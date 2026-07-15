@@ -116,3 +116,30 @@ Two search index files are uploaded to Drive:
 - CustomTkinter (ctk) is used for modern dark-themed UI
 - Threading is used for long-running operations (Drive scans, face matching) to keep UI responsive
 - Logging is configured to output to both console and GUI log display
+
+## Post-Release Workflow (สำคัญ)
+
+หลังจากทำเวอร์ชั่นใหม่เสร็จ **ต้อง commit git ทุกครั้ง**:
+
+1. **อัปเดตเวอร์ชั่นโปรแกรม:**
+   - `app_gui.py`: title bar + logo label (vX.X.X)
+   - `README.md`: เพิ่ม changelog เวอร์ชั่นใหม่
+
+2. **Commit files:**
+   ```bash
+   git add app_gui.py db_manager.py gdrive_sync.py README.md
+   git commit -m "Release vX.X.X - [ชื่อฟีเจอร์หลัก]"
+   ```
+
+3. **Agent Information (ระบุใน commit):**
+   - Developer: Claude (Anthropic)
+   - Model: Opus 4.7 (1M context)
+   - Model ID: `claude-opus-4-7`
+   - Date: [วันที่ปัจจุบัน]
+
+4. **ไฟล์ที่ไม่ต้อง commit:**
+   - `data/matched_folders.json` - ข้อมูลรันไทม์
+   - `sheet_mirror_backup.xlsx` - backup file
+   - `.claude/settings.local.json` - settings ของ Claude Code
+   - `app_execution.log` - log file
+
