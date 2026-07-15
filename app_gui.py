@@ -1234,6 +1234,13 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_student_photo_count_detail = ctk.CTkLabel(self.student_form_frame, text="", text_color="white")
         self.lbl_student_photo_count_detail.pack(anchor="w", padx=20, pady=5)
 
+        # ปุ่มลบรูปที่เลือก (ย้ายมาก่อน thumbs_frame เพื่อให้แสดงได้เสมอ)
+        self.btn_delete_student_photo = ctk.CTkButton(
+            self.student_form_frame, text="❌ ลบรูปภาพที่เลือก",
+            state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_student_photo
+        )
+        self.btn_delete_student_photo.pack(fill="x", padx=20, pady=(5, 10))
+
         # พื้นที่แสดงรูปภาพใบหน้านักเรียนต้นแบบ (เป็นตาราง Grid ใน Scrollable Frame แนวตั้ง)
         self.student_thumbs_frame = ctk.CTkFrame(self.student_form_frame, fg_color="#101B2B", height=180)
         self.student_thumbs_frame.pack(fill="x", expand=False, padx=20, pady=(5, 10))
@@ -1243,13 +1250,6 @@ class FaceSearchApp(ctk.CTk):
 
         self.student_thumbs_scrollable = ctk.CTkScrollableFrame(self.student_thumbs_frame, orientation="vertical", fg_color="transparent", height=140)
         self.student_thumbs_scrollable.pack(fill="both", expand=True, padx=5, pady=(0, 5))
-
-        # ปุ่มลบรูปที่เลือก
-        self.btn_delete_student_photo = ctk.CTkButton(
-            self.student_form_frame, text="❌ ลบรูปภาพที่เลือก",
-            state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_student_photo
-        )
-        self.btn_delete_student_photo.pack(fill="x", padx=20, pady=(5, 10))
 
         # ลบชื่อนักเรียนที่เลือก
         ctk.CTkLabel(self.student_form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
