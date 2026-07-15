@@ -317,7 +317,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.sync_manager = parent.sync_manager
 
         self.title("นำเข้านักเรียนจาก Google Sheets")
-        self.geometry("550x480")
+        self.geometry("550x600")
         self.resizable(False, False)
 
         # เก็บ Sheet ID ที่เลือก
@@ -327,6 +327,11 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # โหลดค่าล่าสุดจาก settings (ถ้ามี)
         self.last_sheet_id = parent.settings.get("last_import_sheet_id", "")
         self.last_sheet_name = parent.settings.get("last_import_sheet_name", "")
+
+        # โหลดค่า column ล่าสุด
+        self.last_col_id = parent.settings.get("last_import_col_id", "A")
+        self.last_col_name = parent.settings.get("last_import_col_name", "B")
+        self.last_col_front = parent.settings.get("last_import_col_front", "C")
 
         # ทำให้เป็น Modal dialog
         self.transient(parent)
@@ -368,7 +373,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         ctk.CTkLabel(col1_frame, text="คอลัมน์รหัสประจำตัว:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_id = ctk.CTkOptionMenu(col1_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_id.set("A")
+        self.col_id.set(self.last_col_id)
         self.col_id.pack(side="left", padx=(5, 0))
         ctk.CTkLabel(col1_frame, text="(บังคับ)", text_color="#27AE60",
                    font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
@@ -379,7 +384,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         ctk.CTkLabel(col2_frame, text="คอลัมน์ชื่อ-นามสกุล:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_name = ctk.CTkOptionMenu(col2_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_name.set("B")
+        self.col_name.set(self.last_col_name)
         self.col_name.pack(side="left", padx=(5, 0))
         ctk.CTkLabel(col2_frame, text="(บังคับ)", text_color="#27AE60",
                    font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
@@ -390,42 +395,20 @@ class SheetsImportDialog(ctk.CTkToplevel):
         ctk.CTkLabel(col3_frame, text="คอลัมน์รูปหน้าตรง:", width=130, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
         self.col_front = ctk.CTkOptionMenu(col3_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_front.set("C")
+        self.col_front.set(self.last_col_front)
         self.col_front.pack(side="left", padx=(5, 0))
-        ctk.CTkLabel(col3_frame, text="(บังคับ)", text_color="#27AE60",
-                   font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
-
-        # คอลัมน์รูปหันซ้าย
-        col4_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        col4_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col4_frame, text="คอลัมน์รูปหันซ้าย:", width=130, anchor="w",
-                   text_color="#A2B5CD").pack(side="left")
-        self.col_left = ctk.CTkOptionMenu(col4_frame, values=["-", "A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_left.set("-")
-        self.col_left.pack(side="left", padx=(5, 0))
-        ctk.CTkLabel(col4_frame, text="(Optional)", text_color="#F39C12",
-                   font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
-
-        # คอลัมน์รูปหันขวา
-        col5_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        col5_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col5_frame, text="คอลัมน์รูปหันขวา:", width=130, anchor="w",
-                   text_color="#A2B5CD").pack(side="left")
-        self.col_right = ctk.CTkOptionMenu(col5_frame, values=["-", "A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_right.set("-")
-        self.col_right.pack(side="left", padx=(5, 0))
-        ctk.CTkLabel(col5_frame, text="(Optional)", text_color="#F39C12",
+        ctk.CTkLabel(col3_frame, text="(บังคับ - ระบบจะหารูปเพิ่มเติมอัตโนมัติ)", text_color="#27AE60",
                    font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
 
         # คำอธิบาย
         desc_label = ctk.CTkLabel(main_frame,
                                   text="• 1 คน = 1 แถว (รหัส + ชื่อ)\n"
-                                      "• รูปหน้าตรง: บังคับต้องมี\n"
-                                      "• รูปหันซ้าย/ขวา: เลือกได้ (ถ้ามี)\n"
-                                      "• รูปเพิ่มเติม: Column E, F, G, ... ได้",
+                                      "• รูปหน้าตรง: บังคับต้องมี (เป็นรูปหลัก)\n"
+                                      "• รูปเพิ่มเติม: ระบบจะหาอัตโนมัติจากคอลัมน์ถัดไป\n"
+                                      "  (หยุดเมื่อเจอคอลัมน์ว่าง)",
                                   text_color="#6CA6CD", font=ctk.CTkFont(size=11),
                                   justify="left")
-        desc_label.pack(pady=(15, 10), anchor="w")
+        desc_label.pack(pady=(5, 10), anchor="w")
 
         # ปุ่มด้านล่าง
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -440,11 +423,11 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.btn_start.pack(side="right")
 
     def browse_sheets(self):
-        """เปิด dialog เลือก Spreadsheet จาก Google Drive"""
+        """เปิด dialog เลือก Spreadsheet จาก Google Drive พร้อม Folder Hierarchy"""
         # สร้าง dialog ย่อยสำหรับเลือก Sheet
         dialog = ctk.CTkToplevel(self)
         dialog.title("เลือก Google Sheet")
-        dialog.geometry("500x400")
+        dialog.geometry("600x500")
         dialog.transient(self)
         dialog.grab_set()
 
@@ -452,81 +435,179 @@ class SheetsImportDialog(ctk.CTkToplevel):
         main_frame = ctk.CTkFrame(dialog, fg_color="#101B2B")
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # หัวข้อ
-        ctk.CTkLabel(main_frame, text="รายการ Google Sheets ใน Drive",
-                   font=ctk.CTkFont(size=14, weight="bold"), text_color="white").pack(pady=(0, 10))
+        # หัวข้อ + ปุ่มขึ้นระดับ
+        header_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 10))
 
-        # Listbox แสดงรายการ
+        ctk.CTkLabel(header_frame, text="รายการ Google Sheets (คลิกโฟลเดอร์เพื่อขยาย)",
+                   font=ctk.CTkFont(size=14, weight="bold"), text_color="white").pack(side="left")
+
+        ctk.CTkButton(header_frame, text="⬆️ ขึ้นระดับ", width=100, fg_color="#1F3A60",
+                     hover_color="#20334F", command=lambda: self.navigate_up(tree)).pack(side="right")
+
+        # Treeview แสดงรายการแบบ hierarchy
         import tkinter as tk
-        list_frame = ctk.CTkFrame(main_frame, fg_color="#0A111A")
-        list_frame.pack(fill="both", expand=True, pady=(5, 10))
+        from tkinter import ttk
 
-        sheets_listbox = tk.Listbox(list_frame, bg="#0A111A", fg="#2ECC71",
-                                     selectbackground="#1F3A60", selectforeground="white",
-                                     font=("Consolas", 10), borderwidth=0, highlightthickness=0)
-        sheets_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        tree_frame = ctk.CTkFrame(main_frame, fg_color="#0A111A")
+        tree_frame.pack(fill="both", expand=True, pady=(5, 10))
 
-        # Scrollbar
-        scrollbar = ctk.CTkScrollbar(main_frame, command=sheets_listbox.yview)
-        scrollbar.pack(side="right", fill="y", padx=(0, 5))
-        sheets_listbox.configure(yscrollcommand=scrollbar.set)
+        # สร้าง Treeview ด้วย style ที่กำหนดเอง
+        tree = ttk.Treeview(tree_frame, selectmode="browse", show="tree")
+        tree.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Scrollbar แนวตั้ง
+        tree_scroll = ctk.CTkScrollbar(main_frame, command=tree.yview)
+        tree_scroll.pack(side="right", fill="y", padx=(0, 5))
+        tree.configure(yscrollcommand=tree_scroll.set)
+
+        # กำหนดสีและ style สำหรับ Treeview
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Treeview",
+                        background="#0A111A",
+                        foreground="#2ECC71",
+                        fieldbackground="#0A111A",
+                        borderwidth=0,
+                        font=("Consolas", 10))
+        style.configure("Treeview.Heading",
+                        background="#1C2D42",
+                        foreground="#6CA6CD",
+                        borderwidth=0,
+                        font=("Consolas", 10, "bold"))
+        style.map("Treeview",
+                  background=[("selected", "#1F3A60")],
+                  foreground=[("selected", "white")])
 
         # ปุ่มด้านล่าง
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill="x")
 
         def on_select():
-            selection = sheets_listbox.curselection()
+            selection = tree.selection()
             if not selection:
                 return
-            idx = selection[0]
-            sheet_data = sheets_listbox.get(idx)
-            # ดึง ID จาก string format: "Sheet Name (ID: ...)"
-            if "(ID:" in sheet_data:
-                sheet_id = sheet_data.split("(ID:")[1].rstrip(")").strip()
-                sheet_name = sheet_data.split("(ID:")[0].strip()
-                self.selected_sheet_id = sheet_id
-                self.selected_sheet_name = sheet_name
-                self.lbl_selected_sheet.configure(text=sheet_name, text_color="#27AE60")
-                dialog.destroy()
+            item = selection[0]
+            item_data = tree.item(item)
+
+            # ตรวจสอบว่าเป็น Sheet หรือ Folder
+            item_tags = item_data.get("tags", [])
+            if "sheet" in item_tags:
+                sheet_id = item_tags[1] if len(item_tags) > 1 else None
+                sheet_name = item_data.get("text", "")
+                if sheet_id:
+                    self.selected_sheet_id = sheet_id
+                    self.selected_sheet_name = sheet_name
+                    self.lbl_selected_sheet.configure(text=sheet_name, text_color="#27AE60")
+                    dialog.destroy()
 
         ctk.CTkButton(btn_frame, text="เลือก", fg_color="#27AE60", hover_color="#229954",
                      command=on_select, width=80).pack(side="right", padx=(5, 0))
         ctk.CTkButton(btn_frame, text="ปิด", fg_color="#C0392B", hover_color="#962D22",
                      command=dialog.destroy, width=80).pack(side="right")
 
-        # โหลดรายการ Sheets แบบ async
+        # โหลดรายการ Sheets แบบ async พร้อม folder hierarchy
         def load_sheets():
             try:
                 if not self.sync_manager.connected:
                     self.sync_manager.connect()
 
-                sheets = self.sync_manager.list_spreadsheets()
+                # ดึงข้อมูลทั้งหมดจาก Drive
+                items = self.sync_manager.list_spreadsheets_with_folders()
 
                 # อัปเดต UI ใน main thread
                 def update_ui():
-                    sheets_listbox.delete(0, tk.END)
-                    if not sheets:
-                        sheets_listbox.insert(tk.END, "ไม่พบ Google Sheets ใน Drive")
+                    # ล้างข้อมูลเก่า
+                    for item in tree.get_children():
+                        tree.delete(item)
+
+                    if not items or "sheets" not in items:
+                        tree.insert("", "end", text="ไม่พบ Google Sheets ใน Drive", tags=("error",))
                         return
 
-                    for sheet in sheets:
-                        display_text = f"{sheet['name']} (ID: {sheet['id']})"
-                        sheets_listbox.insert(tk.END, display_text)
-
-                    # เลือก sheet ล่าสุด (ถ้ามี)
-                    if self.last_sheet_id:
-                        for i, sheet in enumerate(sheets):
-                            if sheet['id'] == self.last_sheet_id:
-                                sheets_listbox.selection_set(i)
-                                sheets_listbox.see(i)
-                                break
+                    # แสดงรายการ
+                    self._build_tree(tree, items, self.last_sheet_id)
 
                 self.after(0, update_ui)
             except Exception as e:
-                self.after(0, lambda: sheets_listbox.insert(tk.END, f"Error: {e}"))
+                self.after(0, lambda: tree.insert("", "end", text=f"Error: {e}", tags=("error",)))
 
         threading.Thread(target=load_sheets, daemon=True).start()
+
+    def _build_tree(self, tree, items, last_sheet_id):
+        """สร้างโครงสร้าง tree จากข้อมูล Drive"""
+        # สร้าง dict ของ folders
+        folders = {f["id"]: f for f in items.get("folders", [])}
+        sheet_to_folder = {s["id"]: s.get("parents", [""])[0] if s.get("parents") else "" for s in items.get("sheets", [])}
+
+        # เพิ่ม root node (My Drive)
+        root_id = tree.insert("", "end", text="☁ My Drive", tags=("folder", "root"))
+
+        # สร้าง hierarchy
+        folder_items = {}  # folder_id -> tree item_id
+        processed_folders = set()
+
+        def add_folder_to_tree(folder_id, parent_item):
+            if folder_id in processed_folders or folder_id not in folders:
+                return
+            processed_folders.add(folder_id)
+
+            folder = folders[folder_id]
+            folder_name = folder.get("name", "Unnamed Folder")
+            folder_item = tree.insert(parent_item, "end", text=f"📁 {folder_name}", tags=("folder", folder_id))
+            folder_items[folder_id] = folder_item
+
+            # เพิ่ม subfolders แบบ recursive
+            for sub_id, sub_folder in folders.items():
+                if sub_id != folder_id and sub_folder.get("parents") == [folder_id]:
+                    add_folder_to_tree(sub_id, folder_item)
+
+        # เริ่มจาก folders ที่อยู่ใน root
+        for folder_id, folder in folders.items():
+            parents = folder.get("parents", [])
+            if not parents or parents[0] == "" or parents[0] == "root":
+                add_folder_to_tree(folder_id, root_id)
+
+        # เพิ่ม sheets ไปยัง folder ที่ถูกต้อง
+        for sheet in items.get("sheets", []):
+            sheet_id = sheet["id"]
+            sheet_name = sheet["name"]
+            parents = sheet.get("parents", [])
+
+            # หา parent folder
+            if parents and parents[0] in folder_items:
+                parent_item = folder_items[parents[0]]
+            else:
+                parent_item = root_id
+
+            # เพิ่ม sheet เป็น leaf node
+            sheet_item = tree.insert(parent_item, "end", text=f"📊 {sheet_name}",
+                                       tags=("sheet", sheet_id))
+
+            # เลือก sheet ล่าสุด (ถ้ามี)
+            if last_sheet_id and sheet_id == last_sheet_id:
+                tree.see(sheet_item)
+                tree.selection_set(sheet_item)
+                # ขยาย folder ที่มี sheet ล่าสุด
+                self._expand_parents(tree, sheet_item)
+
+    def _expand_parents(self, tree, item):
+        """ขยาย folder ลูกโขทั้งหมดจนถึง root"""
+        parent = tree.parent(item)
+        while parent:
+            tree.item(parent, open=True)
+            parent = tree.parent(parent)
+
+    def navigate_up(self, tree):
+        """ขึ้นระดับ folder"""
+        selection = tree.selection()
+        if not selection:
+            return
+        item = selection[0]
+        parent = tree.parent(item)
+        if parent:
+            tree.selection_set(parent)
+            tree.see(parent)
 
     def on_start(self):
         if not self.selected_sheet_id:
@@ -538,14 +619,15 @@ class SheetsImportDialog(ctk.CTkToplevel):
             "sheet_name": self.selected_sheet_name,
             "col_id": self.col_id.get(),
             "col_name": self.col_name.get(),
-            "col_front": self.col_front.get(),
-            "col_left": self.col_left.get(),
-            "col_right": self.col_right.get()
+            "col_front": self.col_front.get()
         }
 
         # บันทึกค่าล่าสุด
         self.parent.settings["last_import_sheet_id"] = self.selected_sheet_id
         self.parent.settings["last_import_sheet_name"] = self.selected_sheet_name
+        self.parent.settings["last_import_col_id"] = self.col_id.get()
+        self.parent.settings["last_import_col_name"] = self.col_name.get()
+        self.parent.settings["last_import_col_front"] = self.col_front.get()
         self.parent.save_settings()
 
         self.destroy()
@@ -561,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 1")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -622,7 +704,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.2",
+            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 1",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1572,8 +1654,6 @@ class FaceSearchApp(ctk.CTk):
                 col_id = col_map.get(settings["col_id"], 0)
                 col_name = col_map.get(settings["col_name"], 1)
                 col_front = col_map.get(settings["col_front"], 2)
-                col_left = col_map.get(settings["col_left"], None)
-                col_right = col_map.get(settings["col_right"], None)
 
                 # ข้ามแถวหัวคอลัมน์
                 data_rows = sheet_data[1:]
@@ -1590,17 +1670,13 @@ class FaceSearchApp(ctk.CTk):
                     if not student_code or not student_name:
                         continue
 
-                    # รวบรวม URL ภาพทั้งหมดจากทุก column ที่มี
+                    # รวบรวม URL ภาพเริ่มจาก column หน้าตรง ไปเรื่อยๆ จนกว่าจะเจอค่าว่าง
                     photo_urls = []
-                    for col_name_char, col_idx in col_map.items():
-                        # เริ่มเก็บจาก column หน้าตรงเป็นต้นไป
-                        if col_idx < col_front:
-                            continue
-                        if col_idx >= len(row):
-                            break
+                    for col_idx in range(col_front, len(row)):
                         url = row[col_idx].strip() if col_idx < len(row) else ""
-                        if url and url != "-":
-                            photo_urls.append((col_name_char, url))
+                        if not url or url == "-":
+                            break  # หยุดเมื่อเจอค่าว่าง
+                        photo_urls.append((chr(65 + col_idx), url))
 
                     if not photo_urls:
                         continue
