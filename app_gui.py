@@ -643,7 +643,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 2")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 3")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -704,7 +704,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 2",
+            text="FACE MATCHING\nSYSTEM v1.7.2 Fix 3",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1070,14 +1070,26 @@ class FaceSearchApp(ctk.CTk):
         # ซีกซ้าย: รายชื่อครูที่ลงทะเบียนไว้
         self.list_frame = ctk.CTkFrame(self.frame_registry, fg_color="#101B2B")
         self.list_frame.grid(row=1, column=0, padx=(0, 10), sticky="nsew")
-        self.list_frame.grid_rowconfigure(1, weight=1)
+        self.list_frame.grid_rowconfigure(2, weight=1)
         self.list_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(self.list_frame, text="รายชื่อคุณครูที่บันทึกแล้ว", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=10, sticky="w")
         
+        # ช่องค้นหาคุณครู
+        search_frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
+        search_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
+        search_frame.grid_columnconfigure(0, weight=1)
+        
+        self.entry_staff_search = ctk.CTkEntry(search_frame, placeholder_text="🔍 ค้นหาชื่อคุณครู...")
+        self.entry_staff_search.grid(row=0, column=0, sticky="ew")
+        self.entry_staff_search.bind("<KeyRelease>", lambda event: self.filter_staff_list())
+        
+        btn_clear_staff_search = ctk.CTkButton(search_frame, text="✕", width=28, height=28, fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_staff_search)
+        btn_clear_staff_search.grid(row=0, column=1, padx=(5, 0))
+        
         # Listbox แสดงรายชื่อ (ใช้ CTkTextbox จำลองการเป็น List หรือสร้าง Scrollable Frame)
         self.staff_list_scrollable = ctk.CTkScrollableFrame(self.list_frame, fg_color="transparent")
-        self.staff_list_scrollable.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.staff_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
         self.selected_staff_id = None
         self.selected_staff_name = None
@@ -1168,14 +1180,26 @@ class FaceSearchApp(ctk.CTk):
         # ซีกซ้าย: รายชื่อนักเรียนที่ลงทะเบียนไว้
         self.student_list_frame = ctk.CTkFrame(self.frame_student_registry, fg_color="#101B2B")
         self.student_list_frame.grid(row=1, column=0, padx=(0, 10), sticky="nsew")
-        self.student_list_frame.grid_rowconfigure(1, weight=1)
+        self.student_list_frame.grid_rowconfigure(2, weight=1)
         self.student_list_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(self.student_list_frame, text="รายชื่อนักเรียนที่บันทึกแล้ว", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=10, sticky="w")
 
+        # ช่องค้นหานักเรียน
+        student_search_frame = ctk.CTkFrame(self.student_list_frame, fg_color="transparent")
+        student_search_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
+        student_search_frame.grid_columnconfigure(0, weight=1)
+
+        self.entry_student_search = ctk.CTkEntry(student_search_frame, placeholder_text="🔍 ค้นหารหัส หรือชื่อนักเรียน...")
+        self.entry_student_search.grid(row=0, column=0, sticky="ew")
+        self.entry_student_search.bind("<KeyRelease>", lambda event: self.filter_student_list())
+
+        btn_clear_student_search = ctk.CTkButton(student_search_frame, text="✕", width=28, height=28, fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_student_search)
+        btn_clear_student_search.grid(row=0, column=1, padx=(5, 0))
+
         # Listbox แสดงรายชื่อ (ใช้ CTkTextbox จำลองการเป็น List หรือสร้าง Scrollable Frame)
         self.student_list_scrollable = ctk.CTkScrollableFrame(self.student_list_frame, fg_color="transparent")
-        self.student_list_scrollable.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.student_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
         self.selected_student_id = None
         self.selected_student_name = None
@@ -1272,8 +1296,25 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_student_selected_info.configure(text="กรุณาเลือกนักเรียนจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ")
         self.lbl_student_photo_count_detail.configure(text="")
 
+        search_term = ""
+        if hasattr(self, 'entry_student_search'):
+            search_term = self.entry_student_search.get().strip().lower()
+
         students = self.db.get_all_students()
         for idx, s in enumerate(students):
+            if search_term:
+                name_match = search_term in s['name'].lower()
+                id_match = s['student_id'] and (search_term in s['student_id'].lower())
+                if not (name_match or id_match):
+                    continue
+
+    def filter_student_list(self):
+        self.load_student_list()
+
+    def clear_student_search(self):
+        if hasattr(self, 'entry_student_search'):
+            self.entry_student_search.delete(0, "end")
+            self.load_student_list()
             # สร้างเฟรมแถวรายชื่อนักเรียนแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.student_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)
@@ -1902,8 +1943,22 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_selected_info.configure(text="กรุณาเลือกคุณครูจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ")
         self.lbl_photo_count_detail.configure(text="")
 
-        staff = self.db.get_all_staff_members()
+        search_term = ""
+        if hasattr(self, 'entry_staff_search'):
+            search_term = self.entry_staff_search.get().strip().lower()
+
+        staff = self.db.get_all_teachers()
         for idx, s in enumerate(staff):
+            if search_term and search_term not in s['name'].lower():
+                continue
+
+    def filter_staff_list(self):
+        self.load_staff_list()
+
+    def clear_staff_search(self):
+        if hasattr(self, 'entry_staff_search'):
+            self.entry_staff_search.delete(0, "end")
+            self.load_staff_list()
             # สร้างเฟรมแถวรายชื่อครูแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.staff_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)

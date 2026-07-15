@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 2
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.2 Fix 3
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -143,6 +143,61 @@ All SQLite DB verification tests passed successfully:
   คนที่ 3: รูปหน้าตรง | รูปเอน   | รูปยิ้ม | (ว่าง)  → เก็บ 3 รูป
   ```
 - **สถานะ:** ✅ **ได้ implement แล้ว**
+
+---
+
+## 📋 Version 1.7.2 Fix 3 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini 3.5 Flash (Low)
+**Model ID:** `gemini-3-5-flash`
+**Date:** 15 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. แก้ไขปัญหารายชื่อนักเรียนแสดงในเมนูครู
+- **ปัญหา:** ในเมนูลงทะเบียนใบหน้าคุณครู มีรายชื่อนักเรียนและรูปภาพนักเรียนแสดงปะปนขึ้นมา
+- **สาเหตุ:** ฟังก์ชัน `load_staff_list()` มีการเรียกดึงข้อมูลจาก `self.db.get_all_staff_members()` ซึ่งดึงข้อมูลสมาชิกทั้งหมดในฐานข้อมูลโดยไม่มีการกรองบทบาท (Role)
+- **วิธีแก้ไข:**
+  - เปลี่ยนจากการเรียก `self.db.get_all_staff_members()` เป็น `self.db.get_all_teachers()` เพื่อคัดเลือกเฉพาะครู (`role = 'teacher'`) มาแสดงผล
+  - โค้ดสำคัญใน `app_gui.py`:
+    ```python
+    staff = self.db.get_all_teachers()
+    ```
+
+#### 2. เพิ่มระบบค้นหา (Search) ในหน้าลงทะเบียนครูและนักเรียน
+- **ปัญหา:** เมื่อมีคุณครูและนักเรียนเป็นจำนวนมาก แอดมินค้นหารายบุคคลเพื่อจัดการรูปภาพได้ลำบาก
+- **วิธีแก้ไข:**
+  - **สำหรับเมนูครู:** เพิ่ม Entry ค้นหา `self.entry_staff_search` และปุ่มล้าง `✕` เหนือ Scrollable Frame รายชื่อครู
+  - **สำหรับเมนูนักเรียน:** เพิ่ม Entry ค้นหา `self.entry_student_search` และปุ่มล้าง `✕` เหนือ Scrollable Frame รายชื่อนักเรียน
+  - ผูกคีย์เวิร์ดการพิมพ์ (`<KeyRelease>`) เพื่อกรองรายชื่อและทำการโหลดใหม่โดยอัตโนมัติ
+  - รองรับการกรองตามชื่อ (คุณครู/นักเรียน) และรหัสประจำตัว (นักเรียน)
+  - โค้ดสำคัญใน `app_gui.py`:
+    ```python
+    # การกรองใน load_staff_list()
+    search_term = ""
+    if hasattr(self, 'entry_staff_search'):
+        search_term = self.entry_staff_search.get().strip().lower()
+    
+    staff = self.db.get_all_teachers()
+    for idx, s in enumerate(staff):
+        if search_term and search_term not in s['name'].lower():
+            continue
+    ```
+    ```python
+    # การกรองใน load_student_list()
+    search_term = ""
+    if hasattr(self, 'entry_student_search'):
+        search_term = self.entry_student_search.get().strip().lower()
+
+    students = self.db.get_all_students()
+    for idx, s in enumerate(students):
+        if search_term:
+            name_match = search_term in s['name'].lower()
+            id_match = s['student_id'] and (search_term in s['student_id'].lower())
+            if not (name_match or id_match):
+                continue
+    ```
 
 ---
 
