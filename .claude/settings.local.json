@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /B *version*)",
+      "Bash(cmd *)",
+      "Bash(./venv/Scripts/python.exe -c \"from db_manager import DatabaseManager; db = DatabaseManager\\(\\); print\\('DB init OK'\\); print\\('Teachers:', db.get_all_teachers\\(\\)\\); print\\('Students:', db.get_all_students\\(\\)\\)\")",
+      "Bash(./venv/Scripts/python.exe -c \"import app_gui; print\\('GUI import OK'\\)\")",
+      "Bash(./venv/Scripts/python.exe -c \"from db_manager import DatabaseManager; db = DatabaseManager\\(\\); print\\('DB OK'\\); sid = db.register_member\\('ทดสอบนักเรียน', role='student', student_id='99999'\\); print\\(f'Registered test student: {sid}'\\); print\\(f'Student exists: {db.check_student_id_exists\\(\\\\\"99999\\\\\"\\)}'\\); students = db.get_all_students\\(\\); print\\(f'Students: {students[-1] if students else None}'\\)\")",
+      "Read(//c/Users/hp/.claude/**)",
+      "Bash(bash -c \"echo test\")",
+      "Bash(jq --version)",
+      "Bash(python -c \"import sys, json, os, subprocess; d=json.load\\(sys.stdin\\); parts=[]; cd=d.get\\('workspace',{}\\).get\\('current_dir',''\\); cd and parts.append\\('/'.join\\(cd.replace\\('\\\\\\\\','/'\\).split\\('/'\\)[-2:]\\)\\); git_dir=subprocess.run\\(['git','rev-parse','--git-dir'],capture_output=True\\); git_dir.returncode==0 and parts.append\\(f\\\\\"[{subprocess.run\\(['git','branch','--show-current'],capture_output=True\\).stdout.decode\\(\\).strip\\(\\)}]\\\\\"\\); mn=d.get\\('model',{}\\).get\\('display_name'\\); mn and parts.append\\(mn\\); u=d.get\\('context_window',{}\\).get\\('used_percentage'\\); r=d.get\\('context_window',{}\\).get\\('remaining_percentage'\\); parts.append\\(f'Ctx: {u}%/{r}%'\\) if u and r else \\(parts.append\\(f'Ctx: {u}%'\\) if u else None\\); sn=d.get\\('session_name'\\); sn and parts.append\\(f'\\({sn}\\)'\\); print\\(' | '.join\\(parts\\)\\)\")",
+      "Bash(python .claude/statusline.py)",
+      "Bash(git add *)"
+    ]
+  }
+}

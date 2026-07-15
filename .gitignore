@@ -1,0 +1,32 @@
+# Virtual Environment
+venv/
+.venv/
+ENV/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Sensitive Credentials
+config/service_account.json
+config/credentials.json
+token.json
+token.pickle
+*.json.key
+
+# Models
+models/
+.insightface/
+
+# IDE files
+.vscode/
+.idea/

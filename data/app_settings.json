@@ -1,0 +1,10 @@
+{
+    "credentials_path": "D:\\Projects\\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\\config\\service_account.json",
+    "drive_folder_id": "18aEbfBIIsKR14P6EbbcHJGL5vshrJror, 1iZDbIeVqHGoeZ8sJbvIPBwIZYNBrX4xa, 1ggiPGOgH3v9RBHdJkVRoLcUNbClKlTGi, 1XwbRtp5dJ26-0Uaxwsuc1b9Y66O2rGQ-, 1GXWSLW95epis8o2ejU5VcFBa3Px-HGg0, 161L7gu_2JfUlvS2kWRqYe4dK5sPPq9tj, 1oyHHWaVRj2_exh59FxVCUcMKhmCQVT1w, 1ROnPp6Js4hKQlys7oOzfDZ_M5MCddgdX, 10u_AQWOCgs7RuYfJNrKSQog78L-ge168, 1riRr35KOfZcPflX3gpWLbIv6HeAK5odE",
+    "sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc",
+    "json_folder_id": "1xxNfIxM9a9wlo6sgThZmpMVYWn4QFTUI",
+    "delete_req_file_id": "11RFc0Zu8bwqI09iNAbFXIyaA7FOdqVab",
+    "threshold": 0.45,
+    "use_gpu": 1,
+    "re_scan": 0
+}
