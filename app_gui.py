@@ -1576,6 +1576,7 @@ class FaceSearchApp(ctk.CTk):
 
     def select_student_thumbnail(self, path, widget):
         """เลือกรูปภาพย่อของนักเรียน"""
+        logger.info(f"[DEBUG] select_student_thumbnail called: path={path}, student_id={self.selected_student_id}")
         # รีเซ็ตสีของ widget เก่า (เหมือนเมนูครู)
         if self.selected_student_thumb_widget:
             try:
@@ -1587,7 +1588,12 @@ class FaceSearchApp(ctk.CTk):
         self.selected_student_thumb_widget = widget
         # แสดงไฮไลต์สีแดงรอบขอบเฟรม (เหมือนเมนูครู)
         widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
-        self.btn_delete_student_photo.configure(state="normal")
+        logger.info(f"[DEBUG] About to enable delete button, hasattr={hasattr(self, 'btn_delete_student_photo')}")
+        if hasattr(self, 'btn_delete_student_photo'):
+            self.btn_delete_student_photo.configure(state="normal")
+            logger.info(f"[DEBUG] Delete button enabled")
+        else:
+            logger.error(f"[ERROR] btn_delete_student_photo not found!")
 
     def delete_selected_student_photo(self):
         """ลบรูปภาพใบหน้านักเรียนที่เลือก"""
