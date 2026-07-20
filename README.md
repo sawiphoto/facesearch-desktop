@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.4
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.5
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,75 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.7.5 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini Pro
+**Model ID:** `gemini-pro`
+**Date:** 20 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. จัดเลย์เอาต์กลุ่มปุ่ม Radio Button สแกนเป้าหมายแนวราบ (Horizontal)
+- **ปัญหา:** ปุ่ม Radio button สแกนเป้าหมายทั้ง 5 โหมด และปุ่มเลือกรายคนดั้งเดิมกินพื้นที่แนวตั้งสูงมาก ส่งผลให้จอด้านล่าง (Debug Console และ Match Preview) โดนบีบจนเล็กเกินไป
+- **วิธีแก้ไข:** ปรับเปลี่ยนการจัดวางใน `self.match_target_box` จากแนวตั้ง (pack) มาเป็นตาราง 3 คอลัมน์แนวราบ (grid) เพื่อลดพื้นที่การกินขนาดแนวตั้งได้อย่างมีประสิทธิภาพ ช่วยให้ขยายความสูงของ Console Debug Logs และ Match Preview ด้านล่างได้กว้างขวางขึ้น
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 2390-2440
+
+#### 2. แยกตารางแสดงสถิติจำนวนภาพของครูและนักเรียนเคียงข้างกัน (Dashboard Stats Split)
+- **ปัญหา:** สถิติจำนวนภาพที่พบบุคลากรแสดงรายชื่อรวมสลับครูและนักเรียนปนกัน ทำให้การเปรียบเทียบในหน้า Dashboard อ่านยาก
+- **วิธีแก้ไข:** ปรับปรุงเลย์เอาต์หน้าจอ Dashboard ให้รองรับ 3 คอลัมน์แยก: แผงสถานะโมเดล (ซ้าย), แผงสถิติคุณครู (กลาง), แผงสถิตินักเรียน (ขวา) โดยกรองรายชื่อคุณครูและนักเรียนจากฐานข้อมูลตาม `role` และไล่เฉดระดับสีในกราฟเปรียบเทียบแยกจากกันอย่างชัดเจน
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 850-950 และ 1020-1090
+
+#### 3. แยกประเภทตาราง SQLite Viewer (SQLite Tab Split)
+- **ปัญหา:** หน้าแสดงตารางฐานข้อมูล SQLite แสดงรายชื่อและผลลัพธ์การจับคู่รวมกันระหว่างครูและนักเรียน ทำให้ผู้ใช้แยกแยะข้อมูลได้ลำบาก
+- **วิธีแก้ไข:** เพิ่มรายการตัวเลือก Dropdown ของ `self.option_db_table` จาก 3 เป็น 5 เมนูหลัก ได้แก่:
+  - รายชื่อคุณครู (staff_members - ครู)
+  - รายชื่อนักเรียน (staff_members - นักเรียน)
+  - ประวัติภาพถ่ายกิจกรรม (scanned_photos)
+  - ผลจับคู่ใบหน้าครู (detected_faces - ครู)
+  - ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)
+  กรองคิวรีใน SQL ตามฟิลด์ `role` พร้อมออกแบบคอลัมน์และตารางส่งออก CSV ให้สอดคล้องกัน (รวมถึงเพิ่มคอลัมน์ `student_id` ให้ตารางนักเรียนแยกกันเป็นเอกภาพ)
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 3380-3590
+
+---
+
+## 📋 Version 1.7.4 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini 3.5 Flash
+**Model ID:** `gemini-3-5-flash`
+**Date:** 15 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. ปรับปรุงตัวเลือก Target Matching และ UI หน้าเลือกรายบุคคล
+- **ปัญหา:** การสแกนเป้าหมายใบหน้าแบบ Checkbox เดิมจัดการได้ยากและไม่ชัดเจน
+- **วิธีแก้ไข:** พัฒนาตัวเลือกเป็น Radio Button 5 โหมด และแยกป๊อปอัปตรวจสอบคัดเลือกรายบุคคลเป็น `show_teachers_selection_popup()` และ `show_students_selection_popup()`
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+#### 2. แยกเขียนไฟล์ดัชนี JSON บน Google Drive
+- **ปัญหา:** ดัชนีหลักรวมกันอยู่ไฟล์เดียว ทำให้เกิดความล่าช้าและส่งผลกระทบเมื่อเกิดการเขียนชนกันของฐานข้อมูลหลายๆ เซสชัน
+- **วิธีแก้ไข:** แยกไฟล์ดัชนีบน Drive ออกเป็น `person_index.json` (คุณครู) และ `student_index.json` (นักเรียน) พร้อมประมวลผลอัปโหลดเฉพาะกลุ่มไฟล์ที่ได้รับผลกระทบจากการสแกนล่าสุด
+- **สถานะ:** ✅ **ได้ implement แล้ว**
+
+---
+
+## 📋 Version 1.7.3 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini 3.5 Flash
+**Model ID:** `gemini-3-5-flash`
+**Date:** 15 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. แยก Incremental GSheets Sync ออกเป็นปุ่มกด Manual Sync
+- **ปัญหา:** การเชื่อมต่อ API ของ Google Sheets และ Excel Mirror ทุกครั้งที่จับคู่ใบหน้าเสร็จสิ้นระหว่างสแกน ถ่วงเวลาประมวลผลให้ช้าลงอย่างมาก
+- **วิธีแก้ไข:** ลบระบบ Auto Sync Google Sheets/Excel ออกจากลูปสแกนหลัก (คงเหลือเพียงการอัปโหลดไฟล์ JSON ดัชนี) และสร้างปุ่ม `self.btn_manual_sync` บนหน้า Dashboard เพื่อให้คลิกซิงค์ฐานข้อมูล SQLite ทั้งหมดขึ้น Sheets, Excel Backup และ JSON ด้วยตนเองผ่านเบื้องหลัง (Background Thread)
+- **สถานะ:** ✅ **ได้ implement แล้ว**
 
 ---
 

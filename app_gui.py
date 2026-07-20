@@ -850,7 +850,8 @@ class FaceSearchApp(ctk.CTk):
 
     # ==================== (1) หน้า Dashboard ====================
     def setup_dashboard_ui(self):
-        self.frame_dashboard.grid_columnconfigure((0, 1), weight=1)
+        self.frame_dashboard.grid_columnconfigure(0, weight=1)
+        self.frame_dashboard.grid_columnconfigure((1, 2), weight=2)
         self.frame_dashboard.grid_rowconfigure(2, weight=1)
 
         # หัวข้อ
@@ -858,11 +859,11 @@ class FaceSearchApp(ctk.CTk):
             self.frame_dashboard, text="ภาพรวมของระบบ (Dashboard)", 
             font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
         )
-        lbl_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 20))
 
         # การ์ดแสดงสถิติต่างๆ
         self.stats_container = ctk.CTkFrame(self.frame_dashboard, fg_color="transparent")
-        self.stats_container.grid(row=1, column=0, columnspan=2, sticky="new", pady=(0, 20))
+        self.stats_container.grid(row=1, column=0, columnspan=3, sticky="new", pady=(0, 20))
         self.stats_container.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         # การ์ด 1: จำนวนครู
@@ -923,35 +924,61 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_manual_sync.pack(anchor="w", padx=20, pady=(5, 15))
 
-        # 2.2 กล่องจำนวนภาพของบุคลากร (ฝั่งขวาของแถว 2)
-        self.most_faces_box = ctk.CTkFrame(self.frame_dashboard, fg_color="#101B2B")
-        self.most_faces_box.grid(row=2, column=1, padx=(10, 0), pady=10, sticky="nsew")
+        # 2.2 กล่องสถิติจำนวนภาพของคุณครู (ฝั่งขวาซีกซ้าย แถว 2 คอลัมน์ 1)
+        self.teacher_faces_box = ctk.CTkFrame(self.frame_dashboard, fg_color="#101B2B")
+        self.teacher_faces_box.grid(row=2, column=1, padx=5, pady=10, sticky="nsew")
         
-        # เฟรมสำหรับหัวข้อและปุ่มจัดเรียง
-        most_title_frame = ctk.CTkFrame(self.most_faces_box, fg_color="transparent")
-        most_title_frame.pack(fill="x", padx=20, pady=(15, 5))
+        teacher_title_frame = ctk.CTkFrame(self.teacher_faces_box, fg_color="transparent")
+        teacher_title_frame.pack(fill="x", padx=15, pady=(15, 5))
         
-        self.lbl_most_title = ctk.CTkLabel(
-            most_title_frame, 
-            text="สถิติจำนวนภาพของบุคลากร (จากมากไปน้อย 🔽)", 
-            font=ctk.CTkFont(size=14, weight="bold"), 
+        self.lbl_teacher_title = ctk.CTkLabel(
+            teacher_title_frame, 
+            text="สถิติคุณครู (จากมากไปน้อย 🔽)", 
+            font=ctk.CTkFont(size=12, weight="bold"), 
             text_color="#2ECC71"
         )
-        self.lbl_most_title.pack(side="left", anchor="w")
+        self.lbl_teacher_title.pack(side="left", anchor="w")
         
-        self.btn_dashboard_sort = ctk.CTkButton(
-            most_title_frame, 
-            text="สลับเป็นน้อยไปมาก 🔼", 
-            width=135, height=24,
-            font=ctk.CTkFont(size=11, weight="bold"),
+        self.btn_teacher_sort = ctk.CTkButton(
+            teacher_title_frame, 
+            text="สลับ 🔼", 
+            width=50, height=22,
+            font=ctk.CTkFont(size=10, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.toggle_dashboard_sort
         )
-        self.btn_dashboard_sort.pack(side="right", anchor="e")
+        self.btn_teacher_sort.pack(side="right", anchor="e")
         
-        # เพิ่ม Scrollable Frame สำหรับแสดงตารางรายชื่อครู
-        self.scr_most_faces = ctk.CTkScrollableFrame(self.most_faces_box, fg_color="transparent", height=150)
-        self.scr_most_faces.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.scr_teacher_faces = ctk.CTkScrollableFrame(self.teacher_faces_box, fg_color="transparent", height=150)
+        self.scr_teacher_faces.pack(fill="both", expand=True, padx=10, pady=(0, 15))
+
+        # 2.3 กล่องสถิติจำนวนภาพของนักเรียน (ฝั่งขวาซีกขวา แถว 2 คอลัมน์ 2)
+        self.student_faces_box = ctk.CTkFrame(self.frame_dashboard, fg_color="#101B2B")
+        self.student_faces_box.grid(row=2, column=2, padx=(5, 0), pady=10, sticky="nsew")
+        
+        student_title_frame = ctk.CTkFrame(self.student_faces_box, fg_color="transparent")
+        student_title_frame.pack(fill="x", padx=15, pady=(15, 5))
+        
+        self.lbl_student_title = ctk.CTkLabel(
+            student_title_frame, 
+            text="สถิตินักเรียน (จากมากไปน้อย 🔽)", 
+            font=ctk.CTkFont(size=12, weight="bold"), 
+            text_color="#F39C12"
+        )
+        self.lbl_student_title.pack(side="left", anchor="w")
+        
+        self.btn_student_sort = ctk.CTkButton(
+            student_title_frame, 
+            text="สลับ 🔼", 
+            width=50, height=22,
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color="#1F3A60", hover_color="#20334F",
+            command=self.toggle_dashboard_sort
+        )
+        self.btn_student_sort.pack(side="right", anchor="e")
+        
+        self.scr_student_faces = ctk.CTkScrollableFrame(self.student_faces_box, fg_color="transparent", height=150)
+        self.scr_student_faces.pack(fill="both", expand=True, padx=10, pady=(0, 15))
 
     def toggle_dashboard_sort(self):
         self.dashboard_sort_desc = not self.dashboard_sort_desc
@@ -991,78 +1018,96 @@ class FaceSearchApp(ctk.CTk):
                 self.lbl_model_status.configure(text="โมเดล InsightFace: ยังไม่มีไฟล์ในเครื่อง", text_color="#E67E22")
                 
             # ดึงและแสดงตารางสถิติจำนวนภาพแยกรายบุคคล
-            # ล้างรายชื่อเก่าก่อน
-            for widget in self.scr_most_faces.winfo_children():
+            for widget in self.scr_teacher_faces.winfo_children():
+                widget.destroy()
+            for widget in self.scr_student_faces.winfo_children():
                 widget.destroy()
                 
             sort_dir = "DESC" if self.dashboard_sort_desc else "ASC"
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
+            # 1. โหลดข้อมูลคุณครู
             cursor.execute(f"""
                 SELECT sm.name, COUNT(df.photo_id) as photo_count
                 FROM staff_members sm
                 LEFT JOIN detected_faces df ON sm.id = df.staff_id
+                WHERE sm.role = 'teacher' OR sm.role IS NULL OR sm.role = ''
                 GROUP BY sm.id, sm.name
                 ORDER BY photo_count {sort_dir}, sm.name ASC
             """)
-            rows = cursor.fetchall()
+            teacher_rows = cursor.fetchall()
+            
+            # 2. โหลดข้อมูลนักเรียน
+            cursor.execute(f"""
+                SELECT sm.name, COUNT(df.photo_id) as photo_count
+                FROM staff_members sm
+                LEFT JOIN detected_faces df ON sm.id = df.staff_id
+                WHERE sm.role = 'student'
+                GROUP BY sm.id, sm.name
+                ORDER BY photo_count {sort_dir}, sm.name ASC
+            """)
+            student_rows = cursor.fetchall()
             conn.close()
             
-            # คำนวณหาจำนวนภาพสูงสุดเพื่อเป็นฐานคำนวณ % สเกลบาร์
-            all_counts = [count for _, count in rows]
-            max_count = max(all_counts) if all_counts else 0
-            if max_count == 0:
-                max_count = 1
+            # ฟังก์ชันวาดแถวข้อมูลสถิติ
+            def draw_rows(rows, scroll_frame):
+                all_counts = [r[1] for r in rows]
+                max_count = max(all_counts) if all_counts else 0
+                if max_count == 0:
+                    max_count = 1
+                
+                for idx, r in enumerate(rows):
+                    name = r[0]
+                    count = r[1]
+                    ratio = count / max_count
+                    
+                    # ไล่เฉดสีจากเขียวเข้ม (#27AE60) ไปหาแดงเข้ม (#C0392B)
+                    r_val = int(192 + (39 - 192) * ratio)
+                    g_val = int(57 + (174 - 57) * ratio)
+                    b_val = int(43 + (96 - 43) * ratio)
+                    color_hex = f"#{r_val:02x}{g_val:02x}{b_val:02x}"
+                    
+                    row_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+                    row_frame.pack(fill="x", pady=2)
+                    
+                    rank_str = f"{idx+1}."
+                    lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=20, anchor="w", font=ctk.CTkFont(size=11, weight="bold"), text_color=color_hex)
+                    lbl_rank.pack(side="left")
+                    
+                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=11, weight="bold" if ratio > 0.5 else "normal"), width=90)
+                    lbl_name.pack(side="left")
+                    
+                    # เฟรมสำหรับแถบระดับสี (Color Scale Bar)
+                    bar_bg_width = 70
+                    bar_fg_width = max(4, int(ratio * bar_bg_width))
+                    
+                    bar_container = ctk.CTkFrame(row_frame, fg_color="transparent", width=bar_bg_width + 10, height=12)
+                    bar_container.pack(side="left", padx=(5, 0))
+                    bar_container.pack_propagate(False)
+                    
+                    bar_fg = ctk.CTkFrame(bar_container, fg_color=color_hex, corner_radius=4, width=bar_fg_width, height=8)
+                    bar_fg.place(relx=0.0, rely=0.5, anchor="w")
+                    
+                    lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=45, anchor="e", text_color=color_hex, font=ctk.CTkFont(size=11))
+                    lbl_count.pack(side="right")
+                    
+                    def _on_mousewheel(event, sf=scroll_frame):
+                        try:
+                            sf._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                        except Exception:
+                            pass
+                    
+                    row_frame.bind("<MouseWheel>", _on_mousewheel)
+                    lbl_rank.bind("<MouseWheel>", _on_mousewheel)
+                    lbl_name.bind("<MouseWheel>", _on_mousewheel)
+                    bar_container.bind("<MouseWheel>", _on_mousewheel)
+                    bar_fg.bind("<MouseWheel>", _on_mousewheel)
+                    lbl_count.bind("<MouseWheel>", _on_mousewheel)
+
+            draw_rows(teacher_rows, self.scr_teacher_faces)
+            draw_rows(student_rows, self.scr_student_faces)
             
-            # วาดแถวข้อมูลทีละคน
-            for idx, (name, count) in enumerate(rows):
-                # คำนวณสัดส่วนเฉดสี (0.0 - 1.0)
-                ratio = count / max_count
-                
-                # ไล่เฉดสีจากเขียวเข้ม (#27AE60 / RGB 39,174,96) ไปหาแดงเข้ม (#C0392B / RGB 192,57,43)
-                r = int(192 + (39 - 192) * ratio)
-                g = int(57 + (174 - 57) * ratio)
-                b = int(43 + (96 - 43) * ratio)
-                color_hex = f"#{r:02x}{g:02x}{b:02x}"
-                
-                row_frame = ctk.CTkFrame(self.scr_most_faces, fg_color="transparent")
-                row_frame.pack(fill="x", pady=2)
-                
-                rank_str = f"{idx+1}."
-                lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=30, anchor="w", font=ctk.CTkFont(weight="bold"), text_color=color_hex)
-                lbl_rank.pack(side="left")
-                
-                lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(weight="bold" if ratio > 0.5 else "normal"))
-                lbl_name.pack(side="left")
-                
-                # เฟรมสำหรับแถบระดับสี (Color Scale Bar)
-                bar_bg_width = 120
-                bar_fg_width = max(4, int(ratio * bar_bg_width))
-                
-                bar_container = ctk.CTkFrame(row_frame, fg_color="transparent", width=bar_bg_width + 20, height=12)
-                bar_container.pack(side="left", padx=(10, 0))
-                bar_container.pack_propagate(False)
-                
-                bar_fg = ctk.CTkFrame(bar_container, fg_color=color_hex, corner_radius=4, width=bar_fg_width, height=8)
-                bar_fg.place(relx=0.0, rely=0.5, anchor="w")
-                
-                lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=60, anchor="e", text_color=color_hex)
-                lbl_count.pack(side="right")
-                
-                # ฟังก์ชันผูก Scroll ด้วยเมาส์
-                def _on_mousewheel(event):
-                    try:
-                        self.scr_most_faces._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-                    except Exception:
-                        pass
-                
-                row_frame.bind("<MouseWheel>", _on_mousewheel)
-                lbl_rank.bind("<MouseWheel>", _on_mousewheel)
-                lbl_name.bind("<MouseWheel>", _on_mousewheel)
-                bar_container.bind("<MouseWheel>", _on_mousewheel)
-                bar_fg.bind("<MouseWheel>", _on_mousewheel)
-                lbl_count.bind("<MouseWheel>", _on_mousewheel)
-                
         except Exception as e:
             logger.error(f"Error loading dashboard stats: {e}")
 
@@ -2344,55 +2389,48 @@ class FaceSearchApp(ctk.CTk):
         self.chk_re_scan = ctk.CTkCheckBox(device_frame, text="เปิดฟังก์ชั่นให้แสกนรูปภาพเดิมซ้ำ (Re-scan)", text_color="#A2B5CD")
         self.chk_re_scan.pack(anchor="e", pady=(2, 5))
 
-        # เฟรมเลือกเป้าหมายการจับคู่ใบหน้า (Matching Target Panel v1.7.4)
+        # เฟรมเลือกเป้าหมายการจับคู่ใบหน้า (Matching Target Panel v1.7.5)
         self.match_target_box = ctk.CTkFrame(option_panel, fg_color="#101B2B")
-        self.match_target_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0), padx=5)
+        self.match_target_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0), padx=5)
+        self.match_target_box.grid_columnconfigure((0, 1, 2), weight=1)
         
-        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=15, pady=(8, 2))
+        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, anchor="w", padx=15, pady=(5, 2))
         
         self.match_mode = ctk.StringVar(value="all")
         
-        # 1. ครู+นักเรียน ทั้งหมด
+        # คอลัมน์ 0: ครู + นักเรียน ทั้งหมด
         self.rad_all = ctk.CTkRadioButton(self.match_target_box, text="ครู + นักเรียน ทั้งหมด", variable=self.match_mode, value="all", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_all.pack(anchor="w", padx=25, pady=3)
+        self.rad_all.grid(row=1, column=0, sticky="w", padx=25, pady=3)
         
-        # 2. ครูทั้งหมด
+        # คอลัมน์ 1: กลุ่มคุณครู
         self.rad_teachers = ctk.CTkRadioButton(self.match_target_box, text="คุณครูทั้งหมด", variable=self.match_mode, value="teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_teachers.pack(anchor="w", padx=25, pady=3)
+        self.rad_teachers.grid(row=1, column=1, sticky="w", padx=25, pady=3)
         
-        # 3. นักเรียนทั้งหมด
-        self.rad_students = ctk.CTkRadioButton(self.match_target_box, text="นักเรียนทั้งหมด", variable=self.match_mode, value="students", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_students.pack(anchor="w", padx=25, pady=3)
-        
-        # 4. เลือกเฉพาะครูบางคน
         self.rad_sel_teachers = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะคุณครูบางคน", variable=self.match_mode, value="selected_teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_sel_teachers.pack(anchor="w", padx=25, pady=3)
+        self.rad_sel_teachers.grid(row=2, column=1, sticky="w", padx=25, pady=3)
         
-        # เฟรมย่อยปุ่มกดเลือกครู
-        self.teachers_sel_frame = ctk.CTkFrame(self.match_target_box, fg_color="transparent")
-        self.teachers_sel_frame.pack(anchor="w", padx=50, pady=(2, 5))
         self.btn_select_teachers = ctk.CTkButton(
-            self.teachers_sel_frame, text="เลือกรายชื่อคุณครู (0 คน)...", 
+            self.match_target_box, text="เลือกรายชื่อคุณครู (0 คน)...", 
             fg_color="#1F3A60", hover_color="#20334F", text_color="white",
-            height=26, font=ctk.CTkFont(size=11), state="disabled",
+            height=24, font=ctk.CTkFont(size=11), state="disabled",
             command=self.show_teachers_selection_popup
         )
-        self.btn_select_teachers.pack(side="left")
+        self.btn_select_teachers.grid(row=3, column=1, sticky="w", padx=50, pady=(2, 8))
         
-        # 5. เลือกเฉพาะนักเรียนบางคน
+        # คอลัมน์ 2: กลุ่มนักเรียน
+        self.rad_students = ctk.CTkRadioButton(self.match_target_box, text="นักเรียนทั้งหมด", variable=self.match_mode, value="students", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_students.grid(row=1, column=2, sticky="w", padx=25, pady=3)
+        
         self.rad_sel_students = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะนักเรียนบางคน", variable=self.match_mode, value="selected_students", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_sel_students.pack(anchor="w", padx=25, pady=3)
+        self.rad_sel_students.grid(row=2, column=2, sticky="w", padx=25, pady=3)
         
-        # เฟรมย่อยปุ่มกดเลือกนักเรียน
-        self.students_sel_frame = ctk.CTkFrame(self.match_target_box, fg_color="transparent")
-        self.students_sel_frame.pack(anchor="w", padx=50, pady=(2, 8))
         self.btn_select_students = ctk.CTkButton(
-            self.students_sel_frame, text="เลือกรายชื่อนักเรียน (0 คน)...", 
+            self.match_target_box, text="เลือกรายชื่อนักเรียน (0 คน)...", 
             fg_color="#1F3A60", hover_color="#20334F", text_color="white",
-            height=26, font=ctk.CTkFont(size=11), state="disabled",
+            height=24, font=ctk.CTkFont(size=11), state="disabled",
             command=self.show_students_selection_popup
         )
-        self.btn_select_students.pack(side="left")
+        self.btn_select_students.grid(row=3, column=2, sticky="w", padx=50, pady=(2, 8))
 
         # ปุ่มกดทำสแกนและ Progress Bar (เลื่อนไป row 5)
         self.action_panel = ctk.CTkFrame(self.scan_settings_frame, fg_color="transparent")
@@ -3351,9 +3389,11 @@ class FaceSearchApp(ctk.CTk):
         self.option_db_table = ctk.CTkOptionMenu(
             control_frame, 
             values=[
-                "รายชื่อคุณครู (staff_members)", 
+                "รายชื่อคุณครู (staff_members - ครู)", 
+                "รายชื่อนักเรียน (staff_members - นักเรียน)", 
                 "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
-                "ผลจับคู่ใบหน้าครูในรูป (detected_faces)"
+                "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
+                "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)"
             ],
             command=self.load_db_table_data
         )
@@ -3414,18 +3454,18 @@ class FaceSearchApp(ctk.CTk):
         cursor = conn.cursor()
         
         try:
-            if "staff_members" in selected_table_text:
-                # ตาราง staff_members
+            if "staff_members" in selected_table_text and "ครู" in selected_table_text:
+                # ตาราง staff_members (ครู)
                 cursor.execute("""
                     SELECT s.id, s.name, COUNT(e.id)
                     FROM staff_members s
                     LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                    WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                     GROUP BY s.id, s.name
                     ORDER BY s.id ASC
                 """)
                 rows = cursor.fetchall()
                 
-                # กำหนดคอลัมน์ใหม่
                 self.db_tree["columns"] = ("id", "name", "photos")
                 self.db_tree.column("id", width=80, anchor="center")
                 self.db_tree.column("name", width=350, anchor="w")
@@ -3433,6 +3473,32 @@ class FaceSearchApp(ctk.CTk):
                 
                 self.db_tree.heading("id", text="ID ครู")
                 self.db_tree.heading("name", text="ชื่อ-นามสกุล คุณครู")
+                self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
+                
+                for r in rows:
+                    self.db_tree.insert("", "end", values=r)
+                    
+            elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
+                # ตาราง staff_members (นักเรียน)
+                cursor.execute("""
+                    SELECT s.id, s.name, s.student_id, COUNT(e.id)
+                    FROM staff_members s
+                    LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                    WHERE s.role = 'student'
+                    GROUP BY s.id, s.name, s.student_id
+                    ORDER BY s.id ASC
+                """)
+                rows = cursor.fetchall()
+                
+                self.db_tree["columns"] = ("id", "name", "student_id", "photos")
+                self.db_tree.column("id", width=80, anchor="center")
+                self.db_tree.column("name", width=250, anchor="w")
+                self.db_tree.column("student_id", width=150, anchor="center")
+                self.db_tree.column("photos", width=120, anchor="center")
+                
+                self.db_tree.heading("id", text="ID")
+                self.db_tree.heading("name", text="ชื่อ-นามสกุล นักเรียน")
+                self.db_tree.heading("student_id", text="รหัสประจำตัว")
                 self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
@@ -3457,12 +3523,13 @@ class FaceSearchApp(ctk.CTk):
                 for r in rows:
                     self.db_tree.insert("", "end", values=r)
                     
-            elif "detected_faces" in selected_table_text:
-                # ตาราง detected_faces
+            elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
+                # ตาราง detected_faces (ครู)
                 cursor.execute("""
                     SELECT df.id, df.photo_id, s.name, df.confidence
                     FROM detected_faces df
                     JOIN staff_members s ON df.staff_id = s.id
+                    WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                     ORDER BY df.id ASC
                 """)
                 rows = cursor.fetchall()
@@ -3481,6 +3548,34 @@ class FaceSearchApp(ctk.CTk):
                 for r in rows:
                     match_id, pid, name, conf = r
                     self.db_tree.insert("", "end", values=(match_id, pid, name, f"{conf*100:.2f}%"))
+                    
+            elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
+                # ตาราง detected_faces (นักเรียน)
+                cursor.execute("""
+                    SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                    FROM detected_faces df
+                    JOIN staff_members s ON df.staff_id = s.id
+                    WHERE s.role = 'student'
+                    ORDER BY df.id ASC
+                """)
+                rows = cursor.fetchall()
+                
+                self.db_tree["columns"] = ("match_id", "photo_id", "name", "student_id", "conf")
+                self.db_tree.column("match_id", width=80, anchor="center")
+                self.db_tree.column("photo_id", width=100, anchor="center")
+                self.db_tree.column("name", width=220, anchor="w")
+                self.db_tree.column("student_id", width=120, anchor="center")
+                self.db_tree.column("conf", width=120, anchor="center")
+                
+                self.db_tree.heading("match_id", text="Match ID")
+                self.db_tree.heading("photo_id", text="Photo ID")
+                self.db_tree.heading("name", text="นักเรียนที่ตรวจพบ")
+                self.db_tree.heading("student_id", text="รหัสประจำตัว")
+                self.db_tree.heading("conf", text="ระดับความเหมือน (Similarity)")
+                
+                for r in rows:
+                    match_id, pid, name, std_id, conf = r
+                    self.db_tree.insert("", "end", values=(match_id, pid, name, std_id, f"{conf*100:.2f}%"))
                     
         except Exception as e:
             logger.error(f"Error loading SQLite table into Treeview: {e}", exc_info=True)
@@ -3523,15 +3618,28 @@ class FaceSearchApp(ctk.CTk):
             with open(file_path, "w", newline="", encoding="utf-8-sig") as f: # utf-8-sig สำหรับเปิดใน Excel ภาษาไทยไม่เพี้ยน
                 writer = csv.writer(f)
                 
-                if "staff_members" in selected_table_text:
+                if "staff_members" in selected_table_text and "ครู" in selected_table_text:
                     cursor.execute("""
                         SELECT s.id, s.name, COUNT(e.id)
                         FROM staff_members s
                         LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         GROUP BY s.id, s.name
                         ORDER BY s.id ASC
                     """)
-                    writer.writerow(["ID ครู", "ชื่อ-นามสกุล", "จำนวนรูปที่บันทึก"])
+                    writer.writerow(["ID ครู", "ชื่อ-นามสกุล คุณครู", "จำนวนรูปที่บันทึก"])
+                    writer.writerows(cursor.fetchall())
+                    
+                elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
+                    cursor.execute("""
+                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
+                        FROM staff_members s
+                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE s.role = 'student'
+                        GROUP BY s.id, s.name, s.student_id
+                        ORDER BY s.id ASC
+                    """)
+                    writer.writerow(["ID", "ชื่อ-นามสกุล นักเรียน", "รหัสประจำตัว", "จำนวนรูปที่บันทึก"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "scanned_photos" in selected_table_text:
@@ -3539,14 +3647,26 @@ class FaceSearchApp(ctk.CTk):
                     writer.writerow(["Photo ID", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
                     writer.writerows(cursor.fetchall())
                     
-                elif "detected_faces" in selected_table_text:
+                elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                     cursor.execute("""
                         SELECT df.id, df.photo_id, s.name, df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         ORDER BY df.id ASC
                     """)
                     writer.writerow(["Match ID", "Photo ID", "คุณครูที่ตรวจพบ", "ระดับความเหมือน"])
+                    writer.writerows(cursor.fetchall())
+                    
+                elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
+                    cursor.execute("""
+                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'student'
+                        ORDER BY df.id ASC
+                    """)
+                    writer.writerow(["Match ID", "Photo ID", "นักเรียนที่ตรวจพบ", "รหัสประจำตัว", "ระดับความเหมือน"])
                     writer.writerows(cursor.fetchall())
                     
             logger.info("CSV Export completed successfully.")
