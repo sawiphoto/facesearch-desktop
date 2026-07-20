@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.5
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.6
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,26 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.7.6 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini Pro
+**Model ID:** `gemini-pro`
+**Date:** 20 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. ระบบล้างประวัติการจับคู่ใบหน้ารายบุคคล (Reset Matching Data)
+- **ปัญหา:** ไม่สามารถรีเซ็ตประวัติการพบหน้าของบุคคลใดบุคคลหนึ่งเฉพาะคนได้ โดยไม่ประสงค์จะลบข้อมูลบัญชีชื่อ หรือรูปหน้าตรงที่ใช้ลงทะเบียนไว้
+- **วิธีแก้ไข:** 
+  - เพิ่มปุ่ม "🗑️ รีเซ็ตประวัติจับคู่" ไว้ในเครื่องมือส่วนควบคุมของ SQLite Database Viewer (`setup_database_ui`)
+  - พัฒนาเมทอด `reset_selected_person_matches()` ตรวจสอบเงื่อนไขว่าต้องเลือกตารางครูหรือนักเรียนเท่านั้น และต้องคลิกเลือกแถวบุคคลก่อนใช้ปุ่ม
+  - เพิ่มป๊อปอัปให้ผู้ใช้กดยืนยันการทำงาน (Confirmation Popup) เพื่อป้องกันข้อผิดพลาดพลั้งเผลอ
+  - ส่งชุดคำสั่ง SQL ลบข้อมูลการตรวจพบของคนๆ นั้น: `DELETE FROM detected_faces WHERE staff_id = ?` จากนั้นอัปเดตโหลดตารางข้อมูลพร้อมอัปเดตสถิติหน้าแรกให้สอดคล้องกัน
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 3405-3412 และ 3687-3733
 
 ---
 

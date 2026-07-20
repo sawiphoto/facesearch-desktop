@@ -3403,6 +3403,15 @@ class FaceSearchApp(ctk.CTk):
         btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=80, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get()))
         btn_refresh.pack(side="left", padx=10, pady=15)
 
+        # ปุ่มรีเซ็ตผลการจับคู่ของบุคคล
+        self.btn_reset_matching = ctk.CTkButton(
+            control_frame, text="🗑️ รีเซ็ตประวัติจับคู่", width=140, 
+            fg_color="#C0392B", hover_color="#962D22", text_color="white",
+            font=ctk.CTkFont(weight="bold"),
+            command=self.reset_selected_person_matches
+        )
+        self.btn_reset_matching.pack(side="left", padx=10, pady=15)
+
         # ปุ่มเปิดโฟลเดอร์ DB
         btn_open_folder = ctk.CTkButton(control_frame, text="📂 เปิดโฟลเดอร์ฐานข้อมูล", width=140, fg_color="#1F3A60", hover_color="#20334F", command=self.open_db_folder)
         btn_open_folder.pack(side="right", padx=15, pady=15)
@@ -3674,8 +3683,54 @@ class FaceSearchApp(ctk.CTk):
         except Exception as e:
             logger.error(f"Error exporting CSV: {e}", exc_info=True)
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถส่งออกไฟล์ได้: {e}")
-        finally:
             conn.close()
+
+    def reset_selected_person_matches(self):
+        selected_table_text = self.option_db_table.get()
+        # เช็คว่าอยู่ในตารางครูหรือนักเรียนหรือไม่
+        if "staff_members" not in selected_table_text:
+            messagebox.showwarning("คำเตือน", "กรุณาเลือกตารางรายชื่อครู หรือ รายชื่อนักเรียน ก่อนใช้ปุ่มนี้")
+            return
+            
+        selected_item = self.db_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("คำเตือน", "กรุณาคลิกเลือกชื่อบุคคลจากตารางที่ต้องการรีเซ็ตก่อน")
+            return
+            
+        values = self.db_tree.item(selected_item[0], "values")
+        if not values:
+            return
+            
+        staff_id = values[0]
+        name = values[1]
+        
+        # ป๊อปอัปยืนยัน
+        confirm = messagebox.askyesno(
+            "ยืนยันการรีเซ็ต",
+            f"คุณต้องการลบข้อมูลประวัติการสแกนจับคู่รูปภาพทั้งหมดของ '{name}' หรือไม่?\n\n"
+            "* ข้อมูลชื่อและรูปใบหน้าที่ลงทะเบียนของบุคคลนี้จะไม่ถูกลบ และยังคงอยู่ในระบบ *"
+        )
+        
+        if confirm:
+            logger.info(f"Resetting matching history for staff_id={staff_id} ({name})")
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            try:
+                # ลบผลการจับคู่ใน detected_faces ของคนๆ นี้ทั้งหมด
+                cursor.execute("DELETE FROM detected_faces WHERE staff_id = ?", (staff_id,))
+                conn.commit()
+                messagebox.showinfo("รีเซ็ตสำเร็จ", f"รีเซ็ตประวัติการจับคู่ของ '{name}' เรียบร้อยแล้ว")
+                
+                # โหลดตารางข้อมูลใหม่
+                self.load_db_table_data(selected_table_text)
+                
+                # โหลดสถิติหน้าแรกใหม่ด้วย
+                self.refresh_dashboard_stats()
+            except Exception as e:
+                logger.error(f"Error resetting person matching data: {e}", exc_info=True)
+                messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการรีเซ็ตข้อมูล: {e}")
+            finally:
+                conn.close()
 
     # --- ฟังก์ชันเพิ่มเติมใหม่เพื่อการใช้งานที่ง่ายขึ้น ---
 
