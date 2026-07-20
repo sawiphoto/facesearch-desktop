@@ -2394,7 +2394,7 @@ class FaceSearchApp(ctk.CTk):
         self.match_target_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0), padx=5)
         self.match_target_box.grid_columnconfigure((0, 1, 2), weight=1)
         
-        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, anchor="w", padx=15, pady=(5, 2))
+        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(5, 2))
         
         self.match_mode = ctk.StringVar(value="all")
         
