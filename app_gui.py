@@ -2792,9 +2792,11 @@ class FaceSearchApp(ctk.CTk):
             if json_folder_id:
                 self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
             logger.info("[SCHEDULE] Headless scan completed.")
+            return True
             
         except Exception as e:
             logger.error(f"[SCHEDULE] Error in headless scan: {e}")
+            return False
         finally:
             self.scheduler_scanning = False
 

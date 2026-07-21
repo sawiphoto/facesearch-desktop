@@ -149,13 +149,18 @@ class SchedulerTask:
                 # เรียกใช้กระบวนการสแกนของระบบ (ใช้ background scan logic)
                 try:
                     if hasattr(self.app_gui, 'process_scanning_headless'):
-                        self.app_gui.process_scanning_headless([red_folder['id']])
+                        success = self.app_gui.process_scanning_headless([red_folder['id']])
+                        if not success:
+                            print(f"[SCHEDULE] Error: process_scanning_headless aborted for {red_folder['name']}")
+                            logger.error(f"[SCHEDULE] ข้ามโฟลเดอร์ {red_folder['name']} เนื่องจากพบข้อผิดพลาด")
+                            break # หลุดจาก while เพื่อป้องกัน infinite loop
                         print(f"[SCHEDULE] สแกนโฟลเดอร์ {red_folder['name']} เสร็จสิ้นเรียบร้อย")
                     else:
                         print(f"[SCHEDULE] Error: app_gui does not have process_scanning_headless")
                         break
                 except Exception as e:
                     print(f"[SCHEDULE] Error scanning {red_folder['name']}: {e}")
+                    logger.error(f"[SCHEDULE] ข้ามโฟลเดอร์ {red_folder['name']} เนื่องจากพบข้อผิดพลาด: {e}")
                     break # หลุดจาก while เพื่อไม่ให้ค้าง
                     
     def _extract_drive_id(self, url):
