@@ -2748,8 +2748,9 @@ class FaceSearchApp(ctk.CTk):
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
                                 faces = self.analyzer.get_faces(img_cv)
-                                photo_id = f"evt_{img_info['file_id']}"
-                                self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", date_str=None)
+                                photo_serial = self.get_next_photo_serial()
+                                photo_id = f"P{photo_serial:05d}"
+                                self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
                                 
                                 if faces:
                                     for face in faces:
@@ -3235,7 +3236,7 @@ class FaceSearchApp(ctk.CTk):
         # ค้นหาเลข ID สูงสุดใน SQLite ปัจจุบัน
         conn = self.db.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT photo_id FROM scanned_photos ORDER BY photo_id DESC LIMIT 1")
+        cursor.execute("SELECT photo_id FROM scanned_photos WHERE photo_id LIKE 'P%' ORDER BY CAST(SUBSTR(photo_id, 2) AS INTEGER) DESC LIMIT 1")
         row = cursor.fetchone()
         conn.close()
         
