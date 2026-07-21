@@ -2719,7 +2719,8 @@ class FaceSearchApp(ctk.CTk):
                     
                 # Scan Process
                 success_scan_count = 0
-                for img_info in images_to_scan:
+                for idx, img_info in enumerate(images_to_scan):
+                    logger.info(f"[SCHEDULE] กำลังสแกนรูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']}")
                     if getattr(self.scheduler, 'stop_requested', False):
                         break
                     existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
