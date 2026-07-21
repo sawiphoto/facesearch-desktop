@@ -1118,9 +1118,10 @@ class FaceSearchApp(ctk.CTk):
             if not os.path.exists(cred_path):
                 messagebox.showerror("ข้อผิดพลาด", "ไม่พบไฟล์ Service Account JSON กรุณาตั้งค่าในหน้าตั้งค่าระบบก่อน")
                 return
-            success, msg = self.sync_manager.authenticate(cred_path)
+            self.sync_manager.credentials_path = cred_path
+            success = self.sync_manager.connect()
             if not success:
-                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเชื่อมต่อ Google API ได้: {msg}")
+                messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google API ได้ (กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือไฟล์ Service Account)")
                 return
 
         # ปิดปุ่มชั่วคราวเพื่อป้องกันการกดซ้ำ
@@ -3769,9 +3770,10 @@ class FaceSearchApp(ctk.CTk):
             if not os.path.exists(cred_path):
                 messagebox.showerror("ข้อผิดพลาด", "ไม่พบไฟล์ Service Account JSON กรุณาตั้งค่าในหน้าตั้งค่าระบบก่อน")
                 return
-            success, msg = self.sync_manager.authenticate(cred_path)
+            self.sync_manager.credentials_path = cred_path
+            success = self.sync_manager.connect()
             if not success:
-                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเชื่อมต่อ Google API ได้: {msg}")
+                messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google API ได้ (กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือไฟล์ Service Account)")
                 return
 
         # 2. ตรวจสอบ JSON Folder ID
