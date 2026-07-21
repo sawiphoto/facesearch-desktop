@@ -128,9 +128,9 @@ class GoogleSyncManager:
             ).execute()
             all_files = files_results.get("files", [])
             
-            # กรองเฉพาะไฟล์รูปภาพนามสกุลพื้นฐาน (JPG, JPEG, PNG, WEBP) ข้ามไฟล์ตระกูล RAW ตามการอัปเดต v1.7.8
-            valid_exts = ('.jpg', '.jpeg', '.png', '.webp')
-            files = [f for f in all_files if f.get("name", "").lower().endswith(valid_exts)]
+            # กรองเฉพาะไฟล์รูปภาพจาก MimeType (เนื่องจากไฟล์บนคลาวด์บางไฟล์อาจไม่มีนามสกุล) แต่บังคับข้ามไฟล์ RAW (v1.7.8 Hotfix)
+            raw_exts = ('.cr2', '.nef', '.arw', '.dng', '.orf', '.rw2')
+            files = [f for f in all_files if f.get("mimeType", "").startswith("image/") and not f.get("name", "").lower().endswith(raw_exts)]
             
             logger.info(f"Found {len(subdirs)} subfolders and {len(files)} supported images in folder '{curr_event_name}'")
 
