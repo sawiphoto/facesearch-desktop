@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.6
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.7
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,28 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.7.7 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini Pro
+**Model ID:** `gemini-pro`
+**Date:** 21 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. ปุ่มซิงค์ดัชนี JSON ขึ้น Google Drive คัดแยกรายกลุ่มใน SQLite Viewer
+- **ปัญหา:** ก่อนหน้านี้เมื่อแอดมินต้องการสั่งอัปเดตไฟล์ดัชนี JSON บนระบบคลาวด์ Google Drive จะต้องกดซิงค์ทั้งหมดพร้อม Google Sheets ซึ่งใช้เวลามาก หรือต้องรอลูปสแกนทำงานเสร็จสิ้นเท่านั้น
+- **วิธีแก้ไข:** 
+  - สร้างแถบพื้นที่ควบคุมใหม่ `sync_control_frame` ใต้ตาราง Dropdown ของ SQLite Database Viewer
+  - เพิ่มปุ่ม CTkButton จำนวน 3 โหมด สำหรับสั่งซิงค์ดัชนีขึ้น Google Drive โดยตรง:
+    1. **1. ซิงค์ทั้งครูและนักเรียน** (อัปโหลดทั้ง `person_index.json`, `student_index.json` และ `photo_index.json`)
+    2. **2. ซิงค์เฉพาะครู** (กรองและอัปโหลดเฉพาะคุณครูและภาพถ่ายที่เกี่ยวข้อง)
+    3. **3. ซิงค์เฉพาะนักเรียน** (กรองและอัปโหลดเฉพาะนักเรียนและภาพถ่ายที่เกี่ยวข้อง)
+  - พัฒนาเมทอด `run_manual_json_sync(mode)` สั่งประมวลผลผ่าน Background Thread เพื่อความลื่นไหลของหน้าจอ UI
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 3418-3448 และ 3765-3815
 
 ---
 

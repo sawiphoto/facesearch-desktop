@@ -3371,7 +3371,7 @@ class FaceSearchApp(ctk.CTk):
         from tkinter import ttk
         
         self.frame_database.grid_columnconfigure(0, weight=1)
-        self.frame_database.grid_rowconfigure(2, weight=1)
+        self.frame_database.grid_rowconfigure(3, weight=1)
 
         # หัวข้อ
         lbl_title = ctk.CTkLabel(
@@ -3382,7 +3382,7 @@ class FaceSearchApp(ctk.CTk):
 
         # โซนควบคุม (แถวบน)
         control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
-        control_frame.grid(row=1, column=0, sticky="ew", pady=(0, 15), padx=2)
+        control_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10), padx=2)
         
         ctk.CTkLabel(control_frame, text="เลือกตารางข้อมูล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=15)
         
@@ -3420,9 +3420,39 @@ class FaceSearchApp(ctk.CTk):
         btn_export = ctk.CTkButton(control_frame, text="📊 ส่งออก CSV", width=100, fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=self.export_current_table)
         btn_export.pack(side="right", padx=5, pady=15)
 
+        # โซนควบคุมที่สอง: ซิงค์ข้อมูล JSON ขึ้น Google Drive (v1.7.7)
+        sync_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
+        sync_control_frame.grid(row=2, column=0, sticky="ew", pady=(0, 15), padx=2)
+        
+        ctk.CTkLabel(sync_control_frame, text="ซิงค์ดัชนี JSON ไป Google Drive:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
+        
+        self.btn_sync_json_all = ctk.CTkButton(
+            sync_control_frame, text="1. ซิงค์ทั้งครูและนักเรียน", width=165, 
+            fg_color="#8E44AD", hover_color="#7D3C98", text_color="white",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.run_manual_json_sync("all")
+        )
+        self.btn_sync_json_all.pack(side="left", padx=5, pady=10)
+        
+        self.btn_sync_json_teachers = ctk.CTkButton(
+            sync_control_frame, text="2. ซิงค์เฉพาะครู", width=120, 
+            fg_color="#2980B9", hover_color="#2471A3", text_color="white",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.run_manual_json_sync("teachers")
+        )
+        self.btn_sync_json_teachers.pack(side="left", padx=5, pady=10)
+        
+        self.btn_sync_json_students = ctk.CTkButton(
+            sync_control_frame, text="3. ซิงค์เฉพาะนักเรียน", width=140, 
+            fg_color="#D35400", hover_color="#BA4A00", text_color="white",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.run_manual_json_sync("students")
+        )
+        self.btn_sync_json_students.pack(side="left", padx=5, pady=10)
+
         # โซนแสดงตาราง (Treeview)
         table_container = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
-        table_container.grid(row=2, column=0, sticky="nsew", padx=2, pady=(0, 5))
+        table_container.grid(row=3, column=0, sticky="nsew", padx=2, pady=(0, 5))
         table_container.grid_rowconfigure(0, weight=1)
         table_container.grid_columnconfigure(0, weight=1)
 
@@ -3731,6 +3761,56 @@ class FaceSearchApp(ctk.CTk):
                 messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการรีเซ็ตข้อมูล: {e}")
             finally:
                 conn.close()
+
+    def run_manual_json_sync(self, mode):
+        # 1. ตรวจสอบ Authentication
+        if not self.sync_manager.connected:
+            cred_path = self.entry_cred_path.get().strip()
+            if not os.path.exists(cred_path):
+                messagebox.showerror("ข้อผิดพลาด", "ไม่พบไฟล์ Service Account JSON กรุณาตั้งค่าในหน้าตั้งค่าระบบก่อน")
+                return
+            success, msg = self.sync_manager.authenticate(cred_path)
+            if not success:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเชื่อมต่อ Google API ได้: {msg}")
+                return
+
+        # 2. ตรวจสอบ JSON Folder ID
+        json_folder_id = self.entry_json_folder_id.get().strip()
+        if not json_folder_id:
+            messagebox.showerror("ข้อผิดพลาด", "กรุณาระบุ ID โฟลเดอร์เก็บไฟล์ JSON ดัชนีก่อนซิงค์")
+            return
+
+        # 3. กำหนดป้ายแสดงผล
+        mode_th = "ทั้งหมด (ครู+นักเรียน)" if mode == "all" else ("เฉพาะครู" if mode == "teachers" else "เฉพาะนักเรียน")
+        
+        # ปิดปุ่มควบคุมระหว่างทำ sync เพื่อป้องกันการกดซ้อน
+        self.btn_sync_json_all.configure(state="disabled")
+        self.btn_sync_json_teachers.configure(state="disabled")
+        self.btn_sync_json_students.configure(state="disabled")
+
+        def task():
+            try:
+                logger.info(f"[GDRIVE] Manual JSON Sync: starting sync for mode={mode}")
+                sync_data = self.db.get_all_sync_data()
+                
+                # เรียกใช้งาน sync manager เพื่ออัพเดต JSON ไฟล์
+                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode=mode)
+                
+                logger.info(f"[GDRIVE] Manual JSON Sync: mode={mode} completed.")
+                self.after(0, lambda: messagebox.showinfo("ซิงค์สำเร็จ", f"อัปเดตไฟล์ JSON ดัชนีกลุ่ม {mode_th} ขึ้น Google Drive สำเร็จ!"))
+            except Exception as e:
+                logger.error(f"[GDRIVE] Manual JSON Sync Error: {e}", exc_info=True)
+                self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการซิงค์ JSON: {e}"))
+            finally:
+                # เปิดปุ่มให้ใช้งานได้อีกครั้ง
+                self.after(0, lambda: [
+                    self.btn_sync_json_all.configure(state="normal"),
+                    self.btn_sync_json_teachers.configure(state="normal"),
+                    self.btn_sync_json_students.configure(state="normal")
+                ])
+
+        import threading
+        threading.Thread(target=task, daemon=True).start()
 
     # --- ฟังก์ชันเพิ่มเติมใหม่เพื่อการใช้งานที่ง่ายขึ้น ---
 
