@@ -677,6 +677,9 @@ class FaceSearchApp(ctk.CTk):
         # Settings cache
         self.settings = {}
 
+        # --- Scheduler Task ---
+        self.scheduler = SchedulerTask(self.db, self.sync_manager, self.analyzer, self)
+
         # --- จัดทำเลย์เอาต์หลัก ---
         # แบ่งซ้าย (Sidebar Menu) และขวา (Content Pane)
         self.grid_columnconfigure(1, weight=1)
@@ -761,6 +764,13 @@ class FaceSearchApp(ctk.CTk):
             anchor="w", command=lambda: self.select_menu("delete_req")
         )
         self.btn_delete_req.grid(row=7, column=0, padx=15, pady=8, sticky="ew")
+        
+        self.btn_start_schedule = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ Start Schedule Now",
+            fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
+            anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
+        )
+        self.btn_start_schedule.grid(row=8, column=0, padx=15, pady=15, sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -770,7 +780,7 @@ class FaceSearchApp(ctk.CTk):
             text_color="#4F6580"
         )
         self.credit_label.grid(row=9, column=0, pady=20, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(8, weight=1)
+        self.sidebar_frame.grid_rowconfigure(9, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -2657,6 +2667,147 @@ class FaceSearchApp(ctk.CTk):
             self.btn_pause_scan.configure(text="▶️ ดำเนินการต่อ (Continue)", fg_color="#2ECC71", hover_color="#27AE60")
             logger.info("[UI] Scan process paused by user.")
             self.lbl_progress_text.configure(text="⏸️ หยุดพักการสแกนชั่วคราว...")
+
+    def process_scanning_headless(self, folder_ids):
+        """สำหรับเรียกผ่าน Scheduler (ทำงานเงียบๆ ใน Thread ของ Scheduler)"""
+        if not hasattr(self, 'scheduler_scanning'):
+            self.scheduler_scanning = False
+            
+        if self.scheduler_scanning:
+            return
+            
+        self.scheduler_scanning = True
+        try:
+            sheet_id = self.entry_sheets_id.get().strip()
+            if not sheet_id:
+                logger.warning("[SCHEDULE] Sheet ID is empty. Cannot scan headless.")
+                return
+                
+            logger.info("======================= START HEADLESS SCAN =======================")
+            templates = self.db.get_all_embeddings()
+            if len(templates["embeddings"]) == 0:
+                logger.warning("[SCHEDULE] No target embeddings found.")
+                return
+                
+            if not self.sync_manager.connect(sheet_id):
+                logger.error("[SCHEDULE] Failed to connect to Google Sheets.")
+                return
+                
+            use_gpu = self.chk_use_gpu.get()
+            self.analyzer = FaceAnalyzer(use_gpu=use_gpu)
+            if not self.analyzer.initialize():
+                logger.error("[SCHEDULE] Could not initialize FaceAnalyzer.")
+                return
+                
+            # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
+            for f_id in folder_ids:
+                logger.info(f"[SCHEDULE] Processing headless scan for folder ID: {f_id}")
+                images_to_scan = []
+                query = f"'{f_id}' in parents and (mimeType contains 'image/') and trashed = false"
+                try:
+                    results = self.sync_manager.drive_service.files().list(
+                        q=query, fields="nextPageToken, files(id, name, mimeType)", pageSize=500
+                    ).execute()
+                    files = results.get("files", [])
+                    # (Assume subfolders don't have deeper subfolders for this specific task)
+                    for file_info in files:
+                        images_to_scan.append({
+                            "file_id": file_info['id'],
+                            "file_name": file_info['name'],
+                            "event": "HeadlessScan"
+                        })
+                except Exception as e:
+                    logger.error(f"[SCHEDULE] Error listing files in {f_id}: {e}")
+                    continue
+                    
+                # Scan Process
+                for img_info in images_to_scan:
+                    existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
+                    if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
+                        # Fast Rescan
+                        faces = self.db.get_photo_face_embeddings(existing_photo_id)
+                        if len(faces) > 0:
+                            detected_embeddings = np.array([f.embedding for f in faces])
+                            match_results = self.analyzer.match_faces_matrix(
+                                detected_embeddings,
+                                templates["embeddings"],
+                                templates["names"],
+                                templates["staff_ids"],
+                                threshold=0.5
+                            )
+                            # Update DB
+                            for m_res in match_results:
+                                if m_res:
+                                    self.db.save_detected_face(existing_photo_id, m_res["staff_id"], m_res["confidence"])
+                    else:
+                        # Full Scan
+                        img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
+                        if img_bytes:
+                            import cv2
+                            nparr = np.frombuffer(img_bytes, np.uint8)
+                            img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            if img_cv is not None:
+                                faces = self.analyzer.get_faces(img_cv)
+                                photo_id = f"evt_{img_info['file_id']}"
+                                self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", date_str=None)
+                                
+                                if faces:
+                                    for face in faces:
+                                        self.db.save_photo_face_embedding(photo_id, face.bbox, face.embedding)
+                                        
+                                    detected_embeddings = np.array([f.embedding for f in faces])
+                                    match_results = self.analyzer.match_faces_matrix(
+                                        detected_embeddings,
+                                        templates["embeddings"],
+                                        templates["names"],
+                                        templates["staff_ids"],
+                                        threshold=0.5
+                                    )
+                                    for m_res in match_results:
+                                        if m_res:
+                                            self.db.save_detected_face(photo_id, m_res["staff_id"], m_res["confidence"])
+
+            # อัปเดตข้อมูลขึ้น Sheet
+            sync_data = self.db.get_all_sync_data()
+            self.sync_manager.sync_to_google_sheet(sync_data)
+            logger.info("[SCHEDULE] Headless scan completed.")
+            
+        except Exception as e:
+            logger.error(f"[SCHEDULE] Error in headless scan: {e}")
+        finally:
+            self.scheduler_scanning = False
+
+    def process_retroactive_match_headless(self, matched_faces_to_process):
+        """ทำ Retroactive Match เงียบๆ สำหรับหน้าใหม่ที่เพิ่งเพิ่ม (เทียบกับแคชทั้งหมด)"""
+        logger.info(f"[SCHEDULE] Running retroactive match for {len(matched_faces_to_process)} faces...")
+        try:
+            # ดึงแคชทั้งหมด
+            with self.db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT photo_id, embedding FROM scanned_photo_faces")
+                cached_faces = c.fetchall()
+            
+            for item in matched_faces_to_process:
+                staff_id = item["staff_id"]
+                target_emb = item["emb"]
+                target_norm = target_emb / (np.linalg.norm(target_emb) or 1.0)
+                
+                for row in cached_faces:
+                    photo_id = row[0]
+                    emb_blob = row[1]
+                    cached_emb = np.frombuffer(emb_blob, dtype=np.float32)
+                    c_norm = cached_emb / (np.linalg.norm(cached_emb) or 1.0)
+                    
+                    sim = np.dot(target_norm, c_norm)
+                    if sim >= 0.5: # Threshold
+                        self.db.save_detected_face(photo_id, staff_id, sim)
+            
+            # อัปเดตข้อมูลขึ้น Sheet
+            sync_data = self.db.get_all_sync_data()
+            self.sync_manager.sync_to_google_sheet(sync_data)
+            
+        except Exception as e:
+            logger.error(f"[SCHEDULE] Error in retroactive match: {e}")
 
     def run_scanning_process(self, folder_id, sheet_id):
         # ฟังก์ชันหลักสำหรับ Thread ย่อย

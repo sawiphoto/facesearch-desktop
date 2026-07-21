@@ -11,7 +11,15 @@
       "Bash(jq --version)",
       "Bash(python -c \"import sys, json, os, subprocess; d=json.load\\(sys.stdin\\); parts=[]; cd=d.get\\('workspace',{}\\).get\\('current_dir',''\\); cd and parts.append\\('/'.join\\(cd.replace\\('\\\\\\\\','/'\\).split\\('/'\\)[-2:]\\)\\); git_dir=subprocess.run\\(['git','rev-parse','--git-dir'],capture_output=True\\); git_dir.returncode==0 and parts.append\\(f\\\\\"[{subprocess.run\\(['git','branch','--show-current'],capture_output=True\\).stdout.decode\\(\\).strip\\(\\)}]\\\\\"\\); mn=d.get\\('model',{}\\).get\\('display_name'\\); mn and parts.append\\(mn\\); u=d.get\\('context_window',{}\\).get\\('used_percentage'\\); r=d.get\\('context_window',{}\\).get\\('remaining_percentage'\\); parts.append\\(f'Ctx: {u}%/{r}%'\\) if u and r else \\(parts.append\\(f'Ctx: {u}%'\\) if u else None\\); sn=d.get\\('session_name'\\); sn and parts.append\\(f'\\({sn}\\)'\\); print\\(' | '.join\\(parts\\)\\)\")",
       "Bash(python .claude/statusline.py)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)",
+      "Bash(git tag *)",
+      "Bash(gh auth *)",
+      "Bash(git remote)",
+      "Bash(git push *)",
+      "Bash(git rm *)",
+      "Bash(git commit *)"
     ]
   }
 }

@@ -36,7 +36,8 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 role TEXT DEFAULT 'teacher',
-                student_id TEXT
+                student_id TEXT,
+                pin_code TEXT
             )
             """)
 
@@ -116,6 +117,13 @@ class DatabaseManager:
             try:
                 cursor.execute("ALTER TABLE staff_members ADD COLUMN student_id TEXT")
                 logger.info("Executed database migration: added student_id to staff_members.")
+            except Exception:
+                pass # คอลัมน์อาจจะมีอยู่แล้ว
+
+            # Migration: เพิ่มคอลัมน์ pin_code (v1.7.9)
+            try:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN pin_code TEXT")
+                logger.info("Executed database migration: added pin_code to staff_members.")
             except Exception:
                 pass # คอลัมน์อาจจะมีอยู่แล้ว
 
@@ -262,40 +270,38 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else 0
 
-    def register_member(self, name, role='teacher', student_id=None):
-        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student) และ student_id (สำหรับนักเรียน)"""
+    def register_member(self, name, role='teacher', student_id=None, pin_code=None):
+        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student), student_id และ pin_code (สำหรับนักเรียน)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if role == 'student' and student_id:
-                    # นักเรียน: ใช้ student_id เป็น unique identifier
-                    cursor.execute("INSERT INTO staff_members (name, role, student_id) VALUES (?, ?, ?)", (name, role, student_id))
+                    cursor.execute("INSERT INTO staff_members (name, role, student_id, pin_code) VALUES (?, ?, ?, ?)", (name, role, student_id, pin_code))
                     conn.commit()
                     logger.info(f"Registered new {role}: {name} (ID: {student_id})")
                     return cursor.lastrowid
                 elif role == 'student':
-                    # นักเรียนแต่ไม่มี student_id - ใช้ unique constraint บน name+role
-                    cursor.execute("INSERT INTO staff_members (name, role) VALUES (?, ?)", (name, role))
+                    cursor.execute("INSERT INTO staff_members (name, role, pin_code) VALUES (?, ?, ?)", (name, role, pin_code))
                     conn.commit()
                     logger.info(f"Registered new {role}: {name} (WARNING: no student_id)")
                     return cursor.lastrowid
                 else:
-                    # ครู: ใช้ unique constraint บน name+role
                     cursor.execute("INSERT INTO staff_members (name, role) VALUES (?, ?)", (name, role))
                     conn.commit()
                     logger.info(f"Registered new {role}: {name}")
                     return cursor.lastrowid
-            except sqlite3.IntegrityError as e:
-                # ลองดึงจาก student_id ก่อน (สำหรับนักเรียน)
-                if student_id:
-                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ?", (student_id,))
-                    row = cursor.fetchone()
-                    if row:
-                        return row[0]
-                # ถ้าไม่มี ลองดึงจาก name+role
-                cursor.execute("SELECT id FROM staff_members WHERE name = ? AND role = ?", (name, role))
+            except sqlite3.IntegrityError:
+                # กรณีมีชื่อซ้ำหรือ student_id ซ้ำ ดึงไอดีเดิมส่งกลับไป
+                if role == 'student' and student_id:
+                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ? AND role = 'student'", (student_id,))
+                else:
+                    cursor.execute("SELECT id FROM staff_members WHERE name = ? AND role = ?", (name, role))
+                
                 row = cursor.fetchone()
-                return row[0] if row else None
+                if row:
+                    logger.info(f"{role.capitalize()} '{name}' already registered (ID: {row[0]}).")
+                    return row[0]
+                return None
 
     def delete_staff_member(self, staff_id):
         """ลบข้อมูลครูและลบความสัมพันธ์อื่น ๆ ทั้งหมด (Cascaded)"""
