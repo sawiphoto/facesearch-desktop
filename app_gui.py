@@ -2754,8 +2754,7 @@ class FaceSearchApp(ctk.CTk):
                                 self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
                                 
                                 if faces:
-                                    for face in faces:
-                                        self.db.save_photo_face_embedding(photo_id, face.bbox, face.embedding)
+                                    self.db.save_photo_face_embeddings(photo_id, faces)
                                         
                                     detected_embeddings = np.array([f.embedding for f in faces])
                                     match_results = self.analyzer.match_faces_matrix(

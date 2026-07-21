@@ -71,6 +71,8 @@ All SQLite DB verification tests passed successfully:
 - **วิธีแก้:** เข้าไปคอมเมนต์บรรทัดคำสั่ง `logger.debug` ทิ้งในไฟล์ `face_analyzer.py` และ `db_manager.py` และเปลี่ยน Log ข้อมูลฐานข้อมูลใน `app_gui.py` ไม่ให้รกหน้าจอ
 - **ปัญหา:** เกิด Error โค้ดหยุดทำงานกลางคันใน `scheduler_task.py` เนื่องจากหาโมดูล `pytz` ไม่พบ
 - **วิธีแก้:** เปลี่ยนการพึ่งพาโมดูลภายนอกอย่าง `pytz` เป็นการใช้ระบบจัดการเวลาภายในตัวของ Python แทน โดยเรียกใช้ฟังก์ชัน `datetime.timezone` และ `timedelta(hours=7)` ทำให้โปรแกรมสามารถระบุเวลาเป็น `Asia/Bangkok` ได้อย่างแม่นยำแม้ไม่ได้ลง Extension พิเศษ
+- **ปัญหา:** `Headless Scan` แจ้ง Error ว่า `DatabaseManager object has no attribute 'save_photo_face_embedding'`
+- **วิธีแก้:** แก้ไขชื่อฟังก์ชันและวิธีการเรียกใช้ใน `app_gui.py` ให้ถูกต้องเป็น `save_photo_face_embeddings` (เติม s) และส่งพารามิเตอร์แบบ List ของใบหน้าไปให้ทีเดียว ทำให้ลดการวนลูปซ้ำซ้อนและป้องกัน Error ได้สำเร็จ
 
 ---
 
