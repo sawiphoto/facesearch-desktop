@@ -128,10 +128,11 @@ class GoogleSyncManager:
             ).execute()
             all_files = files_results.get("files", [])
             
-            # กรองเฉพาะไฟล์รูปภาพ (MimeType ขึ้นต้นด้วย 'image/' หรือนามสกุลไฟล์ลงท้ายด้วย .cr2) เพื่อความเสถียรและหลีกเลี่ยง API 400 Error
-            files = [f for f in all_files if f.get("mimeType", "").startswith("image/") or f.get("name", "").lower().endswith(".cr2")]
+            # กรองเฉพาะไฟล์รูปภาพนามสกุลพื้นฐาน (JPG, JPEG, PNG, WEBP) ข้ามไฟล์ตระกูล RAW ตามการอัปเดต v1.7.8
+            valid_exts = ('.jpg', '.jpeg', '.png', '.webp')
+            files = [f for f in all_files if f.get("name", "").lower().endswith(valid_exts)]
             
-            logger.info(f"Found {len(subdirs)} subfolders and {len(files)} images in folder '{curr_event_name}'")
+            logger.info(f"Found {len(subdirs)} subfolders and {len(files)} supported images in folder '{curr_event_name}'")
 
             # เก็บไฟล์รูปภาพ
             for file in files:

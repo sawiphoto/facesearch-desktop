@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.7
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.8
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,25 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.7.8 Changelog
+
+**Developer Agent:** Antigravity (Google DeepMind)
+**Model:** Gemini 3.1 Pro (High)
+**Model ID:** `gemini-pro`
+**Date:** 21 กรกฎาคม 2026
+
+### ฟีเจอร์ใหม่ / ปรับปรุง (New Features & Improvements)
+
+#### 1. ข้ามการประมวลผลไฟล์ภาพ RAW (Skip RAW Files)
+- **ปัญหา:** เดิมทีระบบพยายามโหลดภาพ RAW (เช่น `.cr2` จากกล้อง Canon) แล้วนำมาแปลงผ่านหน่วยความจำด้วยไลบรารี `rawpy` เป็นสกุล JPG ก่อนส่งให้ AI วิเคราะห์ ซึ่งใช้เวลานานและสิ้นเปลืองทรัพยากรมากเกินความจำเป็น
+- **วิธีแก้ไข:** 
+  - ลบตรรกะการแปลงไฟล์ RAW ด้วยไลบรารี `rawpy` ออกจากส่วนของการสแกนไฟล์ผ่าน `app_gui.py` ทั้งจาก Google Drive และโหมดนำเข้าจาก Local Folder เพื่อให้โหลดภาพโดยตรงด้วย OpenCV `imdecode`
+  - สร้างตัวกรองชื่อไฟล์นามสกุล (File Extension Filter) แบบ Strict ให้กรองเฉพาะรูปภาพพื้นฐานได้แก่ `.jpg`, `.jpeg`, `.png`, และ `.webp` เท่านั้น สำหรับการดึงไฟล์ในระบบ Google Drive `gdrive_sync.py` และระบบดึงไฟล์เครื่อง `app_gui.py`
+  - ลบโค้ดการจัดการไฟล์ Cache รูปภาพแบบชั่วคราวทิ้ง เนื่องจากไม่มีการสร้างภาพจำลอง RAW-to-JPG อีกต่อไป
+- **สถานะ:** ✅ **ได้ implement แล้ว** ใน [app_gui.py](app_gui.py) บรรทัด 2901-2910 และ 4157-4240 และ [gdrive_sync.py](gdrive_sync.py) บรรทัด 131-133
 
 ---
 

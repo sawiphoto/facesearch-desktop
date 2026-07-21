@@ -2901,32 +2901,9 @@ class FaceSearchApp(ctk.CTk):
                     logger.error(f"Cannot download image {img_info['file_name']}. Skipping.")
                     continue
 
-                # แปลงเป็นรูปภาพ OpenCV
-                if img_info['file_name'].lower().endswith('.cr2'):
-                    logger.info(f"[SYSTEM] Detected Canon RAW image (.CR2). Converting to JPG in memory...")
-                    try:
-                        import rawpy
-                        # เขียนไบต์ดิบลงไฟล์ชั่วคราวชั่วครู่
-                        temp_raw_path = os.path.join(get_project_root(), "data", f"temp_raw_{int(time.time())}.cr2")
-                        with open(temp_raw_path, "wb") as f:
-                            f.write(img_bytes)
-                        
-                        # ประมวลผลภาพดิบผ่าน rawpy
-                        with rawpy.imread(temp_raw_path) as raw:
-                            rgb = raw.postprocess()
-                        
-                        # ลบไฟล์ชั่วคราวออกทันที
-                        if os.path.exists(temp_raw_path):
-                            os.remove(temp_raw_path)
-                            
-                        # แปลงเป็น BGR ของ OpenCV
-                        img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                    except Exception as e:
-                        logger.error(f"[SYSTEM] Error converting CR2 image {img_info['file_name']}: {e}")
-                        continue
-                else:
-                    nparr = np.frombuffer(img_bytes, np.uint8)
-                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                # แปลงเป็นรูปภาพ OpenCV (รองรับเฉพาะไฟล์รูปภาพปกติ เช่น JPG, PNG, WEBP)
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
                 if img is None:
                     logger.error(f"Cannot decode image {img_info['file_name']}. Skipping.")
@@ -4177,8 +4154,8 @@ class FaceSearchApp(ctk.CTk):
                 existing_paths = [row[0] for row in cursor.fetchall()]
                 conn.close()
                 
-                # กวาดหาภาพถ่ายทั้งหมดในโฟลเดอร์ครูคนนั้น
-                valid_extensions = (".jpg", ".jpeg", ".png", ".webp", ".cr2")
+                # กวาดหาภาพถ่ายทั้งหมดในโฟลเดอร์ครูคนนั้น (อัปเดต v1.7.8: ข้ามไฟล์ RAW)
+                valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
                 files = [f for f in os.listdir(path) if os.path.splitext(f)[1].lower() in valid_extensions]
                 
                 if not files:
@@ -4206,31 +4183,6 @@ class FaceSearchApp(ctk.CTk):
                     logger.info(f"[FACE_AI] ({f_idx+1}/{len(files)}) กำลังตรวจหาพิกัดใบหน้าจาก: {file}")
                     
                     process_path = filepath
-                    is_temp = False
-                    
-                    # ถ้าเป็นภาพดิบกล้อง Canon (.CR2) แปลงเป็น JPG ก่อน
-                    if file.lower().endswith(".cr2"):
-                        logger.info(f"[SYSTEM] พบภาพ RAW (.CR2) แปลงเป็น JPG ก่อนประมวลผล...")
-                        try:
-                            with rawpy.imread(filepath) as raw:
-                                rgb = raw.postprocess()
-                            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                            
-                            temp_dir = os.path.join(get_project_root(), "data")
-                            os.makedirs(temp_dir, exist_ok=True)
-                            
-                            temp_jpg_path = os.path.join(temp_dir, f"temp_raw_{int(time.time())}_{f_idx}.jpg")
-                            success, img_encoded = cv2.imencode('.jpg', bgr)
-                            if success:
-                                img_encoded.tofile(temp_jpg_path)
-                                process_path = temp_jpg_path
-                                is_temp = True
-                            else:
-                                logger.error(f"[SYSTEM] ล้มเหลวในการแปลงภาพ CR2 เป็น JPG: {file}")
-                                continue
-                        except Exception as e:
-                            logger.error(f"[SYSTEM] เกิดข้อผิดพลาดในการแปลงไฟล์ CR2 {file}: {e}")
-                            continue
                             
                     try:
                         # ค้นหาเวกเตอร์ใบหน้าในรูปภาพ
@@ -4264,13 +4216,6 @@ class FaceSearchApp(ctk.CTk):
                         
                     except Exception as img_err:
                         logger.error(f"[FACE_AI] เกิดข้อผิดพลาดขณะประมวลผลภาพ {file}: {img_err}")
-                    finally:
-                        # ลบภาพชั่วคราวทิ้ง (ถ้ามี)
-                        if is_temp and os.path.exists(process_path):
-                            try:
-                                os.remove(process_path)
-                            except Exception:
-                                pass
                                 
             # 3. นำเข้าจบกระบวนการ -> รีเฟรชหน้า GUI เธรดหลัก
             logger.info(f"[SYSTEM] นำเข้าครูและใบหน้าทั้งหมดเสร็จสิ้น รวมลงทะเบียน {total_imported_photos} รูป")
