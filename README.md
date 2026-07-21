@@ -60,6 +60,20 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.8.2 Changelog
+**Developer Agent:** Antigravity (Google DeepMind) | **Model:** Gemini 1.5 Pro
+**วันที่อัปเดต:** 21 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหา (Bug Fixes & Refinements)
+- **ปัญหา:** `Schedule Task` หรือ `Headless Scan` ขาดการอัปเดตไฟล์ JSON บน Google Drive (พ่น Log แค่ Sync to Google Sheets แต่ไม่มีไฟล์ JSON 3 ตัว)
+- **วิธีแก้:** ไปเพิ่มโค้ดบรรทัด `self.sync_manager.update_json_indexes_on_drive` ต่อท้ายการอัปเดต Google Sheet ทั้งในส่วนของ Chunk Sync (ทุก 500 รูป) และ Final Sync ตอนทำงานเสร็จ ภายในโค้ดชุด `process_scanning_headless` ของไฟล์ `app_gui.py` 
+- **ปัญหา:** หน้าจอ Console มี Log แจ้งเตือนยิบย่อยเยอะเกินไป (เช่น `DEBUG: Face #... matched with template...` หรือ `Loading SQLite table data`) 
+- **วิธีแก้:** เข้าไปคอมเมนต์บรรทัดคำสั่ง `logger.debug` ทิ้งในไฟล์ `face_analyzer.py` และ `db_manager.py` และเปลี่ยน Log ข้อมูลฐานข้อมูลใน `app_gui.py` ไม่ให้รกหน้าจอ
+- **ปัญหา:** เกิด Error โค้ดหยุดทำงานกลางคันใน `scheduler_task.py` เนื่องจากหาโมดูล `pytz` ไม่พบ
+- **วิธีแก้:** เปลี่ยนการพึ่งพาโมดูลภายนอกอย่าง `pytz` เป็นการใช้ระบบจัดการเวลาภายในตัวของ Python แทน โดยเรียกใช้ฟังก์ชัน `datetime.timezone` และ `timedelta(hours=7)` ทำให้โปรแกรมสามารถระบุเวลาเป็น `Asia/Bangkok` ได้อย่างแม่นยำแม้ไม่ได้ลง Extension พิเศษ
+
+---
+
 ## 📋 Version 1.8 Changelog
 **วันที่อัปเดต:** 21 กรกฎาคม 2026
 

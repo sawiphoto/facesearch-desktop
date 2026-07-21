@@ -2775,6 +2775,9 @@ class FaceSearchApp(ctk.CTk):
                         logger.info(f"[SCHEDULE] Reached {success_scan_count} images. Syncing JSON chunk...")
                         sync_data = self.db.get_all_sync_data()
                         self.sync_manager.sync_to_google_sheet(sync_data)
+                        json_folder_id = self.entry_json_folder_id.get().strip()
+                        if json_folder_id:
+                            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
                         
                     # เช็คปุ่ม Stop
                     if getattr(self.scheduler, 'stop_requested', False):
@@ -2784,6 +2787,9 @@ class FaceSearchApp(ctk.CTk):
             # อัปเดตข้อมูลขึ้น Sheet (Final Sync)
             sync_data = self.db.get_all_sync_data()
             self.sync_manager.sync_to_google_sheet(sync_data)
+            json_folder_id = self.entry_json_folder_id.get().strip()
+            if json_folder_id:
+                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
             logger.info("[SCHEDULE] Headless scan completed.")
             
         except Exception as e:
