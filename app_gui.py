@@ -2748,7 +2748,7 @@ class FaceSearchApp(ctk.CTk):
                             nparr = np.frombuffer(img_bytes, np.uint8)
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
-                                faces = self.analyzer.get_faces(img_cv)
+                                faces = self.analyzer.app.get(img_cv)
                                 photo_serial = self.get_next_photo_serial()
                                 photo_id = f"P{photo_serial:05d}"
                                 self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
