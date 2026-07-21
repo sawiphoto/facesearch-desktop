@@ -16,6 +16,7 @@ import cv2
 from db_manager import DatabaseManager
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root
 from gdrive_sync import GoogleSyncManager
+from scheduler_task import SchedulerTask
 
 # ตั้งค่าการบันทึก Log หลัก
 logger = logging.getLogger("FaceSearchApp")
@@ -764,13 +765,19 @@ class FaceSearchApp(ctk.CTk):
             anchor="w", command=lambda: self.select_menu("delete_req")
         )
         self.btn_delete_req.grid(row=7, column=0, padx=15, pady=8, sticky="ew")
-        
         self.btn_start_schedule = ctk.CTkButton(
             self.sidebar_frame, text="▶️ Start Schedule Now",
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=8, column=0, padx=15, pady=15, sticky="ew")
+        self.btn_start_schedule.grid(row=8, column=0, padx=15, pady=(15, 5), sticky="ew")
+
+        self.btn_stop_schedule = ctk.CTkButton(
+            self.sidebar_frame, text="🛑 Stop Schedule Task",
+            fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
+            anchor="w", command=lambda: self.scheduler.request_stop()
+        )
+        self.btn_stop_schedule.grid(row=9, column=0, padx=15, pady=(5, 15), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -779,8 +786,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=9, column=0, pady=20, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(9, weight=1)
+        self.credit_label.grid(row=10, column=0, pady=20, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(10, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -2721,7 +2728,10 @@ class FaceSearchApp(ctk.CTk):
                     continue
                     
                 # Scan Process
+                success_scan_count = 0
                 for img_info in images_to_scan:
+                    if getattr(self.scheduler, 'stop_requested', False):
+                        break
                     existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
                     if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
                         # Fast Rescan
@@ -2766,8 +2776,21 @@ class FaceSearchApp(ctk.CTk):
                                     for m_res in match_results:
                                         if m_res:
                                             self.db.save_detected_face(photo_id, m_res["staff_id"], m_res["confidence"])
+                    
+                    success_scan_count += 1
+                    
+                    # Chunk Sync: อัปเดต JSON ทุกๆ 500 รูป
+                    if success_scan_count % 500 == 0:
+                        logger.info(f"[SCHEDULE] Reached {success_scan_count} images. Syncing JSON chunk...")
+                        sync_data = self.db.get_all_sync_data()
+                        self.sync_manager.sync_to_google_sheet(sync_data)
+                        
+                    # เช็คปุ่ม Stop
+                    if getattr(self.scheduler, 'stop_requested', False):
+                        logger.info("[SCHEDULE] Headless scan stopped by user.")
+                        break
 
-            # อัปเดตข้อมูลขึ้น Sheet
+            # อัปเดตข้อมูลขึ้น Sheet (Final Sync)
             sync_data = self.db.get_all_sync_data()
             self.sync_manager.sync_to_google_sheet(sync_data)
             logger.info("[SCHEDULE] Headless scan completed.")

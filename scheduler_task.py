@@ -5,7 +5,6 @@ import logging
 import threading
 import traceback
 import schedule
-import pandas as pd
 from datetime import datetime
 
 logger = logging.getLogger("FaceSearchApp")
@@ -17,6 +16,7 @@ class SchedulerTask:
         self.analyzer = face_analyzer
         self.app_gui = app_gui
         self.is_running = False
+        self.stop_requested = False
         
         # Schedule midnight trigger
         schedule.every().day.at("00:00").do(self.run_scheduled_tasks)
@@ -24,6 +24,11 @@ class SchedulerTask:
         # Start background thread
         self.thread = threading.Thread(target=self._scheduler_loop, daemon=True)
         self.thread.start()
+
+    def request_stop(self):
+        if self.is_running:
+            self.stop_requested = True
+            print("[SCHEDULE] ร้องขอการหยุดทำงานชั่วคราว... กำลังสรุปผลในรอบปัจจุบัน")
 
     def _scheduler_loop(self):
         while True:
@@ -41,18 +46,36 @@ class SchedulerTask:
             return
             
         self.is_running = True
+        self.stop_requested = False
         try:
             print("="*50)
-            print("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v1.7.9)")
+            print("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v1.8)")
             print("="*50)
+            
+            # Ensure Google API is connected
+            if not self.sync_manager.connected:
+                self.sync_manager.connect()
+                
+            # Ensure Analyzer is initialized
+            if self.analyzer is None:
+                try:
+                    from face_ai import FaceAnalyzer
+                    self.analyzer = FaceAnalyzer(use_gpu=False)
+                    self.analyzer.initialize()
+                except Exception as e:
+                    logger.error(f"[SCHEDULE] Warning: FaceAnalyzer init failed: {e}")
             
             # Task 1: Check New Folders
             self._task_1_scan_new_folders()
             
-            # Task 2: Check New Students
-            self._task_2_sync_new_students()
+            if not self.stop_requested:
+                # Task 2: Check New Students
+                self._task_2_sync_new_students()
             
-            print("[SCHEDULE] กระบวนการทำงานอัตโนมัติเสร็จสมบูรณ์")
+            import pytz
+            bkk_tz = pytz.timezone('Asia/Bangkok')
+            bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[SCHEDULE] กระบวนการทำงานอัตโนมัติเสร็จสมบูรณ์ ({bkk_time} BKK)")
             print("="*50)
             
         except Exception as e:
@@ -61,6 +84,7 @@ class SchedulerTask:
             logger.debug(traceback.format_exc())
         finally:
             self.is_running = False
+            self.stop_requested = False
 
     def _get_unscanned_subfolder(self, root_folder_id):
         """ค้นหาโฟลเดอร์ย่อย 1 โฟลเดอร์ที่มีรูปยังไม่ได้สแกน"""
@@ -114,18 +138,19 @@ class SchedulerTask:
         ]
         
         for year_name, year_id in target_folders:
-            print(f"[SCHEDULE] ตรวจสอบโฟลเดอร์หลัก: {year_name}")
+            if self.stop_requested: break
             while True:
+                if self.stop_requested: break
                 red_folder = self._get_unscanned_subfolder(year_id)
                 if not red_folder:
-                    print(f"[SCHEDULE] โฟลเดอร์ {year_name} ไม่มีโฟลเดอร์ย่อยที่ต้องสแกนแล้ว (สีเขียวหมด)")
                     break
                     
-                print(f"[SCHEDULE] กำลังทำ task โฟลเดอร์ใหม่ -> สแกนโฟลเดอร์: {red_folder['name']}")
+                print(f"[SCHEDULE] เริ่มทำการสแกนรูปภาพในโฟลเดอร์: {red_folder['name']}")
                 # เรียกใช้กระบวนการสแกนของระบบ (ใช้ background scan logic)
                 try:
                     if hasattr(self.app_gui, 'process_scanning_headless'):
                         self.app_gui.process_scanning_headless([red_folder['id']])
+                        print(f"[SCHEDULE] สแกนโฟลเดอร์ {red_folder['name']} เสร็จสิ้นเรียบร้อย")
                     else:
                         print(f"[SCHEDULE] Error: app_gui does not have process_scanning_headless")
                         break
@@ -152,7 +177,6 @@ class SchedulerTask:
             self.sync_manager.connect(sheet_id)
             sheet = self.sync_manager.gspread_client.open_by_key(sheet_id).sheet1
             data = sheet.get_all_records()
-            df = pd.DataFrame(data)
         except Exception as e:
             print(f"[SCHEDULE] ไม่สามารถอ่าน Sheet ข้อมูลนักเรียนได้: {e}")
             return
@@ -177,7 +201,7 @@ class SchedulerTask:
         col_img2 = "ภาพใบหน้าเพิ่มเติม1"
         col_img3 = "ภาพใบหน้าเพิ่มเติม2"
         
-        for index, row in df.iterrows():
+        for row in data:
             std_id = str(row.get(col_id, "")).strip()
             if not std_id:
                 continue

@@ -60,6 +60,25 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.8 Changelog
+**วันที่อัปเดต:** 21 กรกฎาคม 2026
+
+#### 1. ปุ่ม 🛑 Stop Schedule Task
+- เพิ่มปุ่มสำหรับสั่งหยุดการทำงานของ Schedule ชั่วคราว (ปุ่มอยู่แถบซ้ายมือล่าง ใต้ปุ่ม Start Schedule)
+- เมื่อกดปุ่ม ระบบจะรีบสรุปผลลัพธ์ของรอบบิลนั้น, อัปเดตข้อมูลไฟล์ JSON ขั้นสุดท้ายลง Google Drive และจบการทำงานแบบคลีน (Graceful Shutdown)
+- ปรับการรายงานเวลาสำเร็จ ให้ดึง Timezone เป็น `Asia/Bangkok` เพื่อความแม่นยำ
+
+#### 2. Chunking Logic (โหมด Headless/Schedule)
+- นำระบบการซิงค์ข้อมูล (Sync to Google Sheets / JSON) ทุกๆ 500 รูป มาปรับใช้ในโหมด Headless (ที่ Schedule ใช้งาน)
+- หากข้อมูลมีไม่ถึง 500 รูป หรือเศษที่เหลือ จะถูกสรุปและซิงค์ตอนท้ายสุด (Final Sync) ตามปกติ
+
+#### 3. ปรับปรุงข้อความ Log
+- ลดความรกของ Log จากที่โวยวายทุกโฟลเดอร์ย่อย (รวมถึงที่ไม่เจอรูป) ให้เหลือเฉพาะ 2 จังหวะสำคัญ:
+  1. `[SCHEDULE] เริ่มทำการสแกนรูปภาพในโฟลเดอร์: {folder_name}`
+  2. `[SCHEDULE] สแกนโฟลเดอร์ {folder_name} เสร็จสิ้นเรียบร้อย`
+
+---
+
 ## 📋 Version 1.7.9 Changelog
 
 **Developer Agent:** Antigravity (Google DeepMind)
@@ -84,6 +103,12 @@ All SQLite DB verification tests passed successfully:
   - เมื่อได้เวกเตอร์ใหม่แล้ว ระบบจะเรียกใช้ฟีเจอร์ "Retroactive Matching" เพื่อจับคู่เวกเตอร์ใบหน้า "เฉพาะใบใหม่" นี้ กับประวัติใบหน้าที่แคชไว้จากภาพกิจกรรมทั้งหมด (Fast Re-scan แบบ Local) เพื่อดึงผลรูปเก่าให้โดยอัตโนมัติ
   - รองรับการเก็บรหัสส่วนตัว 6 หลัก (pin_code) ไว้ในตาราง SQLite ของบุคลากร เพื่อใช้สำหรับอ้างอิงและค้นหาในอนาคต (ไม่มีผลต่อ Face Matching)
 - **สถานะ:** ✅ **ได้ implement แล้ว** ใน [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py) และ [scheduler_task.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py)
+
+#### 3. การแก้บั๊ก (Hotfixes)
+- **ปัญหา NoneType ใน Drive API:** เดิมทีระบบพยายามสแกนโฟลเดอร์สีแดงก่อนที่จะกดเชื่อมต่อ Google API ทำให้เกิด Error `NoneType object has no attribute files`
+  - **วิธีแก้ไข:** เพิ่มการตรวจสอบและเชื่อมต่อ `self.sync_manager.connect()` ก่อนเข้าสู่ Task 1
+- **ปัญหา NoneType ในโมเดล AI (FaceAnalyzer):** เมื่อมีการรัน Background Task ก่อนที่แอดมินจะกดปุ่มสแกนบนหน้าจอ ระบบยังไม่ได้โหลดโมเดลเข้าหน่วยความจำ ทำให้การสกัดเวกเตอร์รูปนักเรียนล้มเหลว
+  - **วิธีแก้ไข:** เพิ่มการโหลดโมเดลและ initialze ให้ทำงานใน Background Thread อัตโนมัติหากพบว่ายังไม่ได้โหลดโมเดล
 
 ---
 
