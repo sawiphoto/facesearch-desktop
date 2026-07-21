@@ -349,7 +349,7 @@ class FaceAnalyzer:
             max_idx = np.argmax(scores)
             max_score = scores[max_idx]
 
-            logger.debug(f"Face #{i+1} matched with template #{max_idx} ({template_names[max_idx]}) - score: {max_score:.4f}")
+            # logger.debug(f"Face #{i+1} matched with template #{max_idx} ({template_names[max_idx]}) - score: {max_score:.4f}")
 
             if max_score >= threshold:
                 results.append({

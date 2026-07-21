@@ -3627,7 +3627,7 @@ class FaceSearchApp(ctk.CTk):
         if not selected_table_text:
             selected_table_text = self.option_db_table.get()
 
-        logger.info(f"Loading SQLite table data: {selected_table_text}")
+        # logger.info(f"Loading SQLite table data: {selected_table_text}")
         
         # ล้างข้อมูลเดิมใน Treeview
         self.db_tree.delete(*self.db_tree.get_children())

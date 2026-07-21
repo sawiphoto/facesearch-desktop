@@ -72,8 +72,8 @@ class SchedulerTask:
                 # Task 2: Check New Students
                 self._task_2_sync_new_students()
             
-            import pytz
-            bkk_tz = pytz.timezone('Asia/Bangkok')
+            from datetime import datetime, timedelta, timezone
+            bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[SCHEDULE] กระบวนการทำงานอัตโนมัติเสร็จสมบูรณ์ ({bkk_time} BKK)")
             print("="*50)

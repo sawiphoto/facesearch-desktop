@@ -530,7 +530,7 @@ class DatabaseManager:
                         (photo_id, staff_id, confidence)
                     )
                 conn.commit()
-                logger.debug(f"Saved {len(matches)} matches to detected_faces for photo_id: {photo_id}")
+                # logger.debug(f"Saved {len(matches)} matches to detected_faces for photo_id: {photo_id}")
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Error saving detected faces for photo_id {photo_id}: {e}")
