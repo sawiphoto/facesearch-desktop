@@ -998,13 +998,17 @@ class FaceSearchApp(ctk.CTk):
         self.scr_student_faces.pack(fill="both", expand=True, padx=10, pady=(0, 15))
 
     def toggle_dashboard_sort(self):
-        self.dashboard_sort_desc = not self.dashboard_sort_desc
+        self.dashboard_sort_desc = not getattr(self, 'dashboard_sort_desc', True)
         if self.dashboard_sort_desc:
-            self.lbl_most_title.configure(text="สถิติจำนวนภาพของบุคลากร (จากมากไปน้อย 🔽)")
-            self.btn_dashboard_sort.configure(text="สลับเป็นน้อยไปมาก 🔼")
+            self.lbl_teacher_title.configure(text="สถิติคุณครู (จากมากไปน้อย 🔽)")
+            self.btn_teacher_sort.configure(text="สลับ 🔼")
+            self.lbl_student_title.configure(text="สถิตินักเรียน (จากมากไปน้อย 🔽)")
+            self.btn_student_sort.configure(text="สลับ 🔼")
         else:
-            self.lbl_most_title.configure(text="สถิติจำนวนภาพของบุคลากร (จากน้อยไปมาก 🔼)")
-            self.btn_dashboard_sort.configure(text="สลับเป็นมากไปน้อย 🔽")
+            self.lbl_teacher_title.configure(text="สถิติคุณครู (จากน้อยไปมาก 🔼)")
+            self.btn_teacher_sort.configure(text="สลับ 🔽")
+            self.lbl_student_title.configure(text="สถิตินักเรียน (จากน้อยไปมาก 🔼)")
+            self.btn_student_sort.configure(text="สลับ 🔽")
         self.refresh_dashboard_stats()
 
     def refresh_dashboard_stats(self):
@@ -1092,19 +1096,8 @@ class FaceSearchApp(ctk.CTk):
                     lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=20, anchor="w", font=ctk.CTkFont(size=11, weight="bold"), text_color=color_hex)
                     lbl_rank.pack(side="left")
                     
-                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=11, weight="bold" if ratio > 0.5 else "normal"), width=90)
-                    lbl_name.pack(side="left")
-                    
-                    # เฟรมสำหรับแถบระดับสี (Color Scale Bar)
-                    bar_bg_width = 70
-                    bar_fg_width = max(4, int(ratio * bar_bg_width))
-                    
-                    bar_container = ctk.CTkFrame(row_frame, fg_color="transparent", width=bar_bg_width + 10, height=12)
-                    bar_container.pack(side="left", padx=(5, 0))
-                    bar_container.pack_propagate(False)
-                    
-                    bar_fg = ctk.CTkFrame(bar_container, fg_color=color_hex, corner_radius=4, width=bar_fg_width, height=8)
-                    bar_fg.place(relx=0.0, rely=0.5, anchor="w")
+                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=11, weight="bold" if ratio > 0.5 else "normal"))
+                    lbl_name.pack(side="left", fill="x", expand=True)
                     
                     lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=45, anchor="e", text_color=color_hex, font=ctk.CTkFont(size=11))
                     lbl_count.pack(side="right")
@@ -1118,10 +1111,7 @@ class FaceSearchApp(ctk.CTk):
                     row_frame.bind("<MouseWheel>", _on_mousewheel)
                     lbl_rank.bind("<MouseWheel>", _on_mousewheel)
                     lbl_name.bind("<MouseWheel>", _on_mousewheel)
-                    bar_container.bind("<MouseWheel>", _on_mousewheel)
-                    bar_fg.bind("<MouseWheel>", _on_mousewheel)
                     lbl_count.bind("<MouseWheel>", _on_mousewheel)
-
             draw_rows(teacher_rows, self.scr_teacher_faces)
             draw_rows(student_rows, self.scr_student_faces)
             
@@ -2746,9 +2736,9 @@ class FaceSearchApp(ctk.CTk):
                                 threshold=0.5
                             )
                             # Update DB
-                            for m_res in match_results:
-                                if m_res:
-                                    self.db.save_detected_face(existing_photo_id, m_res["staff_id"], m_res["confidence"])
+                            valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
+                            if valid_matches:
+                                self.db.save_detected_faces(existing_photo_id, valid_matches)
                     else:
                         # Full Scan
                         img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
@@ -2773,9 +2763,9 @@ class FaceSearchApp(ctk.CTk):
                                         templates["staff_ids"],
                                         threshold=0.5
                                     )
-                                    for m_res in match_results:
-                                        if m_res:
-                                            self.db.save_detected_face(photo_id, m_res["staff_id"], m_res["confidence"])
+                                    valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
+                                    if valid_matches:
+                                        self.db.save_detected_faces(photo_id, valid_matches)
                     
                     success_scan_count += 1
                     
@@ -3653,7 +3643,7 @@ class FaceSearchApp(ctk.CTk):
                     LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                     WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                     GROUP BY s.id, s.name
-                    ORDER BY s.id ASC
+                    ORDER BY s.id DESC
                 """)
                 rows = cursor.fetchall()
                 
@@ -3677,7 +3667,7 @@ class FaceSearchApp(ctk.CTk):
                     LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                     WHERE s.role = 'student'
                     GROUP BY s.id, s.name, s.student_id
-                    ORDER BY s.id ASC
+                    ORDER BY s.id DESC
                 """)
                 rows = cursor.fetchall()
                 
@@ -3697,7 +3687,7 @@ class FaceSearchApp(ctk.CTk):
                     
             elif "scanned_photos" in selected_table_text:
                 # ตาราง scanned_photos
-                cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id ASC")
+                cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id DESC")
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("photo_id", "file_id", "event", "link")
@@ -3721,7 +3711,7 @@ class FaceSearchApp(ctk.CTk):
                     FROM detected_faces df
                     JOIN staff_members s ON df.staff_id = s.id
                     WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                    ORDER BY df.id ASC
+                    ORDER BY df.id DESC
                 """)
                 rows = cursor.fetchall()
                 
@@ -3747,7 +3737,7 @@ class FaceSearchApp(ctk.CTk):
                     FROM detected_faces df
                     JOIN staff_members s ON df.staff_id = s.id
                     WHERE s.role = 'student'
-                    ORDER BY df.id ASC
+                    ORDER BY df.id DESC
                 """)
                 rows = cursor.fetchall()
                 

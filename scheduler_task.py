@@ -59,7 +59,7 @@ class SchedulerTask:
             # Ensure Analyzer is initialized
             if self.analyzer is None:
                 try:
-                    from face_ai import FaceAnalyzer
+                    from face_analyzer import FaceAnalyzer
                     self.analyzer = FaceAnalyzer(use_gpu=False)
                     self.analyzer.initialize()
                 except Exception as e:
