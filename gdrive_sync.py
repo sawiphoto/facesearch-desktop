@@ -114,19 +114,33 @@ class GoogleSyncManager:
         def walk_folder(curr_folder_id, curr_event_name):
             logger.info(f"Listing contents of Google Drive folder: {curr_event_name} (ID: {curr_folder_id})")
             
-            # 1. ค้นหาโฟลเดอร์ย่อยทั้งหมด
+            # 1. ค้นหาโฟลเดอร์ย่อยทั้งหมด (เพิ่ม pagination เผื่อกรณีโฟลเดอร์เยอะมาก)
             query_dirs = f"'{curr_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            dirs_results = self.drive_service.files().list(
-                q=query_dirs, fields="files(id, name)"
-            ).execute()
-            subdirs = dirs_results.get("files", [])
+            subdirs = []
+            page_token = None
+            while True:
+                dirs_results = self.drive_service.files().list(
+                    q=query_dirs, fields="nextPageToken, files(id, name)", pageToken=page_token
+                ).execute()
+                subdirs.extend(dirs_results.get("files", []))
+                page_token = dirs_results.get("nextPageToken")
+                if not page_token:
+                    break
             
-            # 2. ค้นหาไฟล์ทั้งหมดในโฟลเดอร์นี้ แล้วนำมากรองประเภทรูปภาพในระดับแอปพลิเคชัน
+            # 2. ค้นหาไฟล์ทั้งหมดในโฟลเดอร์นี้ แล้วนำมากรองประเภทรูปภาพในระดับแอปพลิเคชัน (เพิ่ม pagination ลูปดึงไฟล์จนครบ)
             query_files = f"'{curr_folder_id}' in parents and trashed = false"
-            files_results = self.drive_service.files().list(
-                q=query_files, fields="files(id, name, mimeType, webViewLink, createdTime)", pageSize=200
-            ).execute()
-            all_files = files_results.get("files", [])
+            all_files = []
+            page_token = None
+            while True:
+                files_results = self.drive_service.files().list(
+                    q=query_files, fields="nextPageToken, files(id, name, mimeType, webViewLink, createdTime)", 
+                    pageSize=500, pageToken=page_token
+                ).execute()
+                all_files.extend(files_results.get("files", []))
+                page_token = files_results.get("nextPageToken")
+                if not page_token:
+                    break
+            
             
             # กรองเฉพาะไฟล์รูปภาพจาก MimeType (เนื่องจากไฟล์บนคลาวด์บางไฟล์อาจไม่มีนามสกุล) แต่บังคับข้ามไฟล์ RAW (v1.7.8 Hotfix)
             raw_exts = ('.cr2', '.nef', '.arw', '.dng', '.orf', '.rw2')
