@@ -3787,31 +3787,44 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=r)
                     
             elif "scanned_photos" in selected_table_text:
-                # ตาราง scanned_photos
+                # ตาราง scanned_photos (พร้อมแสดงสถานะแคชใบหน้า v1.8.5)
+                query_sql = """
+                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
+                    FROM scanned_photos p
+                    LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
+                    {where_clause}
+                    GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                    ORDER BY p.photo_id DESC
+                """
                 if search_query:
-                    cursor.execute("""
-                        SELECT photo_id, drive_file_id, event_name, drive_link 
-                        FROM scanned_photos 
-                        WHERE photo_id LIKE ? OR drive_file_id LIKE ? OR event_name LIKE ? OR drive_link LIKE ?
-                        ORDER BY photo_id DESC
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?"
+                    if "มีแคช" in search_query or "cache" in search_query.lower():
+                        where_clause += " OR pf.id IS NOT NULL"
+                    elif "ไม่มีแคช" in search_query or "no cache" in search_query.lower():
+                        where_clause += " OR pf.id IS NULL"
+                    
+                    cursor.execute(query_sql.format(where_clause=where_clause), (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                 else:
-                    cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id DESC")
+                    cursor.execute(query_sql.format(where_clause=""))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("photo_id", "file_id", "event", "link")
-                self.db_tree.column("photo_id", width=100, anchor="center")
-                self.db_tree.column("file_id", width=200, anchor="center")
+                self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
+                self.db_tree.column("photo_id", width=90, anchor="center")
+                self.db_tree.column("file_id", width=180, anchor="center")
                 self.db_tree.column("event", width=150, anchor="w")
-                self.db_tree.column("link", width=300, anchor="w")
+                self.db_tree.column("cache_status", width=140, anchor="center")
+                self.db_tree.column("link", width=260, anchor="w")
                 
                 self.db_tree.heading("photo_id", text="Photo ID")
                 self.db_tree.heading("file_id", text="Drive File ID")
                 self.db_tree.heading("event", text="ชื่องานกิจกรรม")
+                self.db_tree.heading("cache_status", text="สถานะแคชใบหน้า")
                 self.db_tree.heading("link", text="ลิงก์ไดรฟ์รูปภาพ")
                 
                 for r in rows:
-                    self.db_tree.insert("", "end", values=r)
+                    pid, fid, evt, link, c_count = r
+                    c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)" if c_count > 0 else "❌ ยังไม่มีแคช (0)"
+                    self.db_tree.insert("", "end", values=(pid, fid, evt, c_status, link))
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
