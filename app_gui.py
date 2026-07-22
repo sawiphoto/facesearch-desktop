@@ -2741,12 +2741,13 @@ class FaceSearchApp(ctk.CTk):
                         faces = self.db.get_photo_face_embeddings(existing_photo_id)
                         if len(faces) > 0:
                             detected_embeddings = np.array([f.embedding for f in faces])
+                            current_thresh = self.slider_threshold.get()
                             match_results = self.analyzer.match_faces_matrix(
                                 detected_embeddings,
                                 templates["embeddings"],
                                 templates["names"],
                                 templates["staff_ids"],
-                                threshold=0.5
+                                threshold=current_thresh
                             )
                             # Update DB
                             valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
@@ -2775,12 +2776,13 @@ class FaceSearchApp(ctk.CTk):
                                     self.db.save_photo_face_embeddings(photo_id, faces)
                                         
                                     detected_embeddings = np.array([f.embedding for f in faces])
+                                    current_thresh = self.slider_threshold.get()
                                     match_results = self.analyzer.match_faces_matrix(
                                         detected_embeddings,
                                         templates["embeddings"],
                                         templates["names"],
                                         templates["staff_ids"],
-                                        threshold=0.5
+                                        threshold=current_thresh
                                     )
                                     valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
                                     if valid_matches:
