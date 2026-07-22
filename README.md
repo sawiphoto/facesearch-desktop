@@ -76,6 +76,8 @@ All SQLite DB verification tests passed successfully:
 
 #### 3. อัปเดตข้อมูลเวอร์ชัน
 - อัปเดตเลขเวอร์ชันบนหน้าต่างโปรแกรมและโลโก้เป็น `v1.8.3`
+- **แก้ไขบั๊ก `unexpected keyword argument 'folder_name'`:** เพิ่มพารามิเตอร์ `folder_name="Unknown"` ในนิยามฟังก์ชัน `process_scanning_headless` ใน `app_gui.py` เพื่อรองรับการรับชื่อโฟลเดอร์จาก `scheduler_task.py`
+- **ระบบปรับแก้ชื่อ `HeadlessScan` เก่าอัตโนมัติ:** เมื่อสแกนซ้ำในโหมด Fast Rescan ระบบจะตรวจสอบว่าหากรูปเดิมเคยบันทึกไว้เป็นชื่อ `HeadlessScan` จะทำการอัปเดตเปลี่ยนเป็นชื่อโฟลเดอร์จริงให้ทันที
 
 ## 📋 Version 1.8.2 Changelog
 **Developer Agent:** Antigravity (Google DeepMind) | **Model:** Gemini 1.5 Pro

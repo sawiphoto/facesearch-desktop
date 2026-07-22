@@ -2672,7 +2672,7 @@ class FaceSearchApp(ctk.CTk):
             logger.info("[UI] Scan process paused by user.")
             self.lbl_progress_text.configure(text="⏸️ หยุดพักการสแกนชั่วคราว...")
 
-    def process_scanning_headless(self, folder_ids):
+    def process_scanning_headless(self, folder_ids, folder_name="Unknown"):
         """สำหรับเรียกผ่าน Scheduler (ทำงานเงียบๆ ใน Thread ของ Scheduler)"""
         if not hasattr(self, 'scheduler_scanning'):
             self.scheduler_scanning = False
@@ -2732,6 +2732,12 @@ class FaceSearchApp(ctk.CTk):
                     existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
                     if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
                         # Fast Rescan
+                        if folder_name != "Unknown":
+                            with self.db.get_connection() as conn:
+                                conn.cursor().execute(
+                                    "UPDATE scanned_photos SET event_name = ? WHERE photo_id = ? AND event_name = 'HeadlessScan'",
+                                    (folder_name, existing_photo_id)
+                                )
                         faces = self.db.get_photo_face_embeddings(existing_photo_id)
                         if len(faces) > 0:
                             detected_embeddings = np.array([f.embedding for f in faces])
