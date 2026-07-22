@@ -2808,6 +2808,9 @@ class FaceSearchApp(ctk.CTk):
                         logger.info("[SCHEDULE] Headless scan stopped by user.")
                         break
 
+                if not getattr(self.scheduler, 'stop_requested', False):
+                    self.record_matched_folder(f_id, folder_name)
+
             # อัปเดตข้อมูลขึ้น Sheet (Final Sync)
             sync_data = self.db.get_all_sync_data()
             self.sync_manager.sync_to_google_sheet(sync_data)
