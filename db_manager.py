@@ -363,9 +363,9 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # บันทึกรูปภาพ
+                # บันทึกรูปภาพ (ใช้ INSERT OR REPLACE เพื่อป้องกัน drive_file_id ซ้ำซ้อน)
                 cursor.execute(
-                    "INSERT INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
                     (photo_id, drive_file_id, event_name, drive_link, photo_date)
                 )
                 

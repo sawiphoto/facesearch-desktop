@@ -2768,8 +2768,10 @@ class FaceSearchApp(ctk.CTk):
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
                                 faces = self.analyzer.app.get(img_cv)
-                                photo_serial = self.get_next_photo_serial()
-                                photo_id = f"P{photo_serial:05d}"
+                                photo_id = existing_photo_id
+                                if not photo_id:
+                                    photo_serial = self.get_next_photo_serial()
+                                    photo_id = f"P{photo_serial:05d}"
                                 self.db.save_scanned_photo(photo_id, img_info["file_id"], img_info["event"], f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
                                 
                                 if faces:
@@ -3225,10 +3227,11 @@ class FaceSearchApp(ctk.CTk):
 
                 self.after(0, update_preview_and_summary)
 
-                # 6. สร้าง รหัส ID สำหรับรูปภาพนี้
-                # ค้นหา ID ล่าสุดใน SQLite
-                photo_serial = self.get_next_photo_serial()
-                photo_id = f"P{photo_serial:05d}"
+                # 6. สร้าง หรือใช้ รหัส ID เดิมสำหรับรูปภาพนี้
+                photo_id = existing_photo_id
+                if not photo_id:
+                    photo_serial = self.get_next_photo_serial()
+                    photo_id = f"P{photo_serial:05d}"
                 
                 # 7. บันทึกข้อมูลลง SQLite (ส่ง photo_date ไปด้วย)
                 self.db.save_scanned_photo(
