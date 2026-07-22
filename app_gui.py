@@ -2718,7 +2718,7 @@ class FaceSearchApp(ctk.CTk):
                         images_to_scan.append({
                             "file_id": file_info['id'],
                             "file_name": file_info['name'],
-                            "event": "HeadlessScan"
+                            "event": folder_name
                         })
                 except Exception as e:
                     logger.error(f"[SCHEDULE] Error listing files in {f_id}: {e}")
@@ -2763,7 +2763,7 @@ class FaceSearchApp(ctk.CTk):
                                 faces = self.analyzer.app.get(img_cv)
                                 photo_serial = self.get_next_photo_serial()
                                 photo_id = f"P{photo_serial:05d}"
-                                self.db.save_scanned_photo(photo_id, img_info["file_id"], "HeadlessScan", f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
+                                self.db.save_scanned_photo(photo_id, img_info["file_id"], img_info["event"], f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
                                 
                                 if faces:
                                     self.db.save_photo_face_embeddings(photo_id, faces)
