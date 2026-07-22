@@ -41,6 +41,33 @@ class SchedulerTask:
             return
         threading.Thread(target=self.run_scheduled_tasks, daemon=True).start()
 
+    def run_task_2_manual(self):
+        if self.is_running:
+            print("[SCHEDULE] Tasks are already running.")
+            return
+        threading.Thread(target=self._run_task_2_only, daemon=True).start()
+
+    def _run_task_2_only(self):
+        self.is_running = True
+        self.stop_requested = False
+        try:
+            print("="*50)
+            print("[SCHEDULE] เริ่มทำงาน Task 2 เฉพาะกิจ (v1.8.3)")
+            if not self.sync_manager.connected:
+                self.sync_manager.connect()
+            self._task_2_sync_new_students()
+            from datetime import datetime, timedelta, timezone
+            bkk_tz = timezone(timedelta(hours=7))
+            bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[SCHEDULE] Task 2 เสร็จสมบูรณ์ ({bkk_time} BKK)")
+            print("="*50)
+        except Exception as e:
+            print(f"[SCHEDULE Error] {e}")
+            logger.error(f"[SCHEDULE Error] {e}")
+        finally:
+            self.is_running = False
+            self.stop_requested = False
+
     def run_scheduled_tasks(self):
         if self.is_running:
             return
@@ -149,7 +176,7 @@ class SchedulerTask:
                 # เรียกใช้กระบวนการสแกนของระบบ (ใช้ background scan logic)
                 try:
                     if hasattr(self.app_gui, 'process_scanning_headless'):
-                        success = self.app_gui.process_scanning_headless([red_folder['id']])
+                        success = self.app_gui.process_scanning_headless([red_folder['id']], folder_name=red_folder['name'])
                         if not success:
                             print(f"[SCHEDULE] Error: process_scanning_headless aborted for {red_folder['name']}")
                             logger.error(f"[SCHEDULE] ข้ามโฟลเดอร์ {red_folder['name']} เนื่องจากพบข้อผิดพลาด")

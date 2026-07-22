@@ -644,7 +644,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.8")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.3")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -710,7 +710,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.7.8",
+            text="FACE MATCHING\nSYSTEM v1.8.3",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -772,12 +772,19 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_start_schedule.grid(row=8, column=0, padx=15, pady=(15, 5), sticky="ew")
 
+        self.btn_start_task2 = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ Start Task 2 (Sync Students)",
+            fg_color="#D35400", text_color="white", hover_color="#E67E22",
+            anchor="w", command=lambda: self.scheduler.run_task_2_manual()
+        )
+        self.btn_start_task2.grid(row=9, column=0, padx=15, pady=5, sticky="ew")
+
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task",
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=9, column=0, padx=15, pady=(5, 15), sticky="ew")
+        self.btn_stop_schedule.grid(row=10, column=0, padx=15, pady=(5, 15), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -786,8 +793,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=10, column=0, pady=20, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(10, weight=1)
+        self.credit_label.grid(row=11, column=0, pady=20, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(11, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -2720,7 +2727,6 @@ class FaceSearchApp(ctk.CTk):
                 # Scan Process
                 success_scan_count = 0
                 for idx, img_info in enumerate(images_to_scan):
-                    logger.info(f"[SCHEDULE] กำลังสแกนรูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']}")
                     if getattr(self.scheduler, 'stop_requested', False):
                         break
                     existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
@@ -2740,6 +2746,12 @@ class FaceSearchApp(ctk.CTk):
                             valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
                             if valid_matches:
                                 self.db.save_detected_faces(existing_photo_id, valid_matches)
+                                match_names = [m["name"] for m in match_results if m]
+                                logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [MATCH_OK] เจอ: {', '.join(match_names)}")
+                            else:
+                                logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                        else:
+                            logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                     else:
                         # Full Scan
                         img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
@@ -2767,6 +2779,12 @@ class FaceSearchApp(ctk.CTk):
                                     valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
                                     if valid_matches:
                                         self.db.save_detected_faces(photo_id, valid_matches)
+                                        match_names = [m["name"] for m in match_results if m]
+                                        logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [MATCH_OK] เจอ: {', '.join(match_names)}")
+                                    else:
+                                        logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                                else:
+                                    logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                     
                     success_scan_count += 1
                     
