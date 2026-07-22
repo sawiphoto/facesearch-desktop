@@ -3561,7 +3561,7 @@ class FaceSearchApp(ctk.CTk):
         from tkinter import ttk
         
         self.frame_database.grid_columnconfigure(0, weight=1)
-        self.frame_database.grid_rowconfigure(3, weight=1)
+        self.frame_database.grid_rowconfigure(4, weight=1)
 
         # หัวข้อ
         lbl_title = ctk.CTkLabel(
@@ -3640,9 +3640,30 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_sync_json_students.pack(side="left", padx=5, pady=10)
 
+        # โซนควบคุมที่สาม: ค้นหาข้อมูลในตารางฐานข้อมูล (v1.8.4)
+        search_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
+        search_control_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15), padx=2)
+        
+        ctk.CTkLabel(search_control_frame, text="🔍 ค้นหาข้อมูล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
+        
+        self.entry_db_search = ctk.CTkEntry(
+            search_control_frame, 
+            placeholder_text="พิมพ์คำค้นหา (Drive File ID, ลิงก์ Drive, Photo ID, ชื่อ, กิจกรรม, รหัสนักเรียน...)", 
+            width=480
+        )
+        self.entry_db_search.pack(side="left", padx=5, pady=10, fill="x", expand=True)
+        self.entry_db_search.bind("<KeyRelease>", lambda e: self.load_db_table_data())
+
+        btn_clear_search = ctk.CTkButton(
+            search_control_frame, text="❌ ล้างการค้นหา", width=110,
+            fg_color="#34495E", hover_color="#2C3E50", text_color="white",
+            command=self.clear_db_search
+        )
+        btn_clear_search.pack(side="right", padx=15, pady=10)
+
         # โซนแสดงตาราง (Treeview)
         table_container = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
-        table_container.grid(row=3, column=0, sticky="nsew", padx=2, pady=(0, 5))
+        table_container.grid(row=4, column=0, sticky="nsew", padx=2, pady=(0, 5))
         table_container.grid_rowconfigure(0, weight=1)
         table_container.grid_columnconfigure(0, weight=1)
 
@@ -3670,11 +3691,18 @@ class FaceSearchApp(ctk.CTk):
         tree_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 15), pady=15)
         self.db_tree.configure(yscrollcommand=tree_scrollbar.set)
 
+    def clear_db_search(self):
+        if hasattr(self, 'entry_db_search'):
+            self.entry_db_search.delete(0, "end")
+        self.load_db_table_data()
+
     def load_db_table_data(self, selected_table_text=None):
         if not selected_table_text:
             selected_table_text = self.option_db_table.get()
 
-        # logger.info(f"Loading SQLite table data: {selected_table_text}")
+        search_query = ""
+        if hasattr(self, 'entry_db_search'):
+            search_query = self.entry_db_search.get().strip()
         
         # ล้างข้อมูลเดิมใน Treeview
         self.db_tree.delete(*self.db_tree.get_children())
@@ -3685,14 +3713,25 @@ class FaceSearchApp(ctk.CTk):
         try:
             if "staff_members" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง staff_members (ครู)
-                cursor.execute("""
-                    SELECT s.id, s.name, COUNT(e.id)
-                    FROM staff_members s
-                    LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                    WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                    GROUP BY s.id, s.name
-                    ORDER BY s.id DESC
-                """)
+                if search_query:
+                    cursor.execute("""
+                        SELECT s.id, s.name, COUNT(e.id)
+                        FROM staff_members s
+                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
+                        GROUP BY s.id, s.name
+                        ORDER BY s.id DESC
+                    """, (f"%{search_query}%", f"%{search_query}%"))
+                else:
+                    cursor.execute("""
+                        SELECT s.id, s.name, COUNT(e.id)
+                        FROM staff_members s
+                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                        GROUP BY s.id, s.name
+                        ORDER BY s.id DESC
+                    """)
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("id", "name", "photos")
@@ -3709,14 +3748,25 @@ class FaceSearchApp(ctk.CTk):
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง staff_members (นักเรียน)
-                cursor.execute("""
-                    SELECT s.id, s.name, s.student_id, COUNT(e.id)
-                    FROM staff_members s
-                    LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                    WHERE s.role = 'student'
-                    GROUP BY s.id, s.name, s.student_id
-                    ORDER BY s.id DESC
-                """)
+                if search_query:
+                    cursor.execute("""
+                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
+                        FROM staff_members s
+                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE s.role = 'student'
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
+                        GROUP BY s.id, s.name, s.student_id
+                        ORDER BY s.id DESC
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                else:
+                    cursor.execute("""
+                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
+                        FROM staff_members s
+                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                        WHERE s.role = 'student'
+                        GROUP BY s.id, s.name, s.student_id
+                        ORDER BY s.id DESC
+                    """)
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("id", "name", "student_id", "photos")
@@ -3735,7 +3785,15 @@ class FaceSearchApp(ctk.CTk):
                     
             elif "scanned_photos" in selected_table_text:
                 # ตาราง scanned_photos
-                cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id DESC")
+                if search_query:
+                    cursor.execute("""
+                        SELECT photo_id, drive_file_id, event_name, drive_link 
+                        FROM scanned_photos 
+                        WHERE photo_id LIKE ? OR drive_file_id LIKE ? OR event_name LIKE ? OR drive_link LIKE ?
+                        ORDER BY photo_id DESC
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                else:
+                    cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id DESC")
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("photo_id", "file_id", "event", "link")
@@ -3754,13 +3812,24 @@ class FaceSearchApp(ctk.CTk):
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
-                cursor.execute("""
-                    SELECT df.id, df.photo_id, s.name, df.confidence
-                    FROM detected_faces df
-                    JOIN staff_members s ON df.staff_id = s.id
-                    WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                    ORDER BY df.id DESC
-                """)
+                if search_query:
+                    cursor.execute("""
+                        SELECT df.id, df.photo_id, s.name, df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        ORDER BY df.id DESC
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                else:
+                    cursor.execute("""
+                        SELECT df.id, df.photo_id, s.name, df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                        ORDER BY df.id DESC
+                    """)
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "name", "conf")
@@ -3780,13 +3849,24 @@ class FaceSearchApp(ctk.CTk):
                     
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง detected_faces (นักเรียน)
-                cursor.execute("""
-                    SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
-                    FROM detected_faces df
-                    JOIN staff_members s ON df.staff_id = s.id
-                    WHERE s.role = 'student'
-                    ORDER BY df.id DESC
-                """)
+                if search_query:
+                    cursor.execute("""
+                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                        WHERE s.role = 'student'
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        ORDER BY df.id DESC
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                else:
+                    cursor.execute("""
+                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'student'
+                        ORDER BY df.id DESC
+                    """)
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "name", "student_id", "conf")
