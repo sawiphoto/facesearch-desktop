@@ -164,13 +164,15 @@ class SchedulerTask:
             ("ภาพกิจกรรม 2565-2567", "1BjYQwoso9FKv42XK6RJi1gPS8kyK_jCg")
         ]
         
+        scanned_in_this_run = set()
         for year_name, year_id in target_folders:
             if self.stop_requested: break
             while True:
                 if self.stop_requested: break
                 red_folder = self._get_unscanned_subfolder(year_id)
-                if not red_folder:
+                if not red_folder or red_folder['id'] in scanned_in_this_run:
                     break
+                scanned_in_this_run.add(red_folder['id'])
                     
                 print(f"[SCHEDULE] เริ่มทำการสแกนรูปภาพในโฟลเดอร์: {red_folder['name']}")
                 # เรียกใช้กระบวนการสแกนของระบบ (ใช้ background scan logic)

@@ -238,6 +238,14 @@ class FaceAnalyzer:
             # ctx_id >= 0 คือ GPU, ctx_id < 0 คือ CPU
             self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
             self.initialized = True
+            # Warmup inference
+            try:
+                import numpy as np
+                dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+                self.app.get(dummy_img)
+                logger.info("[SYSTEM] GPU Warmup inference completed.")
+            except Exception as w_err:
+                logger.debug(f"Warmup inference skipped: {w_err}")
             logger.info("InsightFace initialized successfully.")
             return True
         except Exception as e:

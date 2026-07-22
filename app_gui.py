@@ -2791,6 +2791,16 @@ class FaceSearchApp(ctk.CTk):
                                         logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                                 else:
                                     logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                            else:
+                                photo_serial = self.get_next_photo_serial()
+                                photo_id = f"P{photo_serial:05d}"
+                                self.db.save_scanned_photo(photo_id, img_info["file_id"], img_info["event"], f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
+                                logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] อ่านไฟล์ภาพล้มเหลว (ข้าม)")
+                        else:
+                            photo_serial = self.get_next_photo_serial()
+                            photo_id = f"P{photo_serial:05d}"
+                            self.db.save_scanned_photo(photo_id, img_info["file_id"], img_info["event"], f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
+                            logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ดาวน์โหลดไฟล์ภาพล้มเหลว (ข้าม)")
                     
                     success_scan_count += 1
                     
