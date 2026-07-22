@@ -2749,9 +2749,9 @@ class FaceSearchApp(ctk.CTk):
                                 match_names = [m["name"] for m in match_results if m]
                                 logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [MATCH_OK] เจอ: {', '.join(match_names)}")
                             else:
-                                logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                                logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                         else:
-                            logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                            logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                     else:
                         # Full Scan
                         img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
@@ -2782,9 +2782,9 @@ class FaceSearchApp(ctk.CTk):
                                         match_names = [m["name"] for m in match_results if m]
                                         logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [MATCH_OK] เจอ: {', '.join(match_names)}")
                                     else:
-                                        logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                                        logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                                 else:
-                                    logger.info(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
+                                    logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                     
                     success_scan_count += 1
                     
