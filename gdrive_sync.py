@@ -2,10 +2,14 @@ import os
 import json
 import logging
 import io
+import socket
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import gspread
+
+# ตั้งเวลา timeout 30 วินาที ป้องกัน network call ค้างแบบไร้ขีดจำกัด
+socket.setdefaulttimeout(30)
 
 logger = logging.getLogger("FaceSearchApp")
 
@@ -29,7 +33,7 @@ class GoogleSyncManager:
         import threading
         self.drive_lock = threading.Lock()
 
-    def connect(self, spreadsheet_id=None):
+    def connect(self, spreadsheet_id=None, ensure_worksheets=True):
         """เชื่อมต่อกับ Google APIs"""
         self.connected = False
         logger.info(f"Attempting to load Google credentials from: {self.credentials_path}")
@@ -49,13 +53,13 @@ class GoogleSyncManager:
             
             if spreadsheet_id:
                 self.spreadsheet_id = spreadsheet_id
-                return self.verify_spreadsheet(spreadsheet_id)
+                return self.verify_spreadsheet(spreadsheet_id, ensure_worksheets=ensure_worksheets)
             return True
         except Exception as e:
             logger.error(f"Error connecting to Google Services: {e}", exc_info=True)
             return False
 
-    def verify_spreadsheet(self, spreadsheet_id):
+    def verify_spreadsheet(self, spreadsheet_id, ensure_worksheets=True):
         """ตรวจสอบว่าเชื่อมต่อและจัดการ Spreadsheet ID ที่ระบุได้จริงหรือไม่ และเตรียมแผ่นงานในชีท"""
         if not self.connected:
             return False
@@ -65,8 +69,9 @@ class GoogleSyncManager:
             self.spreadsheet_id = spreadsheet_id
             logger.info(f"Verified Google Sheet access: '{sheet.title}'")
             
-            # ตรวจสอบและสร้าง Worksheet ที่จำเป็น
-            self._ensure_worksheets(sheet)
+            if ensure_worksheets:
+                # ตรวจสอบและสร้าง Worksheet ที่จำเป็น
+                self._ensure_worksheets(sheet)
             return True
         except Exception as e:
             logger.error(f"Cannot access Google Sheet (ID: {spreadsheet_id}): {e}")

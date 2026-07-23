@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.5
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.6
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,28 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.8.6 (v1.7.5 Update) Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหา Task 2 Schedule ค้างและ Log ไม่แสดงผลบน GUI Console (Task 2 GUI Logging & Socket Timeout Fix)
+- **ปัญหา:** เมื่อกดรัน Task 2 ข้อความความคืบหน้าของ Task 2 ค้างและแสดงผลเพียง `Attempting to load Google credentials...` บนหน้าจอ GUI
+- **สาเหตุ:**
+  1. ใน `scheduler_task.py` ข้อความ Log ความคืบหน้าใช้คำสั่ง `print()` ของ Python แทนที่จะใช้ `logger` ของ `FaceSearchApp` ทำให้ GUI Console ไม่ได้รับข้อความ Log มาแสดงผล
+  2. การเชื่อมต่อ Google API ใน `gdrive_sync.py` ไม่ได้ตั้งค่า Socket Timeout ทำให้กรณี Network ช้า Thread จะค้างสะสม
+  3. ฟังก์ชัน `connect()` พยายามสร้างแท็บ `photos` / `faces` ซ้ำซ้อนใน Sheet ข้อมูลนักเรียน
+- **โค้ดที่แก้ไข (`scheduler_task.py` & `gdrive_sync.py`):**
+  - **`scheduler_task.py`**: เปลี่ยนคำสั่ง `print()` ทั้งหมดใน Task 2 เป็น `logger.info()`, `logger.warning()`, `logger.error()` พร้อมเพิ่มระบบตรวจหาหัวคอลัมน์ Google Sheet แบบยืดหยุ่น (Flexible Column Matching)
+  - **`gdrive_sync.py`**: เพิ่ม `socket.setdefaulttimeout(30)` และพารามิเตอร์ `ensure_worksheets=False` เมื่อเชื่อมต่อเพื่ออ่าน Sheet ข้อมูลนักเรียน
+
+#### 2. การแก้ไขข้อผิดพลาด 'NoneType' object has no attribute 'get_faces' ใน Task 2 (Task 2 FaceAnalyzer Auto-initialization Fix)
+- **ปัญหา:** เมื่อสแกนรูปภาพนักเรียนใน Task 2 เกิดข้อผิดพลาด `ERROR: [SCHEDULE] Error processing image ... for ...: 'NoneType' object has no attribute 'get_faces'` และข้ามการสกัดใบหน้านักเรียนทั้งหมด
+- **สาเหตุ:** ตัวแปร `self.analyzer` ใน `SchedulerTask` มีค่าเป็น `None` เนื่องจากตอนเปิดแอปพลิเคชัน GUI โมเดล AI (`FaceAnalyzer`) ยังไม่ถูก Initialize ขึ้นมาในหน่วยความจำ
+- **โค้ดที่แก้ไข (`scheduler_task.py`):**
+  - **ฟังก์ชัน `_ensure_analyzer` (`scheduler_task.py`):** สร้างฟังก์ชันตรวจสอบและสั่ง Auto-initialize ตัวประมวลผล `FaceAnalyzer` อัตโนมัติหาก `self.analyzer` ยังเป็น `None` ก่อนเรียกใช้งาน `get_faces()` ใน `_task_2_sync_new_students()`
 
 ---
 
