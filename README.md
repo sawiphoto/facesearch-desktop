@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.4
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.5
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,17 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.8.5 Changelog
+**Developer Agent:** Antigravity (Google DeepMind) | **Model:** Gemini 1.5 Pro
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. การแก้ไขข้อผิดพลาด UnboundLocalError เมื่อเอาเครื่องหมายสแกนซ้ำออก (Fix `use_re_scan` UnboundLocalError)
+- **ปัญหา:** เมื่อสแกนรูปภาพโดยไม่ติ๊กเลือก "สแกนซ้ำ" (`use_re_scan` เป็น `False`) โปรแกรมเกิด Error กลางคัน: `cannot access local variable 'existing_photo_id' where it is not associated with a value`
+- **สาเหตุ:** การดึงค่าตัวแปร `existing_photo_id = self.db.get_photo_id_by_drive_id(...)` ถูกเขียนไว้อยู่ภายในบล็อกเงื่อนไข `if use_re_scan:` ทำให้เมื่อไม่สแกนซ้ำ บล็อกเงื่อนไขนั้นถูกข้ามไป ส่งผลให้ตัวแปร `existing_photo_id` ยังไม่ถูกประกาศค่า พอมารันถึงขั้นตอนบันทึกรูปภาพ `photo_id = existing_photo_id` ภาษา Python จึงพ่นข้อผิดพลาด `UnboundLocalError` ทันที
+- **โค้ดที่แก้ไข (`app_gui.py`):** ย้ายบรรทัดประกาศดึง `existing_photo_id` ออกมาไว้นอกเงื่อนไข `if use_re_scan:` เพื่อการันตีว่าตัวแปร `existing_photo_id` จะถูกประกาศและมีค่าพร้อมใช้งานตลอดเวลาไม่ว่าจะเปิดหรือปิดตัวเลือกสแกนซ้ำ
 
 ---
 

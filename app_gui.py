@@ -644,7 +644,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.4")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.5")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -710,7 +710,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.8.4",
+            text="FACE MATCHING\nSYSTEM v1.8.5",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3044,10 +3044,11 @@ class FaceSearchApp(ctk.CTk):
 
                 logger.info(f"[{idx+1}/{len(images_to_scan)}] Processing image '{img_info['file_name']}' from event '{img_info['event']}'")
                 
+                existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
+
                 # ตรวจสอบว่าสามารถรัน Fast Re-scan ผ่านแคชได้หรือไม่
                 is_fast_rescan = False
                 if use_re_scan:
-                    existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
                     if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
                         is_fast_rescan = True
                         logger.info(f"⚡ [FAST RESCAN] Using cached face embeddings for {img_info['file_name']} (Photo ID: {existing_photo_id})")
