@@ -2800,10 +2800,9 @@ class FaceSearchApp(ctk.CTk):
                                     photo_serial = self.get_next_photo_serial()
                                     photo_id = f"P{photo_serial:05d}"
                                 self.db.save_scanned_photo(photo_id, img_info["file_id"], img_info["event"], f"https://drive.google.com/file/d/{img_info['file_id']}/view", matches=[])
+                                self.db.save_photo_face_embeddings(photo_id, faces)
                                 
                                 if faces:
-                                    self.db.save_photo_face_embeddings(photo_id, faces)
-                                        
                                     detected_embeddings = np.array([f.embedding for f in faces])
                                     current_thresh = self.slider_threshold.get()
                                     match_results = self.analyzer.match_faces_matrix(
@@ -3716,12 +3715,39 @@ class FaceSearchApp(ctk.CTk):
 
         # สร้าง Treeview
         self.db_tree = ttk.Treeview(table_container, show="headings")
-        self.db_tree.grid(row=0, column=0, sticky="nsew", padx=(15, 0), pady=15)
+        self.db_tree.grid(row=0, column=0, sticky="nsew", padx=(15, 0), pady=(0, 15))
+        
+        # ป้ายแนะนำการดับเบิ้ลคลิก (v1.8.9)
+        self.lbl_db_hint = ctk.CTkLabel(table_container, text="💡 ดับเบิ้ลคลิกที่แถวข้อมูล (ตาราง scanned_photos) เพื่อเปิดลิงก์รูปภาพในเบราว์เซอร์", font=ctk.CTkFont(size=11, slant="italic"), text_color="#F39C12")
+        self.lbl_db_hint.grid(row=1, column=0, columnspan=2, pady=(0, 5), sticky="e", padx=15)
+
+        self.db_tree.bind("<Double-1>", self.on_db_tree_double_click)
 
         # แถบสกรอลด้านแนวตั้ง
         tree_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.db_tree.yview)
         tree_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 15), pady=15)
         self.db_tree.configure(yscrollcommand=tree_scrollbar.set)
+
+    def on_db_tree_double_click(self, event):
+        """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview"""
+        selected_table = self.option_db_table.get()
+        if "scanned_photos" not in selected_table:
+            return
+            
+        selected_items = self.db_tree.selection()
+        if not selected_items:
+            return
+            
+        item = selected_items[0]
+        item_values = self.db_tree.item(item, "values")
+        
+        # ตาราง scanned_photos มีค่า: (photo_id, file_id, event, cache_status, link)
+        # ดังนั้นลิงก์จะอยู่ที่ index 4
+        if len(item_values) >= 5:
+            link = item_values[4]
+            if link and "http" in link:
+                import webbrowser
+                webbrowser.open(link)
 
     def clear_db_search(self):
         if hasattr(self, 'entry_db_search'):

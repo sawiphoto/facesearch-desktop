@@ -388,7 +388,7 @@ class SchedulerTask:
                             nparr = np.frombuffer(img_bytes, np.uint8)
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
-                                faces = self.analyzer.get_faces(img_cv)
+                                faces = self.analyzer.app.get(img_cv)
                                 if faces:
                                     # เอาหน้าแรกที่ชัดที่สุด
                                     face = faces[0]
