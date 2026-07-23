@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.7.8
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.4
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,26 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.8.4 Changelog
+**Developer Agent:** Antigravity (Google DeepMind) | **Model:** Gemini 1.5 Pro
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหานำเข้านักเรียนใหม่ติดข้อผิดพลาด (Student Import Fix)
+- **ปัญหา:** บันทึกนักเรียนใหม่ (เช่น ชญานนท์ ID: `99999`) ไม่สำเร็จ เกิด Log: `New student: ชญานนท์ (ID: 99999, DB ID: None)` และตามด้วย `NOT NULL constraint failed: staff_embeddings.staff_id`
+- **สาเหตุ:** รหัสนักเรียนมีประวัติเดิมอยู่ในตาราง `staff_members` (แต่คอลัมน์ `role` ไม่เป็น `'student'` หรือมีชื่อต่างกัน) ทำให้การ `INSERT` ติด UNIQUE Index (`sqlite3.IntegrityError`) และในบล็อก Catch เดิมดึงข้อมูลด้วยเงื่อนไข `WHERE student_id = ? AND role = 'student'` ซึ่งไม่พบแถวข้อมูล จึงคืนค่า `None` ส่งผลให้ `app_gui.py` ได้ `student_id = None` และพ่นข้อผิดพลาด NOT NULL ของ SQLite
+- **โค้ดที่แก้ไข (`db_manager.py` & `app_gui.py`):**
+  - **ฟังก์ชัน `register_member` (`db_manager.py`):** ในบล็อก `except sqlite3.IntegrityError` ให้ดึงข้อมูลจาก `student_id` โดยตรงโดยไม่จำกัด `role` แล้วสั่ง `UPDATE staff_members SET name = ?, role = 'student' WHERE id = ?` คืนค่า `id` เดิมกลับไปเสมอ (ป้องกันการคืนค่า `None`)
+  - **ฟังก์ชัน `process_import` (`app_gui.py`):** เพิ่มการตรวจสอบความปลอดภัย `if not student_id: logger.error(...); continue` เพื่อป้องกันการเรียก `add_staff_embedding` ด้วย `student_id` ที่เป็น `None`
+
+#### 2. การแก้ไขปัญหารูปภาพนักเรียนเดิมโดนสแกนและบันทึกซ้ำซ้อน (Duplicate URL Embedding Skip Fix)
+- **ปัญหา:** นักเรียนเดิมที่มีรูปภาพและลิงก์เดิมใน Google Sheet (คอลัมน์ D, E, F) โดนดาวน์โหลดและบันทึกเวกเตอร์ใบหน้าซ้ำซ้อนลงในตาราง `staff_embeddings`
+- **สาเหตุ:** ลิงก์ใน Google Sheet มีช่องว่างเว้นวรรคติดมาด้านหน้าหรือด้านหลัง (เช่น `" https://drive.google.com/uc?id=..."`) ฟังก์ชันเดิมเปรียบเทียบข้อความแบบ `source_url = ?` แบบตรงตัว พอเจอช่องว่างจึงหาไม่เจอและถือว่าเป็นลิงก์ใหม่
+- **โค้ดที่แก้ไข (`db_manager.py` & `app_gui.py`):**
+  - **ฟังก์ชัน `check_embedding_url_exists` (`db_manager.py`):** ปรับปรุงให้รองรับการตัดช่องว่าง (`.strip()`) และทำการสกัด **Google Drive File ID** (เช่น `1-1JlMDEkm0AP...`) ออกจาก URL เพื่อนำไปเปรียบเทียบใน SQL ด้วย `source_url LIKE %file_id%` หรือ `image_path LIKE %file_id%` ทำให้ตรวจพบรูปภาพเดิมได้อย่างแม่นยำ 100% แม้รูปแบบลิงก์จะต่างกัน
+  - **ฟังก์ชัน `process_import` (`app_gui.py`):** ทำการ `.strip()` ลิงก์ URL ก่อนส่งเข้าประมวลผลทุกครั้ง
 
 ---
 

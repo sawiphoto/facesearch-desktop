@@ -644,7 +644,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.3")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.4")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -710,7 +710,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.8.3",
+            text="FACE MATCHING\nSYSTEM v1.8.4",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1884,13 +1884,21 @@ class FaceSearchApp(ctk.CTk):
                             is_new = False
                             logger.info(f"Existing student: {student_name} (ID: {student_code}, DB ID: {student_id})")
 
+                        if not student_id:
+                            logger.error(f"Cannot resolve DB student_id for {student_name} (Student Code: {student_code})")
+                            failed_list.append(f"{student_code} - {student_name} (DB ID Error)")
+                            continue
+
                         # นับจำนวนภาพเก่า
                         old_photo_count = self.db.get_student_photo_count(student_id)
 
                         # ประมวลผลภาพทั้งหมด
                         success_count = 0
                         skipped_count = 0
-                        for col_char, url in data["photos"]:
+                        for col_char, raw_url in data["photos"]:
+                            url = raw_url.strip() if raw_url else ""
+                            if not url:
+                                continue
                             try:
                                 # เช็คว่าลิงค์นี้บันทึกไปแล้วหรือยัง (v1.7.2 Fix 2)
                                 if self.db.check_embedding_url_exists(student_id, url):

@@ -167,15 +167,33 @@ class DatabaseManager:
 
     def check_embedding_url_exists(self, staff_id, source_url):
         """
-        ตรวจสอบว่ามี embedding ที่มี source_url เดียวกันอยู่แล้วหรือไม่
+        ตรวจสอบว่ามี embedding ที่มี source_url เดียวกันอยู่แล้วหรือไม่ (รองรับการตัดช่องว่าง และสกัด File ID)
         คืนค่า: True ถ้ามีอยู่แล้ว, False ถ้ายังไม่มี
         """
+        if not source_url:
+            return False
+            
+        clean_url = source_url.strip()
+        file_id = None
+        if '/file/d/' in clean_url:
+            file_id = clean_url.split('/file/d/')[1].split('/')[0]
+        elif 'id=' in clean_url:
+            file_id = clean_url.split('id=')[1].split('&')[0]
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM staff_embeddings WHERE staff_id = ? AND source_url = ?",
-                (staff_id, source_url)
-            )
+            if file_id:
+                cursor.execute("""
+                    SELECT id FROM staff_embeddings 
+                    WHERE staff_id = ? AND (
+                        source_url = ? OR source_url = ? OR source_url LIKE ? OR image_path LIKE ?
+                    )
+                """, (staff_id, source_url, clean_url, f"%{file_id}%", f"%{file_id}%"))
+            else:
+                cursor.execute(
+                    "SELECT id FROM staff_embeddings WHERE staff_id = ? AND (source_url = ? OR source_url = ?)",
+                    (staff_id, source_url, clean_url)
+                )
             return cursor.fetchone() is not None
 
     def add_staff_embedding(self, staff_id, image_path, embedding_vector, source_url=None):
@@ -293,14 +311,26 @@ class DatabaseManager:
             except sqlite3.IntegrityError:
                 # กรณีมีชื่อซ้ำหรือ student_id ซ้ำ ดึงไอดีเดิมส่งกลับไป
                 if role == 'student' and student_id:
-                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ? AND role = 'student'", (student_id,))
-                else:
-                    cursor.execute("SELECT id FROM staff_members WHERE name = ? AND role = ?", (name, role))
+                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ?", (student_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        cursor.execute("UPDATE staff_members SET name = ?, role = 'student' WHERE id = ?", (name, row[0]))
+                        conn.commit()
+                        logger.info(f"Student '{name}' updated existing record (ID: {row[0]}, Student ID: {student_id}).")
+                        return row[0]
                 
+                cursor.execute("SELECT id FROM staff_members WHERE name = ? AND (role = ? OR role IS NULL OR role = '')", (name, role))
                 row = cursor.fetchone()
                 if row:
                     logger.info(f"{role.capitalize()} '{name}' already registered (ID: {row[0]}).")
                     return row[0]
+                    
+                if student_id:
+                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ?", (student_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        return row[0]
+
                 return None
 
     def delete_staff_member(self, staff_id):
