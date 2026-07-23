@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.1
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.2
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -54,6 +54,20 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.9.2 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.1 Pro
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. แก้ไขปัญหารูปจาก Auto Sync แสดงผลเป็น "X" ใน GUI
+- **สาเหตุ**: ระบบ Auto Sync นำภาพจาก Drive มาแยกเวกเตอร์แล้วทิ้งภาพไปโดยไม่บันทึกไฟล์ลงเครื่อง 
+- **การแก้ไข**: เพิ่มโค้ดให้ครอบตัดใบหน้า (Crop) และบันทึกเป็น `.jpg` ลงเครื่อง พร้อมเก็บที่อยู่ไฟล์ลงฐานข้อมูล ทำให้แสดงผลภาพใน GUI ได้ถูกต้องแล้ว
+
+#### 2. แก้ไข Treeview Error (SQL DB Menu)
+- **สาเหตุ**: เกิด Error `TypeError: unsupported format string passed to bytes.__format__` เพราะบางตารางอ่านชนิดข้อมูล `confidence` ผิดเป็น `bytes`
+- **การแก้ไข**: สร้างระบบดักจับแปลงข้อมูลเป็นตัวเลขทศนิยม (`float`) ให้เสร็จสิ้นก่อนแสดงผล
 
 ---
 

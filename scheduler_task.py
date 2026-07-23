@@ -517,11 +517,37 @@ class SchedulerTask:
                                     # เอาหน้าแรกที่ชัดที่สุด
                                     face = faces[0]
                                     emb = face.embedding
+                                    
+                                    # ตัดใบหน้าและบันทึกลงเครื่อง
+                                    h, w = img_cv.shape[:2]
+                                    x1, y1, x2, y2 = face.bbox
+                                    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                                    pad_x = int(0.15 * (x2 - x1))
+                                    pad_y = int(0.15 * (y2 - y1))
+                                    x1 = max(0, x1 - pad_x)
+                                    y1 = max(0, y1 - pad_y)
+                                    x2 = min(w, x2 + pad_x)
+                                    y2 = min(h, y2 + pad_y)
+                                    cropped = img_cv[y1:y2, x1:x2]
+                                    
+                                    import time
+                                    student_face_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "registered_students")
+                                    os.makedirs(student_face_dir, exist_ok=True)
+                                    student_filename = f"student_{std_id}_{int(time.time())}_{file_id}.jpg"
+                                    local_img_path = os.path.join(student_face_dir, student_filename)
+                                    
+                                    success, img_encoded = cv2.imencode('.jpg', cropped)
+                                    if success:
+                                        img_encoded.tofile(local_img_path)
+                                        db_img_path = local_img_path
+                                    else:
+                                        db_img_path = f"drive:{file_id}"
+                                    
                                     # เซฟลง staff_embeddings
                                     conn = self.db.get_connection()
                                     c = conn.cursor()
                                     c.execute("INSERT INTO staff_embeddings (staff_id, image_path, embedding, source_url) VALUES (?, ?, ?, ?)",
-                                             (staff_id, f"drive:{file_id}", emb.tobytes(), img_url))
+                                             (staff_id, db_img_path, emb.tobytes(), img_url))
                                     conn.commit()
                                     # เตรียมสำหรับ Retroactive Match
                                     matched_faces_to_process.append({

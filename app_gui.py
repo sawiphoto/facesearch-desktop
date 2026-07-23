@@ -1486,6 +1486,7 @@ class FaceSearchApp(ctk.CTk):
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
 
+
     def filter_student_list(self):
         self.load_student_list()
 
@@ -1761,7 +1762,7 @@ class FaceSearchApp(ctk.CTk):
             corner_radius=6
         )
         lbl_fallback.pack(padx=2, pady=2, expand=True, fill="both")
-
+        
         lbl_fallback.bind("<Button-1>", lambda event, p=path, w=frame_border: self.select_student_thumbnail(p, w))
         frame_border.bind("<Button-1>", lambda event, p=path, w=frame_border: self.select_student_thumbnail(p, w))
 
@@ -3943,7 +3944,11 @@ class FaceSearchApp(ctk.CTk):
                 
                 for r in rows:
                     match_id, pid, name, conf = r
-                    self.db_tree.insert("", "end", values=(match_id, pid, name, f"{conf*100:.2f}%"))
+                    try:
+                        conf_val = float(conf)
+                    except (ValueError, TypeError):
+                        conf_val = 0.0
+                    self.db_tree.insert("", "end", values=(match_id, pid, name, f"{conf_val*100:.2f}%"))
                     
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง detected_faces (นักเรียน)
@@ -3982,7 +3987,11 @@ class FaceSearchApp(ctk.CTk):
                 
                 for r in rows:
                     match_id, pid, name, std_id, conf = r
-                    self.db_tree.insert("", "end", values=(match_id, pid, name, std_id, f"{conf*100:.2f}%"))
+                    try:
+                        conf_val = float(conf)
+                    except (ValueError, TypeError):
+                        conf_val = 0.0
+                    self.db_tree.insert("", "end", values=(match_id, pid, name, std_id, f"{conf_val*100:.2f}%"))
                     
         except Exception as e:
             logger.error(f"Error loading SQLite table into Treeview: {e}", exc_info=True)
