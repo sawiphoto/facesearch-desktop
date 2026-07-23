@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.9
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.0
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -32,16 +32,13 @@ python main.py
 | [db_manager.py](db_manager.py) | จัดการ SQLite DB – สร้างตาราง, บันทึก/ดึงเวกเตอร์ใบหน้า, จัดการ cache |
 | [face_analyzer.py](face_analyzer.py) | สร้างเวกเตอร์ใบหน้า 512-dim ด้วย InsightFace (antelopev2) |
 | [gdrive_sync.py](gdrive_sync.py) | ซิงค์ข้อมูล Google Drive + Google Sheets + JSON index |
+| [scheduler_task.py](scheduler_task.py) | จัดการระบบรันเบื้องหลัง (ซิงค์ภาพนักเรียน, ตรวจสอบโฟลเดอร์ใหม่) |
 | [requirements.txt](requirements.txt) | รายการ dependency ของโปรเจกต์ |
-| [config/](config/) | เก็บ service_account.json (Google credentials) |
-| [data/](data/) | SQLite DB, settings, cache, temp files |
-| [models/](models/) | โมเดล InsightFace antelopev2 (ดาวน์โหลดอัตโนมัติ) |
 
 ---
 
 ## 📚 References
 - [Google Sheets API Documentation](https://developers.google.com/sheets/api)
-- [Google Drive API Documentation](https://developers.google.com/drive/api)
 - [InsightFace (antelopev2)](https://github.com/deepinsight/insightface)
 - [CustomTkinter Documentation](https://customtkinter.tomschimanych.dev/)
 
@@ -57,6 +54,25 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.9.0 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.1 Pro
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. เพิ่มโหมดสืบสวนและตรวจสอบข้อมูล (Debug Sync Mode) สำหรับ Task 2
+- **ฟีเจอร์ (`scheduler_task.py`)**: เพิ่มฟังก์ชัน `debug_compare_sheet_vs_db()` เพื่อใช้เทียบคอลัมน์ใน Sheet กับฐานข้อมูล (SQLite) แบบ 1ต่อ1 
+- ฟังก์ชันนี้จะรายงาน Log ออกมาเป็นข้อสรุปให้แอดมินดูรวดเดียว:
+  - บอกว่ามีนักเรียนที่ไม่อยู่ใน DB (รอเพิ่มใหม่) กี่คน
+  - ตรวจสอบชื่อ-นามสกุล หรือรหัส PIN ว่าตรงกับฐานข้อมูลที่เคยบันทึกไหม
+  - แจ้งเตือน URL ของ Google Drive ที่ผิดรูปแบบ (เสีย) ใน Sheet
+  - หากนักเรียนมีรูปภาพใน DB ไม่ครบตาม Sheet จะแจ้งรหัส File ID ที่ตกหล่นออกมาด้วย
+  - บอกนักเรียนที่ค้างอยู่ใน DB แต่ถูกลบจาก Sheet ไปแล้ว (Orphans)
+
+#### 2. แก้ไข Logic การอัปเดตรูปภาพนักเรียน (Bug Fix)
+- **ปัญหา**: หากรหัสนักเรียนถูกลบจากฐานข้อมูล DB ไปแล้ว แต่ตัวโปรแกรมยังจำประวัติในไฟล์แคช JSON (`student_sync_temp.json`) อยู่ จะทำให้ระบบไม่ยอมดึงรูปมาสแกนใหม่ให้
+- **การแก้ไข (`scheduler_task.py`)**: เพิ่มเงื่อนไขเข้าไปเช็คว่า ถ้านักเรียนคนนั้นไม่ได้อยู่ใน SQLite (`staff_id_check is None`) จะต้องบังคับให้ตัวแปร `is_new = True` เสมอ เพื่อให้ระบบเมินแคชเดิมและดึงรูปทั้งหมดในชีทมาประมวลผลเซฟลงฐานข้อมูลใหม่ตั้งแต่ต้น
 
 ---
 

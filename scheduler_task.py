@@ -9,6 +9,9 @@ from datetime import datetime
 
 logger = logging.getLogger("FaceSearchApp")
 
+# เปิดใช้งานโหมด Debug การซิงค์นักเรียน
+DEBUG_SYNC_MODE = True
+
 class SchedulerTask:
     def __init__(self, db_manager, sync_manager, face_analyzer, app_gui):
         self.db = db_manager
@@ -244,6 +247,118 @@ class SchedulerTask:
             logger.error(f"[SCHEDULE] เกิดข้อผิดพลาดในการสร้าง FaceAnalyzer: {e}", exc_info=True)
             return False
 
+    def debug_compare_sheet_vs_db(self, data, col_id, col_name, col_pin, col_img1, col_img2, col_img3):
+        """โหมดสืบสวน: นำข้อมูลจาก Sheet มาเทียบกับ DB แล้วพ่น Log ออกมาทีเดียว"""
+        logger.info("[DEBUG] ================= เริ่มโหมดตรวจสอบ Sheet vs DB =================")
+        
+        not_in_db = []
+        mismatched_data = []
+        invalid_urls = []
+        missing_photos_in_db = []
+        db_orphans = []
+        
+        total_in_sheet = 0
+        sheet_student_ids = set()
+        
+        # 1. เช็คข้อมูลจาก Sheet -> DB
+        for row in data:
+            std_id = str(row.get(col_id, "")).strip()
+            if not std_id:
+                continue
+                
+            total_in_sheet += 1
+            sheet_student_ids.add(std_id)
+            
+            std_name = str(row.get(col_name, "")).strip()
+            pin_code = str(row.get(col_pin, "")).strip()
+            imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, "")), str(row.get(col_img3, ""))]
+            valid_imgs = [img for img in imgs if img.strip()]
+            
+            # ตรวจสอบลิงก์ที่ผิดปกติ
+            for img in valid_imgs:
+                if "drive.google.com" not in img and "google.com" not in img:
+                    invalid_urls.append((std_id, std_name, img))
+            
+            with self.db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT id, name, pin_code FROM staff_members WHERE student_id = ? AND role = 'student'", (std_id,))
+                db_row = c.fetchone()
+                
+                if not db_row:
+                    if len(valid_imgs) == 0:
+                        not_in_db.append(f"{std_name} ({std_id}) - *ยังไม่มีรูปใน Sheet*")
+                    else:
+                        not_in_db.append(f"{std_name} ({std_id}) - มีรูปใน Sheet {len(valid_imgs)} รูป")
+                else:
+                    staff_id_check = db_row[0]
+                    db_name = db_row[1]
+                    db_pin = db_row[2]
+                    
+                    if db_name != std_name or db_pin != pin_code:
+                        mismatched_data.append(f"{std_id}: Sheet(Name='{std_name}', PIN='{pin_code}') vs DB(Name='{db_name}', PIN='{db_pin}')")
+                    
+                    # เช็ครูปภาพ
+                    c.execute("SELECT image_path, source_url FROM staff_embeddings WHERE staff_id = ?", (staff_id_check,))
+                    existing_records = c.fetchall()
+                    existing_file_ids = set()
+                    for r in existing_records:
+                        img_p, src_u = r[0] or "", r[1] or ""
+                        if "drive:" in img_p:
+                            existing_file_ids.add(img_p.replace("drive:", "").strip())
+                        ext_p = self._extract_drive_id(img_p)
+                        if ext_p: existing_file_ids.add(ext_p)
+                        ext_u = self._extract_drive_id(src_u)
+                        if ext_u: existing_file_ids.add(ext_u)
+                    
+                    missing_files = []
+                    for img in valid_imgs:
+                        f_id = self._extract_drive_id(img)
+                        if f_id and f_id not in existing_file_ids:
+                            missing_files.append(f_id)
+                    
+                    if missing_files:
+                        missing_photos_in_db.append(f"{std_name} ({std_id}): ขาดหายไป {len(missing_files)} รูป (File ID: {', '.join(missing_files)})")
+
+        # 2. เช็คข้อมูลจาก DB -> Sheet (หาคนที่โดนลบจาก Sheet ไปแล้ว)
+        with self.db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT student_id, name FROM staff_members WHERE role = 'student' AND student_id IS NOT NULL")
+            db_students = c.fetchall()
+            for r in db_students:
+                db_std_id = r[0]
+                db_std_name = r[1]
+                if db_std_id not in sheet_student_ids:
+                    db_orphans.append(f"{db_std_name} ({db_std_id})")
+
+        # พ่น Log สรุปทีเดียว
+        logger.info(f"[DEBUG] 📊 สรุปผลการเปรียบเทียบ:")
+        logger.info(f"[DEBUG] - พบนักเรียนใน Sheet ทั้งหมด: {total_in_sheet} คน")
+        logger.info(f"[DEBUG] - พบใน DB แต่ไม่มีใน Sheet (Orphans): {len(db_orphans)} คน")
+        if db_orphans:
+            logger.info(f"[DEBUG]   รายชื่อ Orphans: {', '.join(db_orphans)}")
+            
+        logger.info(f"[DEBUG] - พบใน Sheet แต่ไม่มีในฐานข้อมูล: {len(not_in_db)} คน")
+        if not_in_db:
+            for n in not_in_db:
+                logger.info(f"[DEBUG]   - {n}")
+                
+        logger.info(f"[DEBUG] - ข้อมูล Name/PIN ไม่ตรงกัน: {len(mismatched_data)} คน")
+        if mismatched_data:
+            for m in mismatched_data:
+                logger.info(f"[DEBUG]   - {m}")
+                
+        logger.info(f"[DEBUG] - ลิงก์รูปภาพใน Sheet ผิดรูปแบบ: {len(invalid_urls)} ลิงก์")
+        if invalid_urls:
+            for iv in invalid_urls:
+                logger.info(f"[DEBUG]   - {iv[1]} ({iv[0]}): {iv[2]}")
+                
+        logger.info(f"[DEBUG] - มีรูปใน Sheet แต่ไม่มีใน DB (ขาดหาย): {len(missing_photos_in_db)} คน")
+        if missing_photos_in_db:
+            for mp in missing_photos_in_db:
+                logger.info(f"[DEBUG]   - {mp}")
+                
+        logger.info("[DEBUG] ===============================================================")
+
     def _task_2_sync_new_students(self):
         logger.info("[SCHEDULE] กำลังทำ task นักเรียนใหม่...")
         sheet_id = "1bz81BDC0NkuX1-jzw_glntYZ1xkmuI9xJSi8op_x7To"
@@ -285,6 +400,9 @@ class SchedulerTask:
         col_img3 = find_col(["ภาพใบหน้าเพิ่มเติม2", "ภาพใบหน้าเพิ่มเติม 2"]) or "ภาพใบหน้าเพิ่มเติม2"
 
         logger.info(f"[SCHEDULE] ใช้ชื่อคอลัมน์ -> ID: '{col_id}', Name: '{col_name}', PIN: '{col_pin}', Img1: '{col_img1}'")
+
+        if DEBUG_SYNC_MODE:
+            self.debug_compare_sheet_vs_db(data, col_id, col_name, col_pin, col_img1, col_img2, col_img3)
 
         temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "student_sync_temp.json")
         old_data = {}
@@ -361,6 +479,12 @@ class SchedulerTask:
                             f_id = self._extract_drive_id(img_url)
                             if f_id and f_id not in existing_file_ids and img_url not in new_imgs:
                                 new_imgs.append(img_url)
+            else:
+                # กรณีที่ใน DB ไม่มีเลย (อาจถูกลบไปแล้ว) ต้องบังคับ is_new=True
+                is_new = True
+                for img_url in imgs:
+                    if img_url.strip() and img_url not in new_imgs:
+                        new_imgs.append(img_url)
 
             if is_new and new_imgs:
                 logger.info(f"[SCHEDULE] พบนักเรียนใหม่: {std_name} ({std_id})")
