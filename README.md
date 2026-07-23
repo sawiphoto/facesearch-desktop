@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.6
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.7
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -57,6 +57,26 @@ All SQLite DB verification tests passed successfully:
 - **Sync Frequency** – ซิงค์ข้อมูลทุกๆ 500 รูป
 
 > **Result:** The system now handles images without detectable faces efficiently and syncs data to Google services at a reduced frequency, improving overall performance.
+
+---
+
+## 📋 Version 1.8.7 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**วันที่อัปเดต:** 23 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหาลิงก์ Google Drive รูปแบบ `uc?id=` ไม่ถูกดาวน์โหลด และแคช JSON ข้ามรูปภาพ (Fix Google Drive `uc?id=` extraction & DB embedding verification)
+- **ปัญหา:** อัปโหลดเปลี่ยนภาพใหม่ 3 ภาพให้คุณชญานนท์ (รหัส `99999`) แต่ระบบแจ้งว่า "ไม่มีภาพใหม่" และในระบบมีเพียง 2 ภาพเดิม
+- **สาเหตุ:**
+  1. ลิงก์รูปภาพใน Google Sheet ใช้รูปแบบ `https://drive.google.com/uc?id=...` แต่ฟังก์ชัน `_extract_drive_id()` เดิมตรวจเช็คเฉพาะ `/d/` ทำให้ดึง File ID ล้มเหลว คืนค่าเป็น `None` และข้ามการดาวน์โหลดรูปภาพทั้งหมด
+  2. ไฟล์แคช `student_sync_temp.json` บันทึก URL ใหม่ไปล่วงหน้า ทำให้เมื่อรันครั้งถัดไป ระบบมองว่า URL นี้เคยสแกนแล้วและข้ามการดาวน์โหลดไปอีก
+- **โค้ดที่แก้ไข (`scheduler_task.py`):**
+  - **`_extract_drive_id(url)`**: ปรับปรุงให้รองรับลิงก์ทุกรูปแบบ (`uc?id=`, `open?id=`, `/file/d/`, `/d/`, Raw File ID)
+  - **`_task_2_sync_new_students()`**: เพิ่มการตรวจสอบกับ SQLite DB (`staff_embeddings`) โดยตรง หาก `file_id` รูปใดยังไม่มีเวกเตอร์ใบหน้าใน DB ให้ระบบดาวน์โหลดมาประมวลผลทันที แม้ URL จะเคยบันทึกในแคช JSON แล้วก็ตาม
+
+#### 2. การปรับปรุงให้ Task 2 ดึงค่า Threshold จาก UI Slider มาใช้อัตโนมัติ (Task 2 Dynamic Slider Threshold Fix)
+- **ปัญหา:** Task 2 (Retroactive Match) ล็อกค่าการเปรียบเทียบใบหน้าไว้ที่ `0.5` (Hardcoded) ไม่เปลี่ยนตาม Slider บนหน้าจอ GUI
+- **โค้ดที่แก้ไข (`app_gui.py`):**
+  - **`process_retroactive_match_headless()`**: เปลี่ยนจากการล็อกค่า `0.5` เป็นการดึงค่าไดนามิกจาก `current_thresh = self.slider_threshold.get()` มาใช้อัตโนมัติแบบเดียวกับ Task 1
 
 ---
 

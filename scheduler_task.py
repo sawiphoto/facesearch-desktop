@@ -188,13 +188,29 @@ class SchedulerTask:
                     break # หลุดจาก while เพื่อไม่ให้ค้าง
                     
     def _extract_drive_id(self, url):
-        """ดึง ID จากลิงก์ Google Drive"""
+        """ดึง ID จากลิงก์ Google Drive (รองรับ /d/, uc?id=, open?id=, และ raw ID)"""
         if not isinstance(url, str):
             return None
+        url = url.strip()
+        if not url:
+            return None
+            
+        # 1. ลิงก์รูปแบบ /d/ID หรือ /file/d/ID
         if '/d/' in url:
             parts = url.split('/d/')
             if len(parts) > 1:
-                return parts[1].split('/')[0]
+                return parts[1].split('/')[0].split('?')[0].split('&')[0]
+                
+        # 2. ลิงก์รูปแบบ id=ID (เช่น uc?id=..., open?id=...)
+        if 'id=' in url:
+            parts = url.split('id=')
+            if len(parts) > 1:
+                return parts[1].split('&')[0].split('/')[0].split('?')[0]
+                
+        # 3. หากเป็น Raw Google Drive File ID ตรงๆ ( alphanumeric ความยาว >= 25)
+        if len(url) >= 25 and '/' not in url and '=' not in url:
+            return url
+            
         return None
 
     def _ensure_analyzer(self):
@@ -301,7 +317,7 @@ class SchedulerTask:
             }
             new_data[std_id] = std_state
             
-            # เปรียบเทียบ
+            # เปรียบเทียบไฟล์แคช JSON
             is_new = False
             new_imgs = []
             
@@ -314,11 +330,34 @@ class SchedulerTask:
                 for i in range(3):
                     if imgs[i].strip() and (i >= len(old_imgs) or imgs[i] != old_imgs[i]):
                         new_imgs.append(imgs[i])
-                        
+
+            # ตรวจสอบเพิ่มเติมกับ SQLite DB: หากรูปภาพใดยังไม่มี embedding ใน DB ให้จัดเข้า new_imgs ด้วย
+            staff_id_check = self.db.register_member(std_name, role='student', student_id=std_id, pin_code=pin_code)
+            if staff_id_check:
+                with self.db.get_connection() as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT image_path, source_url FROM staff_embeddings WHERE staff_id = ?", (staff_id_check,))
+                    existing_records = c.fetchall()
+                    existing_file_ids = set()
+                    for r in existing_records:
+                        img_p, src_u = r[0] or "", r[1] or ""
+                        if "drive:" in img_p:
+                            existing_file_ids.add(img_p.replace("drive:", "").strip())
+                        ext_p = self._extract_drive_id(img_p)
+                        if ext_p: existing_file_ids.add(ext_p)
+                        ext_u = self._extract_drive_id(src_u)
+                        if ext_u: existing_file_ids.add(ext_u)
+                    
+                    for img_url in imgs:
+                        if img_url.strip():
+                            f_id = self._extract_drive_id(img_url)
+                            if f_id and f_id not in existing_file_ids and img_url not in new_imgs:
+                                new_imgs.append(img_url)
+
             if is_new and new_imgs:
                 logger.info(f"[SCHEDULE] พบนักเรียนใหม่: {std_name} ({std_id})")
             elif new_imgs:
-                logger.info(f"[SCHEDULE] พบนักเรียนเก่าอัปเดตรูป: {std_name} ({std_id})")
+                logger.info(f"[SCHEDULE] พบนักเรียนเก่าอัปเดตรูป: {std_name} ({std_id}) [จำนวน {len(new_imgs)} รูปภาพ]")
                 
             if new_imgs:
                 # ตรวจสอบและโหลด FaceAnalyzer Model หากยังไม่มี
@@ -349,8 +388,8 @@ class SchedulerTask:
                                     # เซฟลง staff_embeddings
                                     conn = self.db.get_connection()
                                     c = conn.cursor()
-                                    c.execute("INSERT INTO staff_embeddings (staff_id, image_path, embedding) VALUES (?, ?, ?)",
-                                             (staff_id, f"drive:{file_id}", emb.tobytes()))
+                                    c.execute("INSERT INTO staff_embeddings (staff_id, image_path, embedding, source_url) VALUES (?, ?, ?, ?)",
+                                             (staff_id, f"drive:{file_id}", emb.tobytes(), img_url))
                                     conn.commit()
                                     # เตรียมสำหรับ Retroactive Match
                                     matched_faces_to_process.append({
@@ -358,13 +397,15 @@ class SchedulerTask:
                                         "name": std_name,
                                         "emb": emb
                                     })
-                                    logger.info(f"[SCHEDULE] สกัดเวกเตอร์ใบหน้าสำเร็จสำหรับ {std_name}")
+                                    logger.info(f"[SCHEDULE] สกัดเวกเตอร์ใบหน้าสำเร็จสำหรับ {std_name} (File ID: {file_id})")
                                 else:
                                     logger.warning(f"[SCHEDULE] ไม่พบใบหน้าในรูปภาพ {file_id} ของ {std_name}")
                             else:
                                 logger.warning(f"[SCHEDULE] ไม่สามารถแปลงรูปภาพ {file_id} ของ {std_name} ได้")
                         except Exception as e:
                             logger.error(f"[SCHEDULE] Error processing image {file_id} for {std_name}: {e}")
+                    else:
+                        logger.error(f"[SCHEDULE] ไม่สามารถดึง Google Drive File ID จาก URL: {img_url}")
                             
         logger.info(f"[SCHEDULE] ตรวจสอบข้อมูลนักเรียนเสร็จสิ้น ({valid_rows_count} แถวมีรหัสนักเรียนถูกต้อง)")
 

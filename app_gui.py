@@ -2850,7 +2850,8 @@ class FaceSearchApp(ctk.CTk):
 
     def process_retroactive_match_headless(self, matched_faces_to_process):
         """ทำ Retroactive Match เงียบๆ สำหรับหน้าใหม่ที่เพิ่งเพิ่ม (เทียบกับแคชทั้งหมด)"""
-        logger.info(f"[SCHEDULE] Running retroactive match for {len(matched_faces_to_process)} faces...")
+        current_thresh = self.slider_threshold.get() if hasattr(self, 'slider_threshold') else 0.5
+        logger.info(f"[SCHEDULE] Running retroactive match for {len(matched_faces_to_process)} faces with threshold: {current_thresh:.2f}...")
         try:
             # ดึงแคชทั้งหมด
             with self.db.get_connection() as conn:
@@ -2870,7 +2871,7 @@ class FaceSearchApp(ctk.CTk):
                     c_norm = cached_emb / (np.linalg.norm(cached_emb) or 1.0)
                     
                     sim = np.dot(target_norm, c_norm)
-                    if sim >= 0.5: # Threshold
+                    if sim >= current_thresh:
                         self.db.save_detected_face(photo_id, staff_id, sim)
             
             # อัปเดตข้อมูลขึ้น Sheet
