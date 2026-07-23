@@ -247,11 +247,12 @@ class SchedulerTask:
             logger.error(f"[SCHEDULE] เกิดข้อผิดพลาดในการสร้าง FaceAnalyzer: {e}", exc_info=True)
             return False
 
-    def debug_compare_sheet_vs_db(self, data, col_id, col_name, col_pin, col_img1, col_img2, col_img3):
+    def debug_compare_sheet_vs_db(self, data, col_id, col_name, col_img1, col_img2, col_img3):
         """โหมดสืบสวน: นำข้อมูลจาก Sheet มาเทียบกับ DB แล้วพ่น Log ออกมาทีเดียว"""
         logger.info("[DEBUG] ================= เริ่มโหมดตรวจสอบ Sheet vs DB =================")
         
         not_in_db = []
+        no_photo_in_sheet_count = 0
         mismatched_data = []
         invalid_urls = []
         missing_photos_in_db = []
@@ -270,7 +271,6 @@ class SchedulerTask:
             sheet_student_ids.add(std_id)
             
             std_name = str(row.get(col_name, "")).strip()
-            pin_code = str(row.get(col_pin, "")).strip()
             imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, "")), str(row.get(col_img3, ""))]
             valid_imgs = [img for img in imgs if img.strip()]
             
@@ -281,21 +281,20 @@ class SchedulerTask:
             
             with self.db.get_connection() as conn:
                 c = conn.cursor()
-                c.execute("SELECT id, name, pin_code FROM staff_members WHERE student_id = ? AND role = 'student'", (std_id,))
+                c.execute("SELECT id, name FROM staff_members WHERE student_id = ? AND role = 'student'", (std_id,))
                 db_row = c.fetchone()
                 
                 if not db_row:
                     if len(valid_imgs) == 0:
-                        not_in_db.append(f"{std_name} ({std_id}) - *ยังไม่มีรูปใน Sheet*")
+                        no_photo_in_sheet_count += 1
                     else:
                         not_in_db.append(f"{std_name} ({std_id}) - มีรูปใน Sheet {len(valid_imgs)} รูป")
                 else:
                     staff_id_check = db_row[0]
                     db_name = db_row[1]
-                    db_pin = db_row[2]
                     
-                    if db_name != std_name or db_pin != pin_code:
-                        mismatched_data.append(f"{std_id}: Sheet(Name='{std_name}', PIN='{pin_code}') vs DB(Name='{db_name}', PIN='{db_pin}')")
+                    if db_name != std_name:
+                        mismatched_data.append(f"{std_id}: Sheet(Name='{std_name}') vs DB(Name='{db_name}')")
                     
                     # เช็ครูปภาพ
                     c.execute("SELECT image_path, source_url FROM staff_embeddings WHERE staff_id = ?", (staff_id_check,))
@@ -333,16 +332,20 @@ class SchedulerTask:
         # พ่น Log สรุปทีเดียว
         logger.info(f"[DEBUG] 📊 สรุปผลการเปรียบเทียบ:")
         logger.info(f"[DEBUG] - พบนักเรียนใน Sheet ทั้งหมด: {total_in_sheet} คน")
+        
+        if no_photo_in_sheet_count > 0:
+            logger.info(f"[DEBUG] - พบนักเรียนที่ยังไม่มีรูปใน Sheet (และยังไม่ถูกบันทึก) ทั้งหมด: {no_photo_in_sheet_count} คน")
+            
         logger.info(f"[DEBUG] - พบใน DB แต่ไม่มีใน Sheet (Orphans): {len(db_orphans)} คน")
         if db_orphans:
             logger.info(f"[DEBUG]   รายชื่อ Orphans: {', '.join(db_orphans)}")
             
-        logger.info(f"[DEBUG] - พบใน Sheet แต่ไม่มีในฐานข้อมูล: {len(not_in_db)} คน")
+        logger.info(f"[DEBUG] - พบใน Sheet แต่ไม่มีในฐานข้อมูล (รอลงทะเบียน): {len(not_in_db)} คน")
         if not_in_db:
             for n in not_in_db:
                 logger.info(f"[DEBUG]   - {n}")
                 
-        logger.info(f"[DEBUG] - ข้อมูล Name/PIN ไม่ตรงกัน: {len(mismatched_data)} คน")
+        logger.info(f"[DEBUG] - ข้อมูล Name ไม่ตรงกัน: {len(mismatched_data)} คน")
         if mismatched_data:
             for m in mismatched_data:
                 logger.info(f"[DEBUG]   - {m}")
@@ -394,15 +397,14 @@ class SchedulerTask:
 
         col_id = find_col(["รหัสนักเรียน", "รหัสประจำตัว", "รหัส"]) or "รหัสนักเรียน"
         col_name = find_col(["ชื่อ สกุล", "ชื่อ-นามสกุล", "ชื่อนามสกุล", "ชื่อสุกล"]) or "ชื่อ สกุล"
-        col_pin = find_col(["รหัสส่วนตัว 6 หลัก", "PIN", "รหัสส่วนตัว"]) or "รหัสส่วนตัว 6 หลัก"
         col_img1 = find_col(["ภาพใบหน้าตรง", "รูปถ่าย", "ภาพถ่าย"]) or "ภาพใบหน้าตรง"
         col_img2 = find_col(["ภาพใบหน้าเพิ่มเติม1", "ภาพใบหน้าเพิ่มเติม 1"]) or "ภาพใบหน้าเพิ่มเติม1"
         col_img3 = find_col(["ภาพใบหน้าเพิ่มเติม2", "ภาพใบหน้าเพิ่มเติม 2"]) or "ภาพใบหน้าเพิ่มเติม2"
 
-        logger.info(f"[SCHEDULE] ใช้ชื่อคอลัมน์ -> ID: '{col_id}', Name: '{col_name}', PIN: '{col_pin}', Img1: '{col_img1}'")
+        logger.info(f"[SCHEDULE] ใช้ชื่อคอลัมน์ -> ID: '{col_id}', Name: '{col_name}', Img1: '{col_img1}'")
 
         if DEBUG_SYNC_MODE:
-            self.debug_compare_sheet_vs_db(data, col_id, col_name, col_pin, col_img1, col_img2, col_img3)
+            self.debug_compare_sheet_vs_db(data, col_id, col_name, col_img1, col_img2, col_img3)
 
         temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "student_sync_temp.json")
         old_data = {}
@@ -424,13 +426,11 @@ class SchedulerTask:
             valid_rows_count += 1
                 
             std_name = str(row.get(col_name, "")).strip()
-            pin_code = str(row.get(col_pin, "")).strip()
             imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, "")), str(row.get(col_img3, ""))]
             
-            # เก็บ State
+            # เก็บ State (เอา PIN ออกแล้ว)
             std_state = {
                 "name": std_name,
-                "pin": pin_code,
                 "imgs": imgs
             }
             new_data[std_id] = std_state
@@ -497,8 +497,8 @@ class SchedulerTask:
                     logger.error(f"[SCHEDULE] ข้ามการสกัดใบหน้าของ {std_name} เนื่องจากไม่สามารถโหลด AI Model ได้")
                     continue
 
-                # ลงทะเบียน DB
-                staff_id = self.db.register_member(std_name, role='student', student_id=std_id, pin_code=pin_code)
+                # ลงทะเบียน DB (ส่งค่า pin_code เป็นสตริงว่าง)
+                staff_id = self.db.register_member(std_name, role='student', student_id=std_id, pin_code="")
                 
                 # โหลดภาพและสกัดเวกเตอร์
                 for img_url in new_imgs:

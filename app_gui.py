@@ -332,7 +332,9 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # โหลดค่า column ล่าสุด
         self.last_col_id = parent.settings.get("last_import_col_id", "A")
         self.last_col_name = parent.settings.get("last_import_col_name", "B")
-        self.last_col_front = parent.settings.get("last_import_col_front", "C")
+        self.last_col_img1 = parent.settings.get("last_import_col_img1", "D")
+        self.last_col_img2 = parent.settings.get("last_import_col_img2", "E")
+        self.last_col_img3 = parent.settings.get("last_import_col_img3", "F")
 
         # ทำให้เป็น Modal dialog
         self.transient(parent)
@@ -390,23 +392,38 @@ class SheetsImportDialog(ctk.CTkToplevel):
         ctk.CTkLabel(col2_frame, text="(บังคับ)", text_color="#27AE60",
                    font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
 
-        # คอลัมน์รูปหน้าตรง
+        # คอลัมน์ภาพที่ 1
         col3_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         col3_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(col3_frame, text="คอลัมน์รูปหน้าตรง:", width=130, anchor="w",
+        ctk.CTkLabel(col3_frame, text="คอลัมน์ภาพที่ 1 (บังคับ):", width=140, anchor="w",
                    text_color="#A2B5CD").pack(side="left")
-        self.col_front = ctk.CTkOptionMenu(col3_frame, values=["A", "B", "C", "D", "E", "F", "G", "H"])
-        self.col_front.set(self.last_col_front)
-        self.col_front.pack(side="left", padx=(5, 0))
-        ctk.CTkLabel(col3_frame, text="(บังคับ - ระบบจะหารูปเพิ่มเติมอัตโนมัติ)", text_color="#27AE60",
-                   font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
+        self.col_img1 = ctk.CTkOptionMenu(col3_frame, values=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+        self.col_img1.set(self.last_col_img1)
+        self.col_img1.pack(side="left", padx=(5, 0))
+
+        # คอลัมน์ภาพที่ 2
+        col4_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        col4_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(col4_frame, text="คอลัมน์ภาพที่ 2 (เสริม):", width=140, anchor="w",
+                   text_color="#A2B5CD").pack(side="left")
+        self.col_img2 = ctk.CTkOptionMenu(col4_frame, values=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+        self.col_img2.set(self.last_col_img2)
+        self.col_img2.pack(side="left", padx=(5, 0))
+        
+        # คอลัมน์ภาพที่ 3
+        col5_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        col5_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(col5_frame, text="คอลัมน์ภาพที่ 3 (เสริม):", width=140, anchor="w",
+                   text_color="#A2B5CD").pack(side="left")
+        self.col_img3 = ctk.CTkOptionMenu(col5_frame, values=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+        self.col_img3.set(self.last_col_img3)
+        self.col_img3.pack(side="left", padx=(5, 0))
 
         # คำอธิบาย
         desc_label = ctk.CTkLabel(main_frame,
                                   text="• 1 คน = 1 แถว (รหัส + ชื่อ)\n"
-                                      "• รูปหน้าตรง: บังคับต้องมี (เป็นรูปหลัก)\n"
-                                      "• รูปเพิ่มเติม: ระบบจะหาอัตโนมัติจากคอลัมน์ถัดไป\n"
-                                      "  (หยุดเมื่อเจอคอลัมน์ว่าง)",
+                                      "• ภาพที่ 1: บังคับต้องมี\n"
+                                      "• ภาพที่ 2 และ 3: ใส่เสริมหรือไม่ก็ได้",
                                   text_color="#6CA6CD", font=ctk.CTkFont(size=11),
                                   justify="left")
         desc_label.pack(pady=(5, 10), anchor="w")
@@ -620,7 +637,9 @@ class SheetsImportDialog(ctk.CTkToplevel):
             "sheet_name": self.selected_sheet_name,
             "col_id": self.col_id.get(),
             "col_name": self.col_name.get(),
-            "col_front": self.col_front.get()
+            "col_img1": self.col_img1.get(),
+            "col_img2": self.col_img2.get(),
+            "col_img3": self.col_img3.get()
         }
 
         # บันทึกค่าล่าสุด
@@ -628,7 +647,9 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.parent.settings["last_import_sheet_name"] = self.selected_sheet_name
         self.parent.settings["last_import_col_id"] = self.col_id.get()
         self.parent.settings["last_import_col_name"] = self.col_name.get()
-        self.parent.settings["last_import_col_front"] = self.col_front.get()
+        self.parent.settings["last_import_col_img1"] = self.col_img1.get()
+        self.parent.settings["last_import_col_img2"] = self.col_img2.get()
+        self.parent.settings["last_import_col_img3"] = self.col_img3.get()
         self.parent.save_settings()
 
         self.destroy()
@@ -1833,7 +1854,9 @@ class FaceSearchApp(ctk.CTk):
                 }
                 col_id = col_map.get(settings["col_id"], 0)
                 col_name = col_map.get(settings["col_name"], 1)
-                col_front = col_map.get(settings["col_front"], 2)
+                col_img1 = col_map.get(settings["col_img1"], 3)
+                col_img2 = col_map.get(settings["col_img2"], 4)
+                col_img3 = col_map.get(settings["col_img3"], 5)
 
                 # ข้ามแถวหัวคอลัมน์
                 data_rows = sheet_data[1:]
@@ -1841,7 +1864,7 @@ class FaceSearchApp(ctk.CTk):
                 # จัดกลุ่มข้อมูลตาม รหัส + ชื่อ + รวบรวม URL ภาพทั้งหมด
                 student_dict = {}
                 for row in data_rows:
-                    if len(row) <= max(col_id, col_name, col_front):
+                    if len(row) <= max(col_id, col_name):
                         continue
 
                     student_code = row[col_id].strip() if col_id < len(row) else ""
@@ -1850,13 +1873,12 @@ class FaceSearchApp(ctk.CTk):
                     if not student_code or not student_name:
                         continue
 
-                    # รวบรวม URL ภาพเริ่มจาก column หน้าตรง ไปเรื่อยๆ จนกว่าจะเจอค่าว่าง
+                    # รวบรวม URL ภาพจาก 3 คอลัมน์ที่ระบุ
                     photo_urls = []
-                    for col_idx in range(col_front, len(row)):
+                    for col_idx in [col_img1, col_img2, col_img3]:
                         url = row[col_idx].strip() if col_idx < len(row) else ""
-                        if not url or url == "-":
-                            break  # หยุดเมื่อเจอค่าว่าง
-                        photo_urls.append((chr(65 + col_idx), url))
+                        if url and url != "-":
+                            photo_urls.append((chr(65 + col_idx), url))
 
                     if not photo_urls:
                         continue
@@ -2875,7 +2897,8 @@ class FaceSearchApp(ctk.CTk):
             with self.db.get_connection() as conn:
                 c = conn.cursor()
                 c.execute("SELECT photo_id, embedding FROM scanned_photo_faces")
-                cached_faces = c.fetchall()
+                all_cached = c.fetchall()
+                cached_faces = [row for row in all_cached if row[1] and len(row[1]) > 0]
             
             for item in matched_faces_to_process:
                 staff_id = item["staff_id"]
@@ -2890,7 +2913,7 @@ class FaceSearchApp(ctk.CTk):
                     
                     sim = np.dot(target_norm, c_norm)
                     if sim >= current_thresh:
-                        self.db.save_detected_face(photo_id, staff_id, sim)
+                        self.db.save_detected_faces(photo_id, [(staff_id, sim)])
             
             # อัปเดตข้อมูลขึ้น Sheet
             sync_data = self.db.get_all_sync_data()
