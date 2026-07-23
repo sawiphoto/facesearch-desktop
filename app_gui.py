@@ -1063,6 +1063,7 @@ class FaceSearchApp(ctk.CTk):
                 WHERE sm.role = 'teacher' OR sm.role IS NULL OR sm.role = ''
                 GROUP BY sm.id, sm.name
                 ORDER BY photo_count {sort_dir}, sm.name ASC
+                LIMIT 50
             """)
             teacher_rows = cursor.fetchall()
             
@@ -1074,6 +1075,7 @@ class FaceSearchApp(ctk.CTk):
                 WHERE sm.role = 'student'
                 GROUP BY sm.id, sm.name
                 ORDER BY photo_count {sort_dir}, sm.name ASC
+                LIMIT 50
             """)
             student_rows = cursor.fetchall()
             conn.close()
@@ -1418,12 +1420,21 @@ class FaceSearchApp(ctk.CTk):
             search_term = self.entry_student_search.get().strip().lower()
 
         students = self.db.get_all_students()
+        rendered_count = 0
         for idx, s in enumerate(students):
             if search_term:
                 name_match = search_term in s['name'].lower()
                 id_match = s['student_id'] and (search_term in s['student_id'].lower())
                 if not (name_match or id_match):
                     continue
+            
+            if rendered_count >= 100:
+                # Add a label indicating there are more results
+                lbl_more = ctk.CTkLabel(self.student_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=11, slant="italic"))
+                lbl_more.pack(pady=5)
+                break
+            
+            rendered_count += 1
 
             # สร้างเฟรมแถวรายชื่อนักเรียนแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.student_list_scrollable, fg_color="transparent")
@@ -2074,9 +2085,17 @@ class FaceSearchApp(ctk.CTk):
             search_term = self.entry_staff_search.get().strip().lower()
 
         staff = self.db.get_all_teachers()
+        rendered_count = 0
         for idx, s in enumerate(staff):
             if search_term and search_term not in s['name'].lower():
                 continue
+            
+            if rendered_count >= 100:
+                lbl_more = ctk.CTkLabel(self.staff_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=11, slant="italic"))
+                lbl_more.pack(pady=5)
+                break
+                
+            rendered_count += 1
 
             # สร้างเฟรมแถวรายชื่อครูแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.staff_list_scrollable, fg_color="transparent")
@@ -3735,6 +3754,7 @@ class FaceSearchApp(ctk.CTk):
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
                         GROUP BY s.id, s.name
                         ORDER BY s.id DESC
+                        LIMIT 100
                     """, (f"%{search_query}%", f"%{search_query}%"))
                 else:
                     cursor.execute("""
@@ -3744,6 +3764,7 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         GROUP BY s.id, s.name
                         ORDER BY s.id DESC
+                        LIMIT 100
                     """)
                 rows = cursor.fetchall()
                 
@@ -3770,6 +3791,7 @@ class FaceSearchApp(ctk.CTk):
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
                         GROUP BY s.id, s.name, s.student_id
                         ORDER BY s.id DESC
+                        LIMIT 100
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                 else:
                     cursor.execute("""
@@ -3779,6 +3801,7 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'student'
                         GROUP BY s.id, s.name, s.student_id
                         ORDER BY s.id DESC
+                        LIMIT 100
                     """)
                 rows = cursor.fetchall()
                 

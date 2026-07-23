@@ -341,6 +341,23 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"Deleted staff member ID: {staff_id}")
 
+    def cleanup_orphan_students(self):
+        """ลบข้อมูลนักเรียนที่ถูกลงทะเบียนแต่ไม่มีรูปภาพ (ไม่มี embedding) และไม่มีประวัติการแมตช์ เพื่อแก้ปัญหา Task 2 ลงทะเบียนผิดพลาด 700 คน"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # ค้นหานักเรียนที่ไม่มี record ใน staff_embeddings และไม่มี record ใน detected_faces
+            cursor.execute("""
+                DELETE FROM staff_members 
+                WHERE role = 'student' 
+                AND id NOT IN (SELECT staff_id FROM staff_embeddings)
+                AND id NOT IN (SELECT staff_id FROM detected_faces)
+            """)
+            deleted_count = cursor.rowcount
+            conn.commit()
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} orphan student records without photos.")
+            return deleted_count
+
     def get_all_embeddings(self):
         """ดึงเวกเตอร์ทั้งหมดของครูเพื่อใช้โหลดลงหน่วยความจำตอนเริ่มต้นโปรแกรม"""
         with self.get_connection() as conn:

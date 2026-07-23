@@ -332,7 +332,15 @@ class SchedulerTask:
                         new_imgs.append(imgs[i])
 
             # ตรวจสอบเพิ่มเติมกับ SQLite DB: หากรูปภาพใดยังไม่มี embedding ใน DB ให้จัดเข้า new_imgs ด้วย
-            staff_id_check = self.db.register_member(std_name, role='student', student_id=std_id, pin_code=pin_code)
+            # ดึง ID มาตรวจสอบโดยไม่บันทึกลง DB ทันที เพื่อป้องกันรายชื่อขยะ
+            staff_id_check = None
+            with self.db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT id FROM staff_members WHERE student_id = ? AND role = 'student'", (std_id,))
+                row = c.fetchone()
+                if row:
+                    staff_id_check = row[0]
+            
             if staff_id_check:
                 with self.db.get_connection() as conn:
                     c = conn.cursor()
