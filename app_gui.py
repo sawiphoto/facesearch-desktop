@@ -665,7 +665,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.6")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.7")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -731,7 +731,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.9.6",
+            text="FACE MATCHING\nSYSTEM v1.9.7",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2813,13 +2813,17 @@ class FaceSearchApp(ctk.CTk):
                             logger.warning(f"[SCHEDULE] โฟลเดอร์: {folder_name} | รูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']} -> [WARNING] ไม่พบใบหน้าที่แมตช์")
                     else:
                         # Full Scan
-                        img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
+                        img_bytes, dl_time, img_size = self.sync_manager.download_image_bytes_with_stats(img_info["file_id"], img_info["file_name"])
                         if img_bytes:
                             import cv2
+                            import time
                             nparr = np.frombuffer(img_bytes, np.uint8)
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
+                                t_ai_start = time.time()
                                 faces = self.analyzer.get_faces_optimized(img_cv)
+                                t_ai_elapsed = time.time() - t_ai_start
+                                logger.info(f"[AI SCAN] สแกนใบหน้าไฟล์ {img_info['file_name']} สำเร็จ พบ {len(faces)} ใบหน้า ใช้เวลาสแกน {t_ai_elapsed:.2f}s (เวลาดาวน์โหลด Drive: {dl_time:.1f}s)")
                                 photo_id = existing_photo_id
                                 if not photo_id:
                                     photo_serial = self.get_next_photo_serial()
@@ -3163,8 +3167,8 @@ class FaceSearchApp(ctk.CTk):
                 if use_re_scan:
                     self.db.delete_photo_scan_record(img_info["file_id"])
 
-                # ดาวน์โหลดไบต์รูปภาพ
-                img_bytes = self.sync_manager.download_image_bytes(img_info["file_id"])
+                # ดาวน์โหลดไบต์รูปภาพพร้อมบันทึกสถิติ
+                img_bytes, dl_time, img_size = self.sync_manager.download_image_bytes_with_stats(img_info["file_id"], img_info["file_name"])
                 if img_bytes is None:
                     logger.error(f"Cannot download image {img_info['file_name']}. Skipping.")
                     continue
@@ -3178,8 +3182,11 @@ class FaceSearchApp(ctk.CTk):
                     continue
 
                 # รันสแกนหาใบหน้าทั้งหมด (ปรับย่อขนาดรูปภาพอัตโนมัติ v1.9.6 สำหรับรูปความละเอียดสูง 42MP)
+                import time
+                t_ai_start = time.time()
                 faces = self.analyzer.get_faces_optimized(img)
-                logger.info(f"Found {len(faces)} faces in '{img_info['file_name']}'")
+                t_ai_elapsed = time.time() - t_ai_start
+                logger.info(f"[AI SCAN] สแกนใบหน้าไฟล์ {img_info['file_name']} สำเร็จ พบ {len(faces)} ใบหน้า ใช้เวลาสแกน {t_ai_elapsed:.2f}s (เวลาดาวน์โหลด Drive: {dl_time:.1f}s)")
 
                 matches_in_photo = []
                 

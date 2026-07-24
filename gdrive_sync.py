@@ -219,6 +219,30 @@ class GoogleSyncManager:
             logger.error(f"Error downloading file ID {file_id} from Drive: {e}")
             return None
 
+    def download_image_bytes_with_stats(self, file_id, file_name="Unknown"):
+        """
+        ดาวน์โหลดไบต์รูปภาพพร้อมบันทึกสถิติเวลา (วินาที), ขนาดไฟล์ (MB) และความเร็ว (MB/s) ลงใน Log
+        คืนค่า: (img_bytes, elapsed_seconds, size_bytes)
+        """
+        if not self.connected:
+            return None, 0.0, 0
+        t0 = time.time()
+        try:
+            with self.drive_lock:
+                request = self.drive_service.files().get_media(fileId=file_id)
+                data_payload = request.execute()
+            t1 = time.time()
+            elapsed = t1 - t0
+            img_bytes = io.BytesIO(data_payload).read()
+            size_bytes = len(img_bytes)
+            size_mb = size_bytes / (1024 * 1024)
+            speed_mbps = size_mb / elapsed if elapsed > 0 else 0.0
+            logger.info(f"[DOWNLOAD] ดาวน์โหลดไฟล์ {file_name} ({size_mb:.2f} MB) สำเร็จใน {elapsed:.1f} วินาที ({speed_mbps:.2f} MB/s)")
+            return img_bytes, elapsed, size_bytes
+        except Exception as e:
+            logger.error(f"[DOWNLOAD] เกิดข้อผิดพลาดในการดาวน์โหลดไฟล์ {file_name} (ID: {file_id}): {e}")
+            return None, 0.0, 0
+
     def sync_to_google_sheet(self, sync_data):
         """
         อัปเดตข้อมูลขึ้น Google Sheet

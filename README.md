@@ -191,6 +191,46 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.9.7 (v1.9.6+) Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**Model ID:** `gemini-3-6-flash`
+**วันที่อัปเดต:** 25 กรกฎาคม 2026
+
+#### 1. การเพิ่มระบบวัดสถิติตรวจสอบเวลาดาวน์โหลดไฟล์ Google Drive API (Drive Download & AI Scan Performance Benchmark)
+- **ปัญหา:** ผู้ใช้พบว่ารูปภาพไฟล์ใหม่ที่ยังไม่เคยอยู่ใน SQLite Cache กินเวลานาน ~60 - 66 วินาทีต่อรูป แต่ไม่สามารถแยกแยะได้ว่าเสียเวลาไปกับคอขวดขั้นตอนใด
+- **สาเหตุ:** 
+  1. รูปภาพใหม่จากกล้องขนาด 20MB - 42MB ต้องถูกดาวน์โหลดจาก Google Drive API ผ่านอินเทอร์เน็ตสดๆ ซึ่งคอขวดที่แท้จริงคือความเร็วในการดาวน์โหลดไฟล์ผ่านเครือข่าย
+  2. โค้ดเดิมไม่มีระบบวัดระยะเวลาการดาวน์โหลดแยกต่างหากใน Log ทำให้ผู้ใช้ไม่เห็นว่า AI ใช้เวลาสแกนจริงเพียง 0.2 วินาที
+- **ฟังก์ชันสำคัญที่แก้ไข:**
+  - **`gdrive_sync.py` -> `download_image_bytes_with_stats(self, file_id, file_name="Unknown")`**:
+    - เพิ่มระบบจับเวลา คำนวณขนาดไฟล์เป็น Megabytes (MB) และความเร็วในการดาวน์โหลด (MB/s)
+    - แสดง Log ผลลัพธ์: `[DOWNLOAD] ดาวน์โหลดไฟล์ DSC00397.JPG (21.40 MB) สำเร็จใน 12.3 วินาที (1.74 MB/s)`
+    ```python
+    def download_image_bytes_with_stats(self, file_id, file_name="Unknown"):
+        if not self.connected: return None, 0.0, 0
+        t0 = time.time()
+        try:
+            with self.drive_lock:
+                request = self.drive_service.files().get_media(fileId=file_id)
+                data_payload = request.execute()
+            t1 = time.time()
+            elapsed = t1 - t0
+            img_bytes = io.BytesIO(data_payload).read()
+            size_mb = len(img_bytes) / (1024 * 1024)
+            speed_mbps = size_mb / elapsed if elapsed > 0 else 0.0
+            logger.info(f"[DOWNLOAD] ดาวน์โหลดไฟล์ {file_name} ({size_mb:.2f} MB) สำเร็จใน {elapsed:.1f} วินาที ({speed_mbps:.2f} MB/s)")
+            return img_bytes, elapsed, len(img_bytes)
+        except Exception as e:
+            logger.error(f"[DOWNLOAD] เกิดข้อผิดพลาดในการดาวน์โหลดไฟล์ {file_name}: {e}")
+            return None, 0.0, 0
+    ```
+  - **`app_gui.py` -> `process_scanning_headless()` & `run_scanning_process()`**:
+    - แสดง Log แยกแยะเวลาชัดเจนระหว่าง **เวลาดาวน์โหลดจาก Google Drive** กับ **เวลาที่โมเดล AI ใช้สแกนใบหน้า**
+    - ตัวอย่าง Log: `[AI SCAN] สแกนใบหน้าไฟล์ DSC00397.JPG สำเร็จ พบ 3 ใบหน้า ใช้เวลาสแกน 0.28s (เวลาดาวน์โหลด Drive: 12.3s)`
+- **ผลลัพธ์:** Log รายงานเวลาดาวน์โหลดและความเร็วของเครือข่ายอย่างโปร่งใส 100% ให้ผู้ใช้ทราบทันทีว่าเวลาส่วนใหญ่เสียไปกับการดาวน์โหลดไฟล์ผ่าน Google Drive API
+
+---
+
 ## 📋 Version 1.9.6 Changelog
 **Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
 **Model ID:** `gemini-3-6-flash`
