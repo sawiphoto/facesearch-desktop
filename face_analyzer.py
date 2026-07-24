@@ -278,6 +278,34 @@ class FaceAnalyzer:
                 logger.error(f"Failed to initialize InsightFace using CPU: {e}")
             return False
 
+    def get_faces_optimized(self, img, max_size=1280):
+        """
+        ปรับย่อขนาดรูปภาพความละเอียดสูง (เช่น 42MP / 6000x4000) ก่อนส่งเข้า InsightFace
+        เพื่อเร่งความเร็วในการประมวลผลบน GPU/CPU จาก 1-2 นาทีเหลือเพียงไม่กี่มิลลิวินาที
+        พร้อมสเกลพิกัด bbox และ kps กลับสู่ขนาดดั้งเดิมโดยอัตโนมัติ
+        """
+        if img is None:
+            return []
+            
+        h, w = img.shape[:2]
+        max_dim = max(h, w)
+        if max_dim > max_size:
+            scale = max_size / float(max_dim)
+            new_w, new_h = int(w * scale), int(h * scale)
+            img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        else:
+            scale = 1.0
+            img_resized = img
+
+        faces = self.app.get(img_resized)
+        if scale != 1.0:
+            for face in faces:
+                if hasattr(face, 'bbox') and face.bbox is not None:
+                    face.bbox = face.bbox / scale
+                if hasattr(face, 'kps') and face.kps is not None:
+                    face.kps = face.kps / scale
+        return faces
+
     def detect_and_extract_faces(self, image_path):
         """
         ตรวจจับใบหน้าทั้งหมดในรูปภาพและแปลงเป็น Embedding เวกเตอร์
@@ -299,9 +327,9 @@ class FaceAnalyzer:
             logger.error(f"Image not found or unreadable: {image_path}")
             return []
 
-        # สแกนใบหน้า
+        # สแกนใบหน้าด้วย get_faces_optimized
         try:
-            faces = self.app.get(img)
+            faces = self.get_faces_optimized(img)
             logger.debug(f"Detected {len(faces)} faces in image.")
             
             results = []

@@ -665,7 +665,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.8.5")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.6")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -731,7 +731,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.8.5",
+            text="FACE MATCHING\nSYSTEM v1.9.6",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2748,10 +2748,12 @@ class FaceSearchApp(ctk.CTk):
                 return
                 
             use_gpu = self.chk_use_gpu.get()
-            self.analyzer = FaceAnalyzer(use_gpu=use_gpu)
-            if not self.analyzer.initialize():
-                logger.error("[SCHEDULE] Could not initialize FaceAnalyzer.")
-                return
+            if not hasattr(self, 'analyzer') or self.analyzer is None or self.analyzer.use_gpu != use_gpu:
+                self.analyzer = FaceAnalyzer(use_gpu=use_gpu)
+            if not self.analyzer.initialized:
+                if not self.analyzer.initialize():
+                    logger.error("[SCHEDULE] Could not initialize FaceAnalyzer.")
+                    return
                 
             # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
             for f_id in folder_ids:
@@ -2817,7 +2819,7 @@ class FaceSearchApp(ctk.CTk):
                             nparr = np.frombuffer(img_bytes, np.uint8)
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
-                                faces = self.analyzer.app.get(img_cv)
+                                faces = self.analyzer.get_faces_optimized(img_cv)
                                 photo_id = existing_photo_id
                                 if not photo_id:
                                     photo_serial = self.get_next_photo_serial()
@@ -3175,8 +3177,8 @@ class FaceSearchApp(ctk.CTk):
                     logger.error(f"Cannot decode image {img_info['file_name']}. Skipping.")
                     continue
 
-                # รันสแกนหาใบหน้าทั้งหมด
-                faces = self.analyzer.app.get(img)
+                # รันสแกนหาใบหน้าทั้งหมด (ปรับย่อขนาดรูปภาพอัตโนมัติ v1.9.6 สำหรับรูปความละเอียดสูง 42MP)
+                faces = self.analyzer.get_faces_optimized(img)
                 logger.info(f"Found {len(faces)} faces in '{img_info['file_name']}'")
 
                 matches_in_photo = []
