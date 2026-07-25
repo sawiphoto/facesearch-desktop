@@ -59,13 +59,33 @@ class GoogleSyncManager:
             logger.error(f"Error connecting to Google Services: {e}", exc_info=True)
             return False
 
+    def _execute_with_retry(self, func, max_retries=3, initial_delay=2):
+        """
+        ครอบการทำงานของการเชื่อมต่อ Google API ด้วยระบบลองใหม่อัตโนมัติ (Exponential Backoff Auto-Retry)
+        เพื่อป้องกันข้อผิดพลาดชั่วคราว เช่น HTTP 503 (Service Unavailable), 500 (Internal Error), 429 (Rate Limit)
+        """
+        import time
+        delay = initial_delay
+        for attempt in range(1, max_retries + 1):
+            try:
+                return func()
+            except Exception as e:
+                err_msg = str(e)
+                is_transient = any(code in err_msg for code in ["503", "500", "429", "unavailable", "timed out", "Overload"])
+                if attempt < max_retries and is_transient:
+                    logger.warning(f"[GOOGLE API] พบข้อผิดพลาดชั่วคราว ({e}) กำลังพยายามลองใหม่อัตโนมัติ รอบที่ {attempt}/{max_retries} ในอีก {delay} วินาที...")
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    raise e
+
     def verify_spreadsheet(self, spreadsheet_id, ensure_worksheets=True):
         """ตรวจสอบว่าเชื่อมต่อและจัดการ Spreadsheet ID ที่ระบุได้จริงหรือไม่ และเตรียมแผ่นงานในชีท"""
         if not self.connected:
             return False
             
         try:
-            sheet = self.gspread_client.open_by_key(spreadsheet_id)
+            sheet = self._execute_with_retry(lambda: self.gspread_client.open_by_key(spreadsheet_id), max_retries=3, initial_delay=2)
             self.spreadsheet_id = spreadsheet_id
             logger.info(f"Verified Google Sheet access: '{sheet.title}'")
             
@@ -253,7 +273,7 @@ class GoogleSyncManager:
             return False
 
         try:
-            sheet = self.gspread_client.open_by_key(self.spreadsheet_id)
+            sheet = self._execute_with_retry(lambda: self.gspread_client.open_by_key(self.spreadsheet_id), max_retries=3, initial_delay=2)
             
             # 1. เขียนข้อมูลแผ่นงาน photos
             photos_sheet = sheet.worksheet("photos")
@@ -499,7 +519,7 @@ class GoogleSyncManager:
             return None
 
         try:
-            sheet = self.gspread_client.open_by_key(spreadsheet_id)
+            sheet = self._execute_with_retry(lambda: self.gspread_client.open_by_key(spreadsheet_id), max_retries=3, initial_delay=2)
             if sheet_name:
                 worksheet = sheet.worksheet(sheet_name)
             else:

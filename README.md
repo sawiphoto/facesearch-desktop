@@ -191,6 +191,39 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.9.8 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**Model ID:** `gemini-3-6-flash`
+**วันที่อัปเดต:** 25 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหา Google Sheets API ตอบกลับข้อผิดพลาด 503 (Google API 503 Service Unavailable Auto-Retry Fix)
+- **ปัญหา:** เมื่อเรียกใช้งาน Auto Schedule บางครั้งเกิดข้อผิดพลาด `Cannot access Google Sheet: APIError: [503]: The service is currently unavailable` ทำให้งาน Headless Scan ล้มเหลวและถูกยกเลิก (`aborted`) ทันที
+- **สาเหตุ:** รหัสข้อผิดพลาด 503 เป็นข้อผิดพลาดชั่วคราวจากฝั่งเซิร์ฟเวอร์ของ Google (Google Cloud Infrastructure Transient Glitch) แต่โค้ดเดิมไม่มีระบบพยายามเชื่อมต่อใหม่ (Retry Mechanism) ทำให้การเชื่อมต่อล้มเหลวทันทีที่เจอกระตุกเพียง 1 ครั้ง
+- **ฟังก์ชันสำคัญที่แก้ไข:**
+  - **`gdrive_sync.py` -> `_execute_with_retry(self, func, max_retries=3, initial_delay=2)`**:
+    - เพิ่มฟังก์ชันลองใหม่อัตโนมัติ (Exponential Backoff Auto-Retry) สูงสุด 3 รอบ พร้อมเพิ่มระยะเวลาหน่วงก่อนลองใหม่เมื่อพบข้อผิดพลาดชั่วคราว (`503`, `500`, `429`, `unavailable`)
+    - ครอบการทำงานของ `open_by_key(...)`, `verify_spreadsheet(...)`, และ `read_sheet_data(...)` ทั้งหมด
+    ```python
+    def _execute_with_retry(self, func, max_retries=3, initial_delay=2):
+        import time
+        delay = initial_delay
+        for attempt in range(1, max_retries + 1):
+            try:
+                return func()
+            except Exception as e:
+                err_msg = str(e)
+                is_transient = any(code in err_msg for code in ["503", "500", "429", "unavailable", "timed out", "Overload"])
+                if attempt < max_retries and is_transient:
+                    logger.warning(f"[GOOGLE API] พบข้อผิดพลาดชั่วคราว ({e}) กำลังพยายามลองใหม่อัตโนมัติ รอบที่ {attempt}/{max_retries} ในอีก {delay} วินาที...")
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    raise e
+    ```
+- **ผลลัพธ์:** ป้องกันการเกิดงานค้างหรือ Aborted จากปัญหาเน็ตกระตุก/Google 503 ทำให้ระบบ Auto Schedule ทำงานได้อย่างเสถียรและราบรื่น 100%
+
+---
+
 ## 📋 Version 1.9.7 (v1.9.6+) Changelog
 **Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
 **Model ID:** `gemini-3-6-flash`
