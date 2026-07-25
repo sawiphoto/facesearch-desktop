@@ -191,6 +191,20 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.9.9 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**Model ID:** `gemini-3-6-flash`
+**วันที่อัปเดต:** 25 กรกฎาคม 2026
+
+#### 1. การแก้ไขปัญหาข้อผิดพลาด NameError: name 'time' is not defined ใน gdrive_sync.py (Fix Missing Time Import)
+- **ปัญหา:** ระหว่างกระบวนการสแกนแบบ Headless ใน Auto Schedule เมื่อเจอยอดดาวน์โหลดรูปภาพไฟล์ใหม่จาก Google Drive เกิดข้อผิดพลาด `ERROR: Error in headless scan: name 'time' is not defined` ส่งผลให้กระบวนการสแกนถูกยกเลิก (`aborted`)
+- **สาเหตุ:** ในฟังก์ชัน `download_image_bytes_with_stats()` ของโมดูล `gdrive_sync.py` มีการเรียกใช้งาน `time.time()` เพื่อจับเวลาความเร็วดาวน์โหลด แต่ลืมใส่ `import time` ไว้ที่ส่วนหัวนำเข้าโมดูลด้านบนสุด
+- **ฟังก์ชันสำคัญที่แก้ไข:**
+  - **`gdrive_sync.py`**: เพิ่ม `import time` ในระดับ Global Imports ด้านบนสุดของไฟล์
+- **ผลลัพธ์:** สามารถคำนวณและแสดงสถิติเวลาดาวน์โหลดรูปภาพผ่าน Google Drive API ร่วมกับการสแกนใบหน้าได้โดยไม่เกิดข้อผิดพลาด `NameError`
+
+---
+
 ## 📋 Version 1.9.8 Changelog
 **Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
 **Model ID:** `gemini-3-6-flash`
