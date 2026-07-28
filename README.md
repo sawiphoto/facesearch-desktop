@@ -191,6 +191,24 @@ All SQLite DB verification tests passed successfully:
 
 ---
 
+## 📋 Version 1.9.10 Changelog
+**Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
+**Model ID:** `gemini-3-6-flash`
+**วันที่อัปเดต:** 28 กรกฎาคม 2026
+
+#### 1. เพิ่มระบบลบรูปภาพแบบเลือกหลายรูปพร้อมกัน (Multi-Select Bulk Photo Deletion)
+- **ปัญหา:** เดิมการเลือกรูปภาพใบหน้าย่อยในตารางเลือกได้ทีละ 1 รูป และเมื่อกดลบต้องคอยกดยืนยัน Pop-up ทีละรูป ทำให้การลบรูปเกินหลายรูปทำได้ช้า
+- **ฟังก์ชันสำคัญที่แก้ไข:**
+  - **`app_gui.py` -> `select_student_thumbnail()`, `select_thumbnail()`**: เปลี่ยนตัวแประบบเลือกรูปจากเดี่ยวเป็นชุดข้อมูล (`set`) รองรับการคลิกเลือก/ยกเลิกการเลือกหลายรูปภาพพร้อมกัน พร้อมแสดงขอบไฮไลต์สีแดง `#FF5252` รอบทุกรูปที่เลือก
+  - **`app_gui.py` -> `delete_selected_student_photo()`, `delete_selected_photo()`**: อัปเดตข้อความปุ่มลบสดตามจำนวนรูป เช่น `❌ ลบรูปภาพที่เลือก (3 รูป)` และกดยืนยันเพียงครั้งเดียวเพื่อลบรูปภาพทั้งหมดออกจาก SQLite และดิสก์พร้อมกัน
+
+#### 2. เพิ่มระบบล้างขยะรูปภาพพังอัตโนมัติ (Auto-Clean Orphan DB Records)
+- **ปัญหา:** กรณีภาพหายจากดิสก์ ตารางพรีวิวรูปภาพจะแสดงเป็นกล่องสีดำพร้อมตัวอักษรสีแดง **`X`** แทนรูปภาพ
+- **ฟังก์ชันสำคัญที่แก้ไข:**
+  - **`app_gui.py` -> `show_student_thumbnails()`, `show_staff_thumbnails()`**: เพิ่มระบบตรวจสอบไฟล์รูปภาพบนดิสก์จริง หากพบ Record ใน SQLite ที่ไฟล์รูปบนดิสก์ถูกลบไปแล้ว ระบบจะสั่ง `DELETE FROM staff_embeddings` ทำความสะอาดให้อัตโนมัติ รูปกากบาท X จะถูกกำจัดทิ้งโดยไม่ต้องคลิกลบเอง
+
+---
+
 ## 📋 Version 1.9.9 Changelog
 **Developer Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding) | **Model:** Gemini 3.6 Flash
 **Model ID:** `gemini-3-6-flash`

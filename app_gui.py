@@ -665,7 +665,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.9")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.10")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -731,7 +731,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.9.9",
+            text="FACE MATCHING\nSYSTEM v1.9.10",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1499,8 +1499,7 @@ class FaceSearchApp(ctk.CTk):
         self.selected_student_id = student_id
         self.selected_student_name = student_name
         self.selected_student_code = student_code
-        self.selected_student_thumb_path = None
-        self.selected_student_thumb_widget = None
+        self.selected_student_thumb_paths = set()
 
         # ไฮไลต์ปุ่มที่ถูกเลือก
         for sid, btn in self.student_buttons.items():
@@ -1514,7 +1513,7 @@ class FaceSearchApp(ctk.CTk):
 
         self.btn_upload_student_photo.configure(state="normal")
         self.btn_delete_student.configure(state="normal")
-        self.btn_delete_student_photo.configure(state="disabled")
+        self.btn_delete_student_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
         # ดึงภาพย่อมาแสดงผล
         self.show_student_thumbnails(student_id)
@@ -1701,7 +1700,11 @@ class FaceSearchApp(ctk.CTk):
         return original_path # fallback
 
     def show_student_thumbnails(self, student_id):
-        """แสดงรูปภาพย่อยของนักเรียนที่เลือกในรูปแบบตารางกริด (Grid)"""
+        """แสดงรูปภาพย่อยของนักเรียนที่เลือกในรูปแบบตารางกริด (Grid) พร้อมระบบล้างขยะอัตโนมัติ"""
+        self.selected_student_thumb_paths = set()
+        if hasattr(self, 'btn_delete_student_photo'):
+            self.btn_delete_student_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
+
         # ล้างข้อมูลเก่า
         for widget in self.student_thumbs_scrollable.winfo_children():
             widget.destroy()
@@ -1712,6 +1715,21 @@ class FaceSearchApp(ctk.CTk):
         rows = cursor.fetchall()
         conn.close()
 
+        # ลบ DB Record ขยะที่ไม่มีไฟล์จริงบนดิสก์ให้อัตโนมัติ (Auto-Clean Orphan DB Records)
+        orphan_paths = [row[0] for row in rows if not os.path.exists(row[0])]
+        if orphan_paths:
+            try:
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                for p in orphan_paths:
+                    cursor.execute("DELETE FROM staff_embeddings WHERE staff_id = ? AND image_path = ?", (student_id, p))
+                conn.commit()
+                conn.close()
+                logger.info(f"Auto-cleaned {len(orphan_paths)} orphan DB face records for student ID {student_id}")
+            except Exception as e:
+                logger.error(f"Error auto-cleaning student orphan records: {e}")
+
+        rows = [row for row in rows if os.path.exists(row[0])]
         logger.info(f"Student Registry: Loaded {len(rows)} templates thumbnails for student ID {student_id}")
 
         if not rows:
@@ -1767,61 +1785,72 @@ class FaceSearchApp(ctk.CTk):
         frame_border.bind("<Button-1>", lambda event, p=path, w=frame_border: self.select_student_thumbnail(p, w))
 
     def select_student_thumbnail(self, path, widget):
-        """เลือกรูปภาพย่อของนักเรียน"""
-        logger.info(f"[DEBUG] select_student_thumbnail called: path={path}, student_id={self.selected_student_id}")
-        # รีเซ็ตสีของ widget เก่า (เหมือนเมนูครู)
-        if self.selected_student_thumb_widget:
+        """เลือก/ยกเลิกการเลือกรูปภาพย่อยของนักเรียน (Multi-Select)"""
+        if not hasattr(self, 'selected_student_thumb_paths'):
+            self.selected_student_thumb_paths = set()
+
+        if path in self.selected_student_thumb_paths:
+            self.selected_student_thumb_paths.remove(path)
             try:
-                self.selected_student_thumb_widget.configure(fg_color="transparent", border_width=0, border_color="transparent")
+                widget.configure(fg_color="transparent", border_width=0, border_color="transparent")
+            except Exception:
+                pass
+        else:
+            self.selected_student_thumb_paths.add(path)
+            try:
+                widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
             except Exception:
                 pass
 
-        self.selected_student_thumb_path = path
-        self.selected_student_thumb_widget = widget
-        # แสดงไฮไลต์สีแดงรอบขอบเฟรม (เหมือนเมนูครู)
-        widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
-        logger.info(f"[DEBUG] About to enable delete button, hasattr={hasattr(self, 'btn_delete_student_photo')}")
+        count = len(self.selected_student_thumb_paths)
         if hasattr(self, 'btn_delete_student_photo'):
-            self.btn_delete_student_photo.configure(state="normal")
-            logger.info(f"[DEBUG] Delete button enabled")
-        else:
-            logger.error(f"[ERROR] btn_delete_student_photo not found!")
+            if count > 0:
+                self.btn_delete_student_photo.configure(state="normal", text=f"❌ ลบรูปภาพที่เลือก ({count} รูป)")
+            else:
+                self.btn_delete_student_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
     def delete_selected_student_photo(self):
-        """ลบรูปภาพใบหน้านักเรียนที่เลือก"""
-        if not self.selected_student_thumb_path or not self.selected_student_id:
+        """ลบรูปภาพใบหน้านักเรียนที่เลือกทั้งหมด (Bulk Delete)"""
+        if not hasattr(self, 'selected_student_thumb_paths') or not self.selected_student_thumb_paths or not self.selected_student_id:
             return
 
+        count = len(self.selected_student_thumb_paths)
         confirm = messagebox.askyesno(
-            "ยืนยันการลบรูป",
-            f"คุณต้องการลบรูปภาพนี้ใช่หรือไม่?"
+            "ยืนยันการลบรูปภาพ",
+            f"คุณต้องการลบรูปภาพใบหน้าที่เลือกจำนวน {count} รูปภาพ ใช่หรือไม่?"
         )
         if not confirm:
             return
 
         try:
+            paths_to_delete = list(self.selected_student_thumb_paths)
             conn = self.db.get_connection()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM staff_embeddings WHERE image_path = ? AND staff_id = ?",
-                          (self.selected_student_thumb_path, self.selected_student_id))
+            for p in paths_to_delete:
+                cursor.execute("DELETE FROM staff_embeddings WHERE image_path = ? AND staff_id = ?",
+                              (p, self.selected_student_id))
             conn.commit()
             conn.close()
 
-            # ลบไฟล์รูปภาพ
-            if os.path.exists(self.selected_student_thumb_path):
-                os.remove(self.selected_student_thumb_path)
+            deleted_files = 0
+            for p in paths_to_delete:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                        deleted_files += 1
+                    except Exception as fe:
+                        logger.error(f"Failed to delete file {p}: {fe}")
 
-            logger.info(f"Deleted student photo: {self.selected_student_thumb_path}")
+            logger.info(f"Deleted {count} student photos from DB ({deleted_files} files from disk)")
 
-            # รีเฟรช
+            self.selected_student_thumb_paths = set()
+            if hasattr(self, 'btn_delete_student_photo'):
+                self.btn_delete_student_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
+
             self.show_student_thumbnails(self.selected_student_id)
             self.load_student_list()
 
-            self.selected_student_thumb_path = None
-            self.selected_student_thumb_widget = None
-            self.btn_delete_student_photo.configure(state="disabled")
-
-            messagebox.showinfo("ลบสำเร็จ", "ลบรูปภาพเรียบร้อย")
+            messagebox.showinfo("ลบสำเร็จ", f"ลบรูปภาพใบหน้าจำนวน {count} รูป เรียบร้อยแล้ว")
         except Exception as e:
             logger.error(f"Error deleting student photo: {e}")
             messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการลบรูป: {e}")
@@ -2160,8 +2189,7 @@ class FaceSearchApp(ctk.CTk):
     def select_staff_item(self, staff_id, staff_name, photo_count):
         self.selected_staff_id = staff_id
         self.selected_staff_name = staff_name
-        self.selected_thumb_path = None
-        self.selected_thumb_widget = None
+        self.selected_thumb_paths = set()
         
         # ไฮไลต์ปุ่มที่ถูกเลือก
         for sid, btn in self.staff_buttons.items():
@@ -2175,7 +2203,7 @@ class FaceSearchApp(ctk.CTk):
         
         self.btn_upload_photo.configure(state="normal")
         self.btn_delete_staff.configure(state="normal")
-        self.btn_delete_photo.configure(state="disabled")
+        self.btn_delete_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
         # ดึงภาพย่อมาแสดงผล
         self.show_staff_thumbnails(staff_id)
@@ -4246,7 +4274,11 @@ class FaceSearchApp(ctk.CTk):
         return original_path # fallback
 
     def show_staff_thumbnails(self, staff_id):
-        """แสดงรูปภาพย่อยของคุณครูที่เลือกในรูปแบบตารางกริด (Grid)"""
+        """แสดงรูปภาพย่อยของคุณครูที่เลือกในรูปแบบตารางกริด (Grid) พร้อมระบบล้างขยะอัตโนมัติ"""
+        self.selected_thumb_paths = set()
+        if hasattr(self, 'btn_delete_photo'):
+            self.btn_delete_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
+
         # ล้างข้อมูลเก่า
         for widget in self.thumbs_scrollable.winfo_children():
             widget.destroy()
@@ -4257,6 +4289,21 @@ class FaceSearchApp(ctk.CTk):
         rows = cursor.fetchall()
         conn.close()
 
+        # ลบ DB Record ขยะที่ไม่มีไฟล์จริงบนดิสก์ให้อัตโนมัติ (Auto-Clean Orphan DB Records)
+        orphan_paths = [row[0] for row in rows if not os.path.exists(row[0])]
+        if orphan_paths:
+            try:
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                for p in orphan_paths:
+                    cursor.execute("DELETE FROM staff_embeddings WHERE staff_id = ? AND image_path = ?", (staff_id, p))
+                conn.commit()
+                conn.close()
+                logger.info(f"Auto-cleaned {len(orphan_paths)} orphan DB face records for teacher ID {staff_id}")
+            except Exception as e:
+                logger.error(f"Error auto-cleaning teacher orphan records: {e}")
+
+        rows = [row for row in rows if os.path.exists(row[0])]
         logger.info(f"Registry: Loaded {len(rows)} templates thumbnails for teacher ID {staff_id}")
         
         if not rows:
@@ -4446,58 +4493,71 @@ class FaceSearchApp(ctk.CTk):
         super().destroy()
 
     def select_thumbnail(self, path, frame_widget):
-        """เลือกรูปภาพพรีวิวใบหน้าย่อยเพื่อดำเนินการลบ"""
-        # รีเซ็ตสีพื้นหลังขอบตัวก่อนหน้าที่เลือกไว้
-        if hasattr(self, "selected_thumb_widget") and self.selected_thumb_widget:
+        """เลือก/ยกเลิกการเลือกรูปภาพย่อยของคุณครู (Multi-Select)"""
+        if not hasattr(self, 'selected_thumb_paths'):
+            self.selected_thumb_paths = set()
+
+        if path in self.selected_thumb_paths:
+            self.selected_thumb_paths.remove(path)
             try:
-                self.selected_thumb_widget.configure(fg_color="transparent", border_width=0, border_color="transparent")
+                frame_widget.configure(fg_color="transparent", border_width=0, border_color="transparent")
             except Exception:
                 pass
-                
-        self.selected_thumb_path = path
-        self.selected_thumb_widget = frame_widget
-        
-        # แสดงไฮไลต์สีแดงรอบขอบเฟรม
-        frame_widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
-        self.btn_delete_photo.configure(state="normal")
-        logger.info(f"[UI] Selected face template image: {os.path.basename(path)}")
+        else:
+            self.selected_thumb_paths.add(path)
+            try:
+                frame_widget.configure(fg_color="transparent", border_width=3, border_color="#FF5252")
+            except Exception:
+                pass
+
+        count = len(self.selected_thumb_paths)
+        if hasattr(self, 'btn_delete_photo'):
+            if count > 0:
+                self.btn_delete_photo.configure(state="normal", text=f"❌ ลบรูปภาพที่เลือก ({count} รูป)")
+            else:
+                self.btn_delete_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
     def delete_selected_photo(self):
-        """ทำการลบรูปภาพใบหน้าย่อยคุณครูที่แอดมินเลือกจากระบบ"""
-        if not hasattr(self, "selected_thumb_path") or not self.selected_thumb_path:
+        """ทำการลบรูปภาพใบหน้าย่อยคุณครูที่แอดมินเลือกจากระบบ (Bulk Delete)"""
+        if not hasattr(self, 'selected_thumb_paths') or not self.selected_thumb_paths or not hasattr(self, 'selected_staff_id') or not self.selected_staff_id:
             return
-            
+
+        count = len(self.selected_thumb_paths)
         confirm = messagebox.askyesno(
             "ยืนยันการลบรูปภาพ", 
-            "คุณแน่ใจหรือไม่ว่าต้องการลบรูปภาพใบหน้านี้ออกจากฐานข้อมูลระบบ?\n(การกระทำนี้จะลบการเรียนรู้เวกเตอร์ใบหน้าของรูปนี้ออก)"
+            f"คุณแน่ใจหรือไม่ว่าต้องการลบรูปภาพใบหน้าจำนวน {count} รูปภาพที่เลือกออกจากระบบ?"
         )
         if not confirm:
             return
-            
-        path_to_delete = self.selected_thumb_path
-        
+
         try:
-            # 1. ลบจาก SQLite
+            paths_to_delete = list(self.selected_thumb_paths)
             conn = self.db.get_connection()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM staff_embeddings WHERE image_path = ?", (path_to_delete,))
+            for p in paths_to_delete:
+                cursor.execute("DELETE FROM staff_embeddings WHERE image_path = ? AND staff_id = ?", (p, self.selected_staff_id))
             conn.commit()
             conn.close()
-            logger.info(f"[DATABASE] Deleted embedding row from SQLite: {os.path.basename(path_to_delete)}")
-            
-            # 2. ลบรูปย่อยที่บันทึกไว้ในโฟลเดอร์แอปย่อยจริงออก
-            if os.path.exists(path_to_delete):
-                os.remove(path_to_delete)
-                logger.info(f"[SYSTEM] Deleted cropped face file from disk: {path_to_delete}")
-                
-            messagebox.showinfo("ลบสำเร็จ", "ลบรูปภาพใบหน้าและเวกเตอร์ของภาพนี้ออกจากระบบเรียบร้อยแล้ว")
-            
-            # 3. โหลดและรีเฟรชข้อมูลรายชื่อครูและรูปพรีวิวใหม่
+
+            deleted_files = 0
+            for p in paths_to_delete:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                        deleted_files += 1
+                    except Exception as fe:
+                        logger.error(f"Failed to delete file {p}: {fe}")
+
+            logger.info(f"Deleted {count} teacher photos from DB ({deleted_files} files from disk)")
+
+            self.selected_thumb_paths = set()
+            if hasattr(self, 'btn_delete_photo'):
+                self.btn_delete_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
+
             self.load_staff_list()
             self.show_staff_thumbnails(self.selected_staff_id)
-            self.btn_delete_photo.configure(state="disabled")
-            self.selected_thumb_path = None
-            self.selected_thumb_widget = None
+
+            messagebox.showinfo("ลบสำเร็จ", f"ลบรูปภาพใบหน้าจำนวน {count} รูป เรียบร้อยแล้ว")
         except Exception as e:
             logger.error(f"[SYSTEM] Error deleting photo: {e}", exc_info=True)
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถลบภาพได้: {e}")
