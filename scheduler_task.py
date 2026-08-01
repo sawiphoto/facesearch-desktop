@@ -95,9 +95,16 @@ class SchedulerTask:
             # Task 1: Scan New Photos (High-Speed)
             self._task_1_scan_new_photos_fast()
             
+            # 1. Sync JSON บน Drive ทันทีหลังจบ Task 1 (ก่อนขึ้น Task 2)
+            logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive หลังจบ Task 1...")
+            self._sync_all_json_to_drive()
+
             if not self.stop_requested:
                 # Task 2: Sync New Students (Bulk)
                 self._task_2_sync_new_students_bulk()
+            else:
+                logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
+                self._sync_all_json_to_drive()
             
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
@@ -107,9 +114,22 @@ class SchedulerTask:
             
         except Exception as e:
             logger.error(f"[SCHEDULE] เกิดข้อผิดพลาดระหว่างทำงาน: {e}", exc_info=True)
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ปิดท้ายด้วยการอัปเดตไฟล์ JSON ขึ้น Google Drive...")
+                self._sync_all_json_to_drive()
         finally:
             self.is_running = False
             self.stop_requested = False
+
+    def _sync_all_json_to_drive(self):
+        """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 โฟลเดอร์หลักขึ้น Google Drive"""
+        try:
+            top_folders = [item["id"] for item in self._load_year_folders()]
+            for folder_id in top_folders:
+                self.sync_manager.update_json_indexes_on_drive(None, folder_id, scan_mode="all")
+            logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive สำเร็จแล้ว")
+        except Exception as e:
+            logger.error(f"[SCHEDULE] Error updating JSON to drive: {e}")
 
     def _get_unscanned_subfolder(self, root_folder_id, force_rescan=False, scanned_in_this_run=None):
         """ค้นหาโฟลเดอร์ย่อยที่มีรูปภาพและต้องการสแกน (หรือ Re-scan)"""
@@ -925,6 +945,11 @@ class SchedulerTask:
                     
                 for r in results_data: scanned_ids.add(r["photo_id"])
                 for f_id, _, _ in skipped_files: scanned_ids.add(f_id)
+                
+                if self.stop_requested:
+                    logger.info(f"[SCHEDULE] 🛑 หยุดการทำงานในโฟลเดอร์ '{folder_name}' ตามคำร้องขอ (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
+                    self._sync_all_json_to_drive()
+                    break
                 
             logger.info(f"[SCHEDULE] 🎉 เสร็จสิ้นการทำ Full Scan สำหรับโฟลเดอร์หลัก: '{year_name}'")
 

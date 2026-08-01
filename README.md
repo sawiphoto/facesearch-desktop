@@ -47,6 +47,22 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.12 Changelog (Mandatory & On-Stop JSON Sync)
+
+**Date:** 1 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.12)
+
+1. ** ระบบอัปเดตไฟล์ JSON บน Google Drive อัตโนมัติ (หลังจบ Task 1 และเมื่อกด Stop):**
+   - **หลังจบ Task 1 (ก่อนขึ้น Task 2):** เพิ่มฟังก์ชัน `_sync_all_json_to_drive()` เพื่ออัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive ทันทีที่สแกนรูปภาพใน Task 1 เสร็จเรียบร้อย
+   - **เมื่อกดหยุดทำงาน (Stop Schedule Task):** ไม่ว่าจะกดหยุดสแกนขณะทำ Task 1 หรือ Task 2 ระบบจะทำความสะอาดบันทึกข้อมูล SQLite DB ล่าสุด แล้วสั่งอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive ปิดท้ายให้ทันที ก่อนปิดงานอย่างปลอดภัย 100%
+
+---
+
 ## 📋 Version 4.11 Changelog (Fix Producer NameError & Auto Fast Skip)
 
 **Date:** 1 สิงหาคม 2026  
