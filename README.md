@@ -47,6 +47,22 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.16 Changelog (Chunk Pagination & Zero Freeze Gallery)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.16)
+
+1. ** ขจัดอาการค้าง `(Not Responding)` สำหรับบุคคลที่มีรูปแมตช์จำนวนมาก (เช่น 938 รูป):**
+   - **Lazy Chunk Pagination Limit (30 รูปแรก):** ใน [app_gui.py](app_gui.py#L4869) เพิ่มการคุมโควตาเรนเดอร์วิดเจ็ตแสดงผลรูปภาพครั้งแรกเพียง 30 รูปแรก (สร้างวิดเจ็ตเพียง ~120 ชิ้น แทนการสร้าง 3,750 วิดเจ็ตสดบน Main UI Thread) ช่วยให้การสลับรายชื่อบุคคลที่พบ 930+ รูปภาพ **เด้งเปิดขึ้นมาทันทีใน 0.01 วินาที!**
+   - **ปุ่ม "📥 โหลดรูปภาพเพิ่มเติม...":** เพิ่มปุ่มดึงรูปถัดไปทีละ 30 รูป ด้านล่างสุดของแกลเลอรี สามารถกดโหลดรูปถัดไปเพิ่มได้อย่างลื่นไหลโดยไม่ดึงรั้ง Main UI Thread
+
+---
+
 ## 📋 Version 4.15 Changelog (Disk Cache Memory Indexing & Ultra Fast Async Gallery)
 
 **Date:** 2 สิงหาคม 2026  

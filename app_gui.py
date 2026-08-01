@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.14 (Matched Gallery Freeze Fix & Auto Green Folder)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.16 (Chunk Pagination & Zero Freeze Gallery)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.14",
+            text="FACE MATCHING\nSYSTEM v4.16",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4866,12 +4866,15 @@ class FaceSearchApp(ctk.CTk):
         except Exception:
             return f"📅 ช่วงเวลา {date_str[:7]}"
 
-    def render_matched_gallery(self, person_name, matched_photos, gen_id=0):
-        """วาดองค์ประกอบรูปภาพในแกลเลอรี เรียงตามเดือนล่าสุดลงไปหาเก่าสุด ในรูปแบบตาราง 3 คอลัมน์ (v3.2 Fix Bug 8)"""
+    def render_matched_gallery(self, person_name, matched_photos, gen_id=0, limit=30):
+        """วาดองค์ประกอบรูปภาพในแกลเลอรี แบบ Chunk Pagination (จำกัด 30 รูปแรกต่อการโหลด) ป้องกัน Not Responding (v4.16)"""
         for widget in self.scr_matched_gallery.winfo_children():
             widget.destroy()
 
-        self.lbl_matched_summary.configure(text=f"พบ {len(matched_photos)} รูปภาพที่แมตช์")
+        total_count = len(matched_photos)
+        displayed_photos = matched_photos[:limit]
+        
+        self.lbl_matched_summary.configure(text=f"พบ {total_count} รูปภาพที่แมตช์ (กำลังแสดง {len(displayed_photos)} รูป)")
 
         if not matched_photos:
             lbl_empty = ctk.CTkLabel(
@@ -4883,15 +4886,14 @@ class FaceSearchApp(ctk.CTk):
             lbl_empty.pack(pady=40)
             return
 
-        # 1. จัดกลุ่มรูปภาพตามเดือน/ปี (YYYY-MM)
+        # 1. จัดกลุ่มเฉพาะรูปภาพที่จะแสดงผลตามเดือน/ปี (YYYY-MM)
         from collections import defaultdict
         grouped_photos = defaultdict(list)
-        for item in matched_photos:
+        for item in displayed_photos:
             pdate = item.get("photo_date", "")
             month_key = pdate[:7] if pdate and len(pdate) >= 7 and "-" in pdate else "9999-99"
             grouped_photos[month_key].append(item)
 
-        # เรียงลำดับเดือนจากล่าสุดไปเก่าสุด
         sorted_month_keys = sorted(grouped_photos.keys(), reverse=True)
 
         cols = 3
@@ -4901,7 +4903,6 @@ class FaceSearchApp(ctk.CTk):
         cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
         os.makedirs(cache_dir, exist_ok=True)
 
-        # 1. โหลดรายชื่อไฟล์ในแคชทั้งหมดมาทำ Memory Set Indexing ครั้งเดียว (O(1) Ultra Speed)
         try:
             cache_files = set(os.listdir(cache_dir))
         except Exception:
@@ -4910,7 +4911,6 @@ class FaceSearchApp(ctk.CTk):
         def get_cached_thumb_path_fast(pid, fid):
             pid_str = str(pid).strip()
             fid_str = str(fid).strip()
-            
             f1 = f"{pid_str}.jpg"
             if f1 in cache_files: return os.path.join(cache_dir, f1)
             f2 = f"thumb_{fid_str}.jpg"
@@ -4927,7 +4927,6 @@ class FaceSearchApp(ctk.CTk):
             sample_date = items_in_month[0].get("photo_date", "") if items_in_month else ""
             header_text = self.format_month_year_header(sample_date)
 
-            # วาดแถบหัวข้อเดือน/ปี
             header_frame = ctk.CTkFrame(self.scr_matched_gallery, fg_color="#1E2D40", corner_radius=6)
             header_frame.grid(row=row_counter, column=0, columnspan=cols, sticky="ew", padx=5, pady=(15, 8))
             
@@ -4941,7 +4940,6 @@ class FaceSearchApp(ctk.CTk):
             self.bind_scroll_events(header_frame)
             row_counter += 1
 
-            # วาดรูปภาพในเดือนนี้เป็น Grid 3 คอลัมน์
             for idx, item in enumerate(items_in_month):
                 r_idx = row_counter + (idx // cols)
                 c_idx = idx % cols
@@ -4978,7 +4976,6 @@ class FaceSearchApp(ctk.CTk):
 
                 self.bind_scroll_events(card)
 
-                # 1. เช็ค Local Cache ผ่าน Memory Set Index (0.00001s)
                 existing_path = get_cached_thumb_path_fast(pid_code, fid)
                 if existing_path:
                     cached_load_items.append((existing_path, img_label, drive_link))
@@ -4987,7 +4984,18 @@ class FaceSearchApp(ctk.CTk):
 
             row_counter += (len(items_in_month) + cols - 1) // cols
 
-        # 2. Async Background Loader สำหรับรูปที่มีแคชอยู่แล้ว (ไม่ดึง Main Thread ให้ฟรีซ!)
+        # หากมีรูปภาพมากกว่าที่แสดงอยู่ ให้สร้างปุ่ม "โหลดรูปภาพเพิ่มเติม..."
+        if limit < total_count:
+            btn_load_more = ctk.CTkButton(
+                self.scr_matched_gallery,
+                text=f"📥 โหลดรูปภาพเพิ่มเติม... (เหลืออีก {total_count - limit} รูป)",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                fg_color="#2980B9", hover_color="#1F618D", text_color="white", height=40,
+                command=lambda: self.render_matched_gallery(person_name, matched_photos, gen_id, limit + 30)
+            )
+            btn_load_more.grid(row=row_counter, column=0, columnspan=cols, pady=20, padx=20, sticky="ew")
+
+        # Async Background Loader
         if cached_load_items:
             def async_cached_loader(items, task_gen):
                 for path, lbl, url in items:
