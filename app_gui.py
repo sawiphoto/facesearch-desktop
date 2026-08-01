@@ -4901,40 +4901,25 @@ class FaceSearchApp(ctk.CTk):
         cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
         os.makedirs(cache_dir, exist_ok=True)
 
-        # ฟังก์ชันค้นหาไฟล์แคชในดิสก์แบบ Dual-Pass (Direct Check + Prefix Match Scan)
-        def get_cached_thumb_path(c_dir, pid, fid):
-            if not os.path.exists(c_dir):
-                logger.warning(f"[GALLERY] Cache dir does not exist: {c_dir}")
-                return None
+        # 1. โหลดรายชื่อไฟล์ในแคชทั้งหมดมาทำ Memory Set Indexing ครั้งเดียว (O(1) Ultra Speed)
+        try:
+            cache_files = set(os.listdir(cache_dir))
+        except Exception:
+            cache_files = set()
+
+        def get_cached_thumb_path_fast(pid, fid):
             pid_str = str(pid).strip()
             fid_str = str(fid).strip()
             
-            # Pass 1: เช็คชื่อไฟล์ตรงเป้าทันที
-            p1 = os.path.join(c_dir, f"{pid_str}.jpg")
-            if os.path.exists(p1) and os.path.getsize(p1) > 0:
-                return p1
-            p2 = os.path.join(c_dir, f"thumb_{fid_str}.jpg")
-            if os.path.exists(p2) and os.path.getsize(p2) > 0:
-                return p2
-            p3 = os.path.join(c_dir, f"{fid_str}.jpg")
-            if os.path.exists(p3) and os.path.getsize(p3) > 0:
-                return p3
-
-            # Pass 2: สแกนชื่อไฟล์ที่เปิดดูได้
-            pid_clean = pid_str.lower()
-            fid_clean = fid_str.lower()
-            try:
-                files_in_cache = os.listdir(c_dir)
-                for fname in files_in_cache:
-                    fl = fname.lower()
-                    if pid_clean in fl or fid_clean in fl:
-                        full_p = os.path.join(c_dir, fname)
-                        if os.path.isfile(full_p) and os.path.getsize(full_p) > 0:
-                            return full_p
-            except Exception as scan_err:
-                logger.error(f"[GALLERY] Error scanning cache dir {c_dir}: {scan_err}")
+            f1 = f"{pid_str}.jpg"
+            if f1 in cache_files: return os.path.join(cache_dir, f1)
+            f2 = f"thumb_{fid_str}.jpg"
+            if f2 in cache_files: return os.path.join(cache_dir, f2)
+            f3 = f"{fid_str}.jpg"
+            if f3 in cache_files: return os.path.join(cache_dir, f3)
             return None
 
+        cached_load_items = []
         uncached_queue = []
         row_counter = 0
         for month_key in sorted_month_keys:
@@ -4993,20 +4978,36 @@ class FaceSearchApp(ctk.CTk):
 
                 self.bind_scroll_events(card)
 
-                # 1. เช็ค Local Cache ดึงมาแสดงผลทันทีใน 0.001s บน Main GUI Thread!
-                existing_path = get_cached_thumb_path(cache_dir, pid_code, fid)
+                # 1. เช็ค Local Cache ผ่าน Memory Set Index (0.00001s)
+                existing_path = get_cached_thumb_path_fast(pid_code, fid)
                 if existing_path:
-                    try:
-                        pil_img = Image.open(existing_path).convert("RGB")
-                        pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
-                        ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(200, 180))
-                        img_label.configure(image=ctk_img, text="")
-                        img_label.bind("<Double-Button-1>", lambda ev, u=drive_link: webbrowser.open(u))
-                    except Exception:
-                        img_label.configure(text="🖼️ อ่านรูปไม่ได้")
+                    cached_load_items.append((existing_path, img_label, drive_link))
                 else:
-                    # 2. ถ้ายังไม่มีแคชในเครื่อง ใส่เข้าคิวเตรียมทยอยดาวน์โหลดทีละภาพ
                     uncached_queue.append((pid_code, fid, drive_link, img_label))
+
+            row_counter += (len(items_in_month) + cols - 1) // cols
+
+        # 2. Async Background Loader สำหรับรูปที่มีแคชอยู่แล้ว (ไม่ดึง Main Thread ให้ฟรีซ!)
+        if cached_load_items:
+            def async_cached_loader(items, task_gen):
+                for path, lbl, url in items:
+                    if task_gen != self.gallery_worker_gen:
+                        return
+                    try:
+                        pil_img = Image.open(path).convert("RGB")
+                        pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
+                        
+                        def update_ui(p_img, target_lbl, target_url):
+                            if task_gen == self.gallery_worker_gen:
+                                ctk_img = ctk.CTkImage(light_image=p_img, dark_image=p_img, size=(200, 180))
+                                target_lbl.configure(image=ctk_img, text="")
+                                target_lbl.bind("<Double-Button-1>", lambda ev, u=target_url: webbrowser.open(u))
+
+                        self.after(0, lambda p=pil_img, l=lbl, u=url: update_ui(p, l, u))
+                    except Exception:
+                        self.after(0, lambda l=lbl: l.configure(text="🖼️ อ่านรูปไม่ได้"))
+
+            threading.Thread(target=async_cached_loader, args=(cached_load_items, gen_id), daemon=True).start()
 
             row_counter += (len(items_in_month) + cols - 1) // cols
 
