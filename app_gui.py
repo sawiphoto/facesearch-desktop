@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.12 (Mandatory & On-Stop JSON Sync)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.13 (Realtime Thumbnail Cache & Double-Click Fix)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.12",
+            text="FACE MATCHING\nSYSTEM v4.13",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4113,18 +4113,25 @@ class FaceSearchApp(ctk.CTk):
                 webbrowser.open(val_str)
                 return
 
-        # 2. ค้นหา photo_id จากแถวที่ดับเบิ้ลคลิก (เช่น P00123)
+        # 2. ค้นหา photo_id / drive_file_id จากแถวที่ดับเบิ้ลคลิก
         photo_id = None
         for val in item_values:
             val_str = str(val).strip()
-            if val_str.startswith("P") and len(val_str) == 6 and val_str[1:].isdigit():
+            # รองรับทั้งแบบ P00123 หรือ Drive File ID ความยาวมากกว่า 10 ตัวอักษร
+            if (val_str.startswith("P") and len(val_str) == 6 and val_str[1:].isdigit()) or (len(val_str) >= 10 and not " " in val_str and not val_str.endswith("%")):
                 photo_id = val_str
                 break
+
+        # ถ้าในแถวมีคอลัมน์ที่ 2 (index 1) ให้ลองใช้เป็น Photo ID
+        if not photo_id and len(item_values) > 1:
+            possible_id = str(item_values[1]).strip()
+            if len(possible_id) >= 5 and not " " in possible_id:
+                photo_id = possible_id
 
         if photo_id:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT drive_link, drive_file_id FROM scanned_photos WHERE photo_id = ?", (photo_id,))
+                cursor.execute("SELECT drive_link, drive_file_id FROM scanned_photos WHERE photo_id = ? OR drive_file_id = ?", (photo_id, photo_id))
                 row = cursor.fetchone()
                 if row:
                     link, fid = row
@@ -4132,6 +4139,9 @@ class FaceSearchApp(ctk.CTk):
                         webbrowser.open(link)
                     elif fid:
                         webbrowser.open(f"https://drive.google.com/file/d/{fid}/view")
+                elif len(photo_id) >= 10:
+                    # ถ้าค้นใน DB ไม่เจอ แต่หน้าตาเหมือน Drive File ID ให้เปิดตรงๆ
+                    webbrowser.open(f"https://drive.google.com/file/d/{photo_id}/view")
 
     def clear_db_search(self):
         if hasattr(self, 'entry_db_search'):

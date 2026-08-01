@@ -882,12 +882,12 @@ class SchedulerTask:
                         
                         # Save Thumbnail Cache
                         try:
-                            thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbnails")
+                            thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbnail_cache")
                             os.makedirs(thumb_dir, exist_ok=True)
                             thumb_path = os.path.join(thumb_dir, f"{f_id}.jpg")
                             if not os.path.exists(thumb_path):
                                 h, w = img.shape[:2]
-                                scale = 300 / max(h, w)
+                                scale = 500 / max(h, w)
                                 thumb_img = cv2.resize(img, (int(w * scale), int(h * scale))) if scale < 1.0 else img
                                 cv2.imwrite(thumb_path, thumb_img)
                         except Exception: pass

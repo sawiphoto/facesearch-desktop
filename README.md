@@ -47,6 +47,26 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.13 Changelog (Realtime Thumbnail Cache & Double-Click Fix)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.13)
+
+1. ** บันทึกภาพ Thumbnail แคชลง `data/thumbnail_cache` เรียลไทม์ระหว่าง Full Scan:**
+   - แก้ไขไดเรกทอรีบันทึกใน [scheduler_task.py](scheduler_task.py#L885) ให้บันทึกภาพย่อ (500px) ลงโฟลเดอร์ `data/thumbnail_cache/{f_id}.jpg` ทันทีหลัง AI สแกนใบหน้าเสร็จ
+   - ช่วยให้ไฟล์ภาพแคชถูกบันทึกสะสมจริงทุกรูปที่สแกน ทำให้การเปิดดูย้อนหลังบนหน้า GUI Gallery เด้งโชว์ขึ้นมาทันทีโดยไม่ต้องรอโหลดจาก Drive อีก
+
+2. ** แก้ไขฟังก์ชัน Double-Click ในตารางคิวรี SQLite DB ให้เปิดลิงก์ Google Drive ได้สมบูรณ์:**
+   - ปรับปรุงฟังก์ชัน `on_db_tree_double_click()` ใน [app_gui.py](app_gui.py#L4111) ให้รองรับการแกะ `photo_id` / `drive_file_id` จากคอลัมน์ในตาราง `detected_faces` (ผลจับคู่ใบหน้าครู / นักเรียน)
+   - เมื่อผู้ใช้ดับเบิ้ลคลิกแถวข้อมูลใดๆ ในตาราง ระบบจะดึง `drive_link` หรือ `drive_file_id` ไปสั่งเปิดเบราว์เซอร์ Chrome แสดงรูปภาพบน Google Drive ให้อย่างแม่นยำ 100%
+
+---
+
 ## 📋 Version 4.12 Changelog (Mandatory & On-Stop JSON Sync)
 
 **Date:** 1 สิงหาคม 2026  
