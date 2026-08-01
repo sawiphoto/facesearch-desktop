@@ -888,8 +888,6 @@ class SchedulerTask:
                         logger.error(f"[AI SCAN] ❌ Error analyzing faces for {f_name}: {e}")
                         skipped_files.append((f_id, f_name, f"ERROR_{e}"))
 
-                producer.join()
-                
                 # Single Transaction Batch Save
                 if results_data or skipped_files:
                     with self.db.get_connection() as conn:

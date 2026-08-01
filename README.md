@@ -47,6 +47,22 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.11 Changelog (Fix Producer NameError & Auto Fast Skip)
+
+**Date:** 1 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.11)
+
+1. ** แก้ไขบัก `NameError: name 'producer' is not defined`:**
+   - ถอดคำสั่งค้างเก่า `producer.join()` ใน [scheduler_task.py](scheduler_task.py#L891) ออกจากลูปสแกนรูปภาพ
+   - ช่วยให้เมื่อสแกนรูปภาพในโฟลเดอร์ย่อยเสร็จสมบูรณ์แล้ว สามารถเดินหน้าไปสแกนโฟลเดอร์ย่อยถัดไปและรัน Task 2 อัปเดตไฟล์ JSON ขึ้น Google Drive ได้อย่างราบรื่น 100%
+
+---
+
 ## 📋 Version 4.10 Changelog (Orange Full-Scan Log & Crash Resolution History)
 
 **Date:** 1 สิงหาคม 2026  
