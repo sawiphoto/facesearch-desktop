@@ -3,6 +3,8 @@ import time
 import json
 import logging
 import threading
+import concurrent.futures
+import queue
 import traceback
 import schedule
 from datetime import datetime
@@ -20,6 +22,7 @@ class SchedulerTask:
         self.app_gui = app_gui
         self.is_running = False
         self.stop_requested = False
+        self.gpu_lock = threading.Lock()
         
         # Schedule midnight trigger
         schedule.every().day.at("00:00").do(self.run_scheduled_tasks)
@@ -55,10 +58,11 @@ class SchedulerTask:
         self.stop_requested = False
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task 2 เฉพาะกิจ (v1.8.3)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task 2 เฉพาะกิจ (v4.0 - Bulk Sync)")
             if not self.sync_manager.connected:
                 self.sync_manager.connect()
-            self._task_2_sync_new_students()
+            self._ensure_analyzer()
+            self._task_2_sync_new_students_bulk()
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -78,7 +82,7 @@ class SchedulerTask:
         self.stop_requested = False
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v1.8)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v4.0 - High Speed)")
             logger.info("="*50)
             
             # Ensure Google API is connected
@@ -86,20 +90,14 @@ class SchedulerTask:
                 self.sync_manager.connect()
                 
             # Ensure Analyzer is initialized
-            if self.analyzer is None:
-                try:
-                    from face_analyzer import FaceAnalyzer
-                    self.analyzer = FaceAnalyzer(use_gpu=False)
-                    self.analyzer.initialize()
-                except Exception as e:
-                    logger.error(f"[SCHEDULE] Warning: FaceAnalyzer init failed: {e}")
+            self._ensure_analyzer()
             
-            # Task 1: Check New Folders
-            self._task_1_scan_new_folders()
+            # Task 1: Scan New Photos (High-Speed)
+            self._task_1_scan_new_photos_fast()
             
             if not self.stop_requested:
-                # Task 2: Check New Students
-                self._task_2_sync_new_students()
+                # Task 2: Sync New Students (Bulk)
+                self._task_2_sync_new_students_bulk()
             
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
@@ -113,12 +111,16 @@ class SchedulerTask:
             self.is_running = False
             self.stop_requested = False
 
-    def _get_unscanned_subfolder(self, root_folder_id):
-        """ค้นหาโฟลเดอร์ย่อย 1 โฟลเดอร์ที่มีรูปยังไม่ได้สแกน"""
+    def _get_unscanned_subfolder(self, root_folder_id, force_rescan=False, scanned_in_this_run=None):
+        """ค้นหาโฟลเดอร์ย่อยที่มีรูปภาพและต้องการสแกน (หรือ Re-scan)"""
+        if scanned_in_this_run is None:
+            scanned_in_this_run = set()
+
         query_dirs = f"'{root_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         subdirs = []
         page_token = None
         while True:
+            if self.stop_requested: break
             try:
                 results = self.sync_manager.drive_service.files().list(
                     q=query_dirs, fields="nextPageToken, files(id, name)", pageToken=page_token, pageSize=100
@@ -130,6 +132,10 @@ class SchedulerTask:
             except Exception as e:
                 logger.error(f"Error fetching subdirs for {root_folder_id}: {e}")
                 break
+
+        # ถ้า root_folder_id ไม่มีโฟลเดอร์ย่อย ให้คืนค่า root_folder เองหากมีรูป
+        if not subdirs:
+            subdirs = [{"id": root_folder_id, "name": "TargetFolder"}]
                 
         # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB
         with self.db.get_connection() as conn:
@@ -137,8 +143,16 @@ class SchedulerTask:
             c.execute("SELECT drive_file_id FROM scanned_photos")
             scanned_ids = set(row[0] for row in c.fetchall())
 
-        for subdir in subdirs:
+        total_subdirs = len(subdirs)
+        for idx, subdir in enumerate(subdirs):
+            if self.stop_requested: break
             subdir_id = subdir['id']
+            if subdir_id in scanned_in_this_run:
+                continue
+
+            # พ่น Log แสดงสถานะความก้าวหน้าเรียลไทม์
+            logger.info(f"[SCHEDULE] กำลังตรวจสอบโฟลเดอร์ย่อย ({idx+1}/{total_subdirs}): {subdir['name']}")
+
             # เช็คไฟล์รูปในโฟลเดอร์นี้
             query_files = f"'{subdir_id}' in parents and (mimeType contains 'image/') and trashed = false"
             try:
@@ -146,30 +160,50 @@ class SchedulerTask:
                     q=query_files, fields="files(id)", pageSize=500
                 ).execute()
                 files = f_results.get("files", [])
-                
-                # ตรวจสอบว่ามีรูปไหนที่ยังไม่อยู่ใน scanned_ids
+                if not files:
+                    continue
+
+                if force_rescan:
+                    # ถ้าเปิด Re-scan ➔ ส่งคืนโฟลเดอร์นี้ไปทำ Re-scan ทันที
+                    return subdir
+
+                # ถ้าปิด Re-scan ➔ ตรวจสอบว่ามีรูปไหนยังไม่อยู่ใน DB หรือไม่
                 for f in files:
                     if f['id'] not in scanned_ids:
-                        return subdir # เจอโฟลเดอร์สีแดง (มีรูปยังไม่สแกน)
+                        return subdir # เจอโฟลเดอร์มีรูปใหม่ยังไม่เคยสแกน
             except Exception:
                 pass
                 
-        return None # สีเขียวหมดแล้ว
+        return None # สแกนครบถ้วนหมดแล้ว
 
     def _task_1_scan_new_folders(self):
         logger.info("[SCHEDULE] กำลังทำ task โฟลเดอร์ใหม่...")
-        target_folders = [
+        
+        # ดึงการตั้งค่าจาก GUI 100% (Threshold, Re-scan, Fast Rescan, Target matching)
+        scan_settings = self.app_gui.get_current_scan_settings() if hasattr(self.app_gui, 'get_current_scan_settings') else {}
+        rescan = scan_settings.get("rescan", False)
+        fast_rescan = scan_settings.get("fast_rescan", False)
+        
+        target_folders = []
+        # 1. เพิ่ม ID โฟลเดอร์กิจกรรมหลักที่ตั้งค่าในช่อง GUI ก่อนเสมอ
+        if hasattr(self.app_gui, 'entry_drive_folder_id'):
+            gui_folder_id = self.app_gui.entry_drive_folder_id.get().strip()
+            if gui_folder_id:
+                target_folders.append(("โฟลเดอร์หลักใน GUI", gui_folder_id))
+
+        # 2. เพิ่มโฟลเดอร์ประจำปีการศึกษา
+        target_folders.extend([
             ("ภาพกิจกรรม 2569", "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"),
             ("ภาพกิจกรรม 2568", "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"),
             ("ภาพกิจกรรม 2565-2567", "1BjYQwoso9FKv42XK6RJi1gPS8kyK_jCg")
-        ]
+        ])
         
         scanned_in_this_run = set()
         for year_name, year_id in target_folders:
             if self.stop_requested: break
             while True:
                 if self.stop_requested: break
-                red_folder = self._get_unscanned_subfolder(year_id)
+                red_folder = self._get_unscanned_subfolder(year_id, force_rescan=rescan, scanned_in_this_run=scanned_in_this_run)
                 if not red_folder or red_folder['id'] in scanned_in_this_run:
                     break
                 scanned_in_this_run.add(red_folder['id'])
@@ -217,12 +251,12 @@ class SchedulerTask:
         return None
 
     def _ensure_analyzer(self):
-        """ตรวจสอบและโหลด FaceAnalyzer AI Model หากยังไม่ได้สร้าง"""
-        if self.analyzer is not None:
-            return True
-            
+        """ตรวจสอบและอ้างอิง FaceAnalyzer AI Model เพียงอินสแตนซ์เดียวทั้งระบบ"""
         if hasattr(self.app_gui, 'analyzer') and self.app_gui.analyzer is not None:
             self.analyzer = self.app_gui.analyzer
+            return True
+
+        if self.analyzer is not None:
             return True
 
         try:
@@ -271,7 +305,7 @@ class SchedulerTask:
             sheet_student_ids.add(std_id)
             
             std_name = str(row.get(col_name, "")).strip()
-            imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, "")), str(row.get(col_img3, ""))]
+            imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, ""))]
             valid_imgs = [img for img in imgs if img.strip()]
             
             # ตรวจสอบลิงก์ที่ผิดปกติ
@@ -395,16 +429,15 @@ class SchedulerTask:
                         return k
             return None
 
-        col_id = find_col(["รหัสนักเรียน", "รหัสประจำตัว", "รหัส"]) or "รหัสนักเรียน"
-        col_name = find_col(["ชื่อ สกุล", "ชื่อ-นามสกุล", "ชื่อนามสกุล", "ชื่อสุกล"]) or "ชื่อ สกุล"
-        col_img1 = find_col(["ภาพใบหน้าตรง", "รูปถ่าย", "ภาพถ่าย"]) or "ภาพใบหน้าตรง"
-        col_img2 = find_col(["ภาพใบหน้าเพิ่มเติม1", "ภาพใบหน้าเพิ่มเติม 1"]) or "ภาพใบหน้าเพิ่มเติม1"
-        col_img3 = find_col(["ภาพใบหน้าเพิ่มเติม2", "ภาพใบหน้าเพิ่มเติม 2"]) or "ภาพใบหน้าเพิ่มเติม2"
+        col_id = find_col(["รหัสนักเรียน", "รหัสประจำตัว", "รหัส"]) or (sample_keys[0] if len(sample_keys) > 0 else "รหัสนักเรียน")
+        col_name = find_col(["ชื่อ สกุล", "ชื่อ-นามสกุล", "ชื่อนามสกุล", "ชื่อสุกล"]) or (sample_keys[1] if len(sample_keys) > 1 else "ชื่อ สกุล")
+        col_img1 = find_col(["ภาพใบหน้าตรงตอนเด็ก", "ภาพใบหน้าตรง ตอนเด็ก", "ภาพใบหน้าตรง", "รูปถ่าย", "ภาพถ่าย"]) or (sample_keys[3] if len(sample_keys) > 3 else "ภาพใบหน้าตรง ตอนเด็ก")
+        col_img2 = find_col(["ภาพใบหน้าตรงตอนวัยรุ่น", "ภาพใบหน้าตรง ตอนวัยรุ่น", "ภาพใบหน้าตรง2", "ภาพใบหน้าเพิ่มเติม1", "ภาพใบหน้าเพิ่มเติม 1", "ภาพใบหน้าตรงอัปเดต"]) or (sample_keys[4] if len(sample_keys) > 4 else "ภาพใบหน้าตรง ตอนวัยรุ่น")
 
-        logger.info(f"[SCHEDULE] ใช้ชื่อคอลัมน์ -> ID: '{col_id}', Name: '{col_name}', Img1: '{col_img1}'")
+        logger.info(f"[SCHEDULE] ใช้ชื่อคอลัมน์นักเรียน (A-E) -> ID: '{col_id}', Name: '{col_name}', Img1: '{col_img1}', Img2: '{col_img2}' (รองรับสูงสุด 2 ภาพหน้าตรงต่างช่วงวัย)")
 
         if DEBUG_SYNC_MODE:
-            self.debug_compare_sheet_vs_db(data, col_id, col_name, col_img1, col_img2, col_img3)
+            self.debug_compare_sheet_vs_db(data, col_id, col_name, col_img1, col_img2, None)
 
         temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "student_sync_temp.json")
         old_data = {}
@@ -426,7 +459,7 @@ class SchedulerTask:
             valid_rows_count += 1
                 
             std_name = str(row.get(col_name, "")).strip()
-            imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, "")), str(row.get(col_img3, ""))]
+            imgs = [str(row.get(col_img1, "")), str(row.get(col_img2, ""))]
             
             # เก็บ State (เอา PIN ออกแล้ว)
             std_state = {
@@ -444,8 +477,8 @@ class SchedulerTask:
                 new_imgs = [img for img in imgs if img.strip()]
             else:
                 old_imgs = old_data[std_id].get("imgs", [])
-                # หาลิงก์รูปที่เพิ่งเพิ่มมาใหม่หรือเปลี่ยนไป
-                for i in range(3):
+                # หาลิงก์รูปที่เพิ่งเพิ่มมาใหม่หรือเปลี่ยนไป (ตรวจสูงสุด 2 รูปหน้าตรง)
+                for i in range(min(2, len(imgs))):
                     if imgs[i].strip() and (i >= len(old_imgs) or imgs[i] != old_imgs[i]):
                         new_imgs.append(imgs[i])
 
@@ -513,6 +546,13 @@ class SchedulerTask:
                             img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                             if img_cv is not None:
                                 faces = self.analyzer.app.get(img_cv)
+                                if not faces:
+                                    # Fallback สำหรับภาพครอบตัดแน่นชิดใบหน้า (Tight Crop)
+                                    h, w = img_cv.shape[:2]
+                                    pad = int(max(h, w) * 0.5)
+                                    img_padded = cv2.copyMakeBorder(img_cv, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=[128, 128, 128])
+                                    faces = self.analyzer.app.get(img_padded)
+
                                 if faces:
                                     # เอาหน้าแรกที่ชัดที่สุด
                                     face = faces[0]
@@ -584,3 +624,513 @@ class SchedulerTask:
             logger.info("[SCHEDULE] ซิงค์นักเรียนและอัปเดตใบหน้าเสร็จสิ้น")
         else:
             logger.info("[SCHEDULE] ไม่มีนักเรียนอัปเดตรูปภาพใหม่")
+
+    
+    
+    def _load_year_folders(self):
+        """โหลดรายชื่อโฟลเดอร์หลักปีการศึกษาจาก config/year_folders.json"""
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", "year_folders.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and len(data) > 0:
+                        return [(item["name"], item["id"]) for item in data if "name" in item and "id" in item]
+            except Exception as e:
+                logger.error(f"[SCHEDULE] Error reading config/year_folders.json: {e}")
+                
+        # Default Fallback (5 โฟลเดอร์หลัก)
+        return [
+            ("ภาพกิจกรรม 2569", "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"),
+            ("ภาพกิจกรรม 2568", "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"),
+            ("ภาพกิจกรรม 2567", "1ocR4srmu1tA1nYgJOhoM9I0KDVMmbRGF"),
+            ("ภาพกิจกรรม 2566", "1ZMhLENv8u-onIhVzwBTxCzjJVQVCriVd"),
+            ("ภาพกิจกรรม 2565", "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL")
+        ]
+
+    def _get_all_subfolders_recursive(self, parent_id, parent_name=""):
+        """ดึงรายชื่อโฟลเดอร์ย่อยทั้งหมดทุกระดับชั้นแบบ Recursive"""
+        all_subfolders = []
+        try:
+            query = f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            page_token = None
+            subdirs = []
+            while True:
+                res = self.sync_manager.drive_service.files().list(
+                    q=query, fields="nextPageToken, files(id, name)", pageToken=page_token, pageSize=1000
+                ).execute()
+                subdirs.extend(res.get("files", []))
+                page_token = res.get("nextPageToken")
+                if not page_token or self.stop_requested: break
+                
+            for subdir in subdirs:
+                if self.stop_requested: break
+                s_id = subdir['id']
+                s_name = subdir['name']
+                all_subfolders.append({"id": s_id, "name": s_name})
+                
+                # มุดลงไปดึงโฟลเดอร์ชั้นในซ้อนชั้นอีก (Recursive)
+                inner_subdirs = self._get_all_subfolders_recursive(s_id, s_name)
+                all_subfolders.extend(inner_subdirs)
+        except Exception as e:
+            logger.error(f"[SCHEDULE] Error fetching recursive subfolders for {parent_name}: {e}")
+        return all_subfolders
+
+    
+    
+    def _task_1_scan_new_photos_fast(self):
+        logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 1: สแกนโฟลเดอร์ใหม่เรียงลำดับปีการศึกษา (5 โฟลเดอร์หลัก - Single GPU Consumer)")
+        
+        target_years = self._load_year_folders()
+        
+        # 1. โหลดข้อมูลเป้าหมายจากฐานข้อมูลมาไว้ใน Memory
+        with self.db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT id, name, personal_threshold FROM staff_members")
+            staff_data = c.fetchall()
+            
+            c.execute("SELECT staff_id, embedding FROM staff_embeddings")
+            emb_data = c.fetchall()
+
+            c.execute("SELECT drive_file_id FROM scanned_photos")
+            scanned_ids = set(row[0] for row in c.fetchall())
+
+        if not staff_data or not emb_data:
+            logger.warning("[SCHEDULE] ⚠️ ไม่มีข้อมูลนักเรียน/บุคลากรในฐานข้อมูล หรือไม่มีเวกเตอร์ภาพ")
+            return
+            
+        import numpy as np
+        template_embeddings = []
+        template_staff_ids = []
+        template_names = []
+        personal_threshold_dict = {row[0]: row[2] for row in staff_data}
+        template_thresholds = []
+
+        for staff_id, emb_blob in emb_data:
+            try:
+                emb = np.frombuffer(emb_blob, dtype=np.float32)
+                template_embeddings.append(emb)
+                template_staff_ids.append(staff_id)
+                name = next((r[1] for r in staff_data if r[0] == staff_id), "Unknown")
+                template_names.append(name)
+                thresh = personal_threshold_dict.get(staff_id, 0.50)
+                template_thresholds.append(thresh)
+            except Exception as e:
+                logger.error(f"[SCHEDULE] Error loading embedding for staff_id {staff_id}: {e}")
+
+        if not template_embeddings:
+            logger.warning("[SCHEDULE] ⚠️ โหลด Template เวกเตอร์ไม่สำเร็จ")
+            return
+
+        template_embeddings = np.array(template_embeddings, dtype=np.float32)
+        
+        import concurrent.futures
+        import queue
+        import cv2
+
+        for year_name, year_id in target_years:
+            if self.stop_requested: break
+            
+            subfolders = self._get_all_subfolders_recursive(year_id, year_name)
+            if not subfolders:
+                subfolders = [{"id": year_id, "name": year_name}]
+                
+            logger.info(f"[SCHEDULE] 🔍 กำลังตรวจหาโฟลเดอร์ใหม่ใน '{year_name}' (พบ {len(subfolders)} โฟลเดอร์ย่อย)...")
+            
+            folders_to_scan = []
+            for subdir in subfolders:
+                if self.stop_requested: break
+                f_id = subdir['id']
+                f_name = subdir['name']
+                
+                try:
+                    q_imgs = f"'{f_id}' in parents and (mimeType contains 'image/') and trashed = false"
+                    img_res = self.sync_manager.drive_service.files().list(
+                        q=q_imgs, fields="files(id, name, webContentLink, createdTime)", pageSize=1000
+                    ).execute()
+                    imgs = img_res.get("files", [])
+                    
+                    if not imgs:
+                        continue
+                        
+                    unscanned = [img for img in imgs if img['id'] not in scanned_ids]
+                    if unscanned:
+                        folders_to_scan.append({
+                            "folder_id": f_id,
+                            "folder_name": f_name,
+                            "files_to_scan": unscanned
+                        })
+                except Exception as e:
+                    logger.error(f"[SCHEDULE] Error checking folder {f_name}: {e}")
+
+            total_in_year = len(folders_to_scan)
+            if total_in_year == 0:
+                logger.info(f"[SCHEDULE] ✅ '{year_name}' สแกนสมบูรณ์แล้ว 100% (ไม่พบรูปภาพใหม่)")
+                continue
+                
+            folder_names_summary = [f['folder_name'] for f in folders_to_scan[:5]]
+            more_suffix = f" ...และอีก {total_in_year-5} โฟลเดอร์" if total_in_year > 5 else ""
+            logger.info(f"[SCHEDULE] 🎯 '{year_name}' พบ {total_in_year} โฟลเดอร์ที่ต้องทำ Full Scan: [{', '.join(folder_names_summary)}{more_suffix}]")
+
+            # 3. สแกนทีละโฟลเดอร์ย่อยของปีนี้ (Sequential Thread-Safe Pattern)
+            for idx, target in enumerate(folders_to_scan):
+                if self.stop_requested: break
+                
+                folder_id = target["folder_id"]
+                folder_name = target["folder_name"]
+                files_to_process = target["files_to_scan"]
+                total_files = len(files_to_process)
+                
+                logger.info(f"[FULLSCAN] 🚀 [{year_name}] ({idx+1}/{total_in_year}) สแกนโฟลเดอร์: {folder_name} ({total_files} รูป)")
+                
+                results_data = []
+                skipped_files = []
+                processed_count = 0
+                
+                # Sequential Loop: โหลดทีละรูป และยิง InsightFace บน Thread เดียวแบบ 100% Thread-Safe
+                for file_info in files_to_process:
+                    if self.stop_requested: break
+                    
+                    f_id = file_info['id']
+                    f_name = file_info['name']
+                    f_link = file_info.get('webContentLink', f"https://drive.google.com/file/d/{f_id}/view")
+                    p_date = file_info.get('createdTime', '').split('T')[0] if 'createdTime' in file_info else datetime.now().strftime("%Y-%m-%d")
+
+                    logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
+                    
+                    try:
+                        # 1. ดาวน์โหลดรูปภาพจาก Drive (Single Thread - Safe Google API Call)
+                        t_dl_start = time.time()
+                        req = self.sync_manager.drive_service.files().get_media(fileId=f_id)
+                        img_bytes = req.execute()
+                        t_dl = time.time() - t_dl_start
+                        
+                        if not img_bytes:
+                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name}")
+                            skipped_files.append((f_id, f_name, "SKIPPED_DOWNLOAD_EMPTY"))
+                            scanned_ids.add(f_id)
+                            processed_count += 1
+                            continue
+
+                        # 2. Decode OpenCV
+                        np_arr = np.frombuffer(img_bytes, np.uint8)
+                        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                        
+                        if img is None:
+                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้ (Skipped): {f_name}")
+                            skipped_files.append((f_id, f_name, "SKIPPED_UNREADABLE_IMAGE"))
+                            scanned_ids.add(f_id)
+                            processed_count += 1
+                            continue
+
+                        # 3. สแกนด้วย InsightFace GPU
+                        t0 = time.time()
+                        faces = self.analyzer.get_faces_optimized(img)
+                        t_ai = time.time() - t0
+                        
+                        photo_matches = []
+                        face_embeddings = []
+                        match_names = []
+                        
+                        if faces and len(faces) > 0:
+                            detected_embs = [f.embedding for f in faces if f is not None and hasattr(f, 'embedding')]
+                            if detected_embs:
+                                detected_embs = np.array(detected_embs, dtype=np.float32)
+                                
+                                matches = self.analyzer.match_faces_matrix(
+                                    detected_embs, template_embeddings, template_names, template_staff_ids, 
+                                    threshold=0.50, template_thresholds=template_thresholds
+                                )
+                                
+                                for i, face in enumerate(faces):
+                                    if i < len(matches) and matches[i] is not None and isinstance(matches[i], dict):
+                                        best_match = matches[i]
+                                        if best_match.get('name', 'Unknown') != "Unknown":
+                                            photo_matches.append((best_match['staff_id'], best_match['confidence']))
+                                            match_names.append(best_match['name'])
+                                            
+                                    if hasattr(face, 'bbox') and face.bbox is not None:
+                                        bbox = face.bbox
+                                        face_embeddings.append({
+                                            'face_index': i,
+                                            'bbox': [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])],
+                                            'embedding': face.embedding.astype(np.float32).tobytes()
+                                        })
+
+                        match_str = f"-> [MATCH_OK] เจอ: {', '.join(match_names)}" if match_names else "-> ไม่พบคนในระบบ"
+                        logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) ✅ {f_name} | DL: {t_dl:.2f}s | AI: {t_ai:.2f}s | พบ {len(faces) if faces else 0} ใบหน้า {match_str}")
+                        
+                        # Save Thumbnail Cache
+                        try:
+                            thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbnails")
+                            os.makedirs(thumb_dir, exist_ok=True)
+                            thumb_path = os.path.join(thumb_dir, f"{f_id}.jpg")
+                            if not os.path.exists(thumb_path):
+                                h, w = img.shape[:2]
+                                scale = 300 / max(h, w)
+                                thumb_img = cv2.resize(img, (int(w * scale), int(h * scale))) if scale < 1.0 else img
+                                cv2.imwrite(thumb_path, thumb_img)
+                        except Exception: pass
+
+                        results_data.append({
+                            "photo_id": f_id,
+                            "drive_file_id": f_id,
+                            "event_name": folder_name,
+                            "drive_link": f_link,
+                            "photo_date": p_date,
+                            "matches": photo_matches,
+                            "face_embeddings": face_embeddings
+                        })
+                        
+                        processed_count += 1
+                            
+                    except Exception as e:
+                        logger.error(f"[AI SCAN] ❌ Error analyzing faces for {f_name}: {e}")
+                        skipped_files.append((f_id, f_name, f"ERROR_{e}"))
+
+                producer.join()
+                
+                # Single Transaction Batch Save
+                if results_data or skipped_files:
+                    with self.db.get_connection() as conn:
+                        c = conn.cursor()
+                        if results_data:
+                            scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"]) for r in results_data]
+                            c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", scanned_rows)
+                            
+                            photo_ids_batch = [r["photo_id"] for r in results_data]
+                            if photo_ids_batch:
+                                placeholders_del = ",".join("?" for _ in photo_ids_batch)
+                                c.execute(f"DELETE FROM detected_faces WHERE photo_id IN ({placeholders_del})", photo_ids_batch)
+
+                            match_rows = []
+                            for r in results_data:
+                                for staff_id, conf in r["matches"]: match_rows.append((r["photo_id"], staff_id, conf))
+                            if match_rows:
+                                c.executemany("INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)", match_rows)
+                                
+                            emb_rows = []
+                            for r in results_data:
+                                for f in r["face_embeddings"]:
+                                    emb_rows.append((r["photo_id"], f["face_index"], f["bbox"][0], f["bbox"][1], f["bbox"][2], f["bbox"][3], f["embedding"]))
+                            if emb_rows:
+                                c.executemany("INSERT INTO scanned_photo_faces (photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)", emb_rows)
+
+                        if skipped_files:
+                            skipped_rows = [(f_id, f_id, folder_name, f"https://drive.google.com/file/d/{f_id}/view", reason) for f_id, f_name, reason in skipped_files]
+                            c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", skipped_rows)
+
+                        conn.commit()
+
+                if hasattr(self.app_gui, 'record_matched_folder'):
+                    self.app_gui.record_matched_folder(folder_id, folder_name)
+                    
+                for r in results_data: scanned_ids.add(r["photo_id"])
+                for f_id, _, _ in skipped_files: scanned_ids.add(f_id)
+                
+            logger.info(f"[SCHEDULE] 🎉 เสร็จสิ้นการทำ Full Scan สำหรับโฟลเดอร์หลัก: '{year_name}'")
+
+
+
+    def _task_2_sync_new_students_bulk(self):
+        logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 2: Sync New Students & Bulk Matching")
+        sheet_id = "1bz81BDC0NkuX1-jzw_glntYZ1xkmuI9xJSi8op_x7To"
+        
+        try:
+            if not self.sync_manager.connect(sheet_id, ensure_worksheets=False):
+                logger.error("[SCHEDULE] ไม่สามารถเชื่อมต่อกับ Google Sheet ได้")
+                return
+            sheet = self.sync_manager.gspread_client.open_by_key(sheet_id).sheet1
+            data = sheet.get_all_records()
+            logger.info(f"[SCHEDULE] อ่านข้อมูลจาก Sheet สำเร็จ พบ {len(data)} แถว")
+        except Exception as e:
+            logger.error(f"[SCHEDULE] ไม่สามารถอ่าน Sheet ได้: {e}", exc_info=True)
+            return
+
+        if not data:
+            logger.warning("[SCHEDULE] Sheet ไม่มีข้อมูล")
+            return
+            
+        sample_keys = list(data[0].keys())
+        def find_col(possible_names):
+            for k in sample_keys:
+                clean_k = str(k).replace(" ", "").replace("-", "").strip()
+                for name in possible_names:
+                    if clean_k == str(name).replace(" ", "").replace("-", "").strip(): return k
+            return None
+
+        col_id = find_col(["รหัสนักเรียน", "รหัสประจำตัว", "รหัส"]) or (sample_keys[0] if len(sample_keys) > 0 else "รหัสนักเรียน")
+        col_name = find_col(["ชื่อ สกุล", "ชื่อ-นามสกุล", "ชื่อนามสกุล"]) or (sample_keys[1] if len(sample_keys) > 1 else "ชื่อ สกุล")
+        col_img1 = find_col(["ภาพใบหน้าตรงตอนเด็ก", "ภาพใบหน้าตรง ตอนเด็ก", "ภาพใบหน้าตรง", "รูปถ่าย"]) or (sample_keys[3] if len(sample_keys) > 3 else "ภาพใบหน้าตรง ตอนเด็ก")
+        col_img2 = find_col(["ภาพใบหน้าตรงตอนวัยรุ่น", "ภาพใบหน้าตรง ตอนวัยรุ่น", "ภาพใบหน้าตรง2"]) or (sample_keys[4] if len(sample_keys) > 4 else "ภาพใบหน้าตรง ตอนวัยรุ่น")
+
+        # อ่านสถานะจาก json เพื่อดูว่าลิงก์รูปเปลี่ยนไหม
+        import json
+        temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "student_sync_temp.json")
+        old_data = {}
+        if os.path.exists(temp_file):
+            try:
+                with open(temp_file, 'r', encoding='utf-8') as f:
+                    old_data = json.load(f)
+            except: pass
+                
+        new_data = {}
+        processed_students = 0
+        
+        self._ensure_analyzer()
+        
+        import numpy as np
+        import cv2
+
+        for row in data:
+            if self.stop_requested: break
+            
+            s_id = str(row.get(col_id, "")).strip()
+            s_name = str(row.get(col_name, "")).strip()
+            if not s_id or not s_name:
+                continue
+                
+            url1 = str(row.get(col_img1, "")).strip()
+            url2 = str(row.get(col_img2, "")).strip()
+            
+            # (หากไม่มีรูประบบจะไม่บันทึกและปล่อยผ่าน)
+            if not url1 and not url2:
+                continue
+                
+            urls = []
+            if url1: urls.append(url1)
+            if url2: urls.append(url2)
+            
+            new_data[s_id] = {"name": s_name, "urls": urls}
+            
+            is_new_or_updated = False
+            if s_id not in old_data:
+                is_new_or_updated = True
+            else:
+                old_urls = set(old_data[s_id].get("urls", []))
+                new_urls = set(urls)
+                if old_urls != new_urls:
+                    is_new_or_updated = True
+                    
+            if is_new_or_updated:
+                logger.info(f"[SCHEDULE] 🔄 พบการอัปเดตรูปของนักเรียน: {s_name} ({s_id})")
+                try:
+                    staff_id = self.db.register_member(s_name, role='student', student_id=s_id)
+                    # ลบเวกเตอร์เดิม
+                    self.db.clear_staff_embeddings(staff_id)
+                    
+                    added_faces = 0
+                    for url in urls:
+                        try:
+                            img_path = self.sync_manager.download_image_from_url(url)
+                            if not img_path: continue
+                            
+                            img = cv2.imread(img_path)
+                            if img is not None:
+                                faces = self.analyzer.detect_and_extract_faces_from_image(img)
+                                if faces:
+                                    best_face = faces[0]
+                                    self.db.add_staff_embedding(staff_id, img_path, best_face.embedding.tolist(), source_url=url)
+                                    added_faces += 1
+                        except Exception as e:
+                            logger.error(f"[SCHEDULE] Error embedding for {s_name}: {e}")
+                            
+                    if added_faces > 0:
+                        self.db.set_staff_backfill_status(staff_id, 0)
+                        processed_students += 1
+                        logger.info(f"[SCHEDULE] ✅ อัปเดตเวกเตอร์ใหม่ให้ {s_name} ({added_faces} รูป)")
+                except Exception as e:
+                    logger.error(f"[SCHEDULE] Error process sync for {s_name}: {e}")
+                    
+        # เซฟประวัติ
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(new_data, f, ensure_ascii=False, indent=2)
+        except: pass
+        
+        # ----------------------------------------------------
+        # Bulk Backfill Matching
+        # ----------------------------------------------------
+        logger.info("[SCHEDULE] 🔍 กำลังค้นหานักเรียน/บุคลากรที่ต้องทำ Bulk Backfill Matching...")
+        unbackfilled = self.db.get_unbackfilled_students()
+        
+        if unbackfilled:
+            logger.info(f"[SCHEDULE] พบ {len(unbackfilled)} คน ที่ต้องการทำจับคู่ย้อนหลัง")
+            
+            with self.db.get_connection() as conn:
+                c = conn.cursor()
+                # 1. ดึงเวกเตอร์ของนักเรียนใหม่
+                c.execute("SELECT staff_id, embedding FROM staff_embeddings")
+                all_embs = c.fetchall()
+                
+                target_staff_ids = [s["staff_id"] for s in unbackfilled]
+                
+                new_student_embeddings = []
+                new_student_ids = []
+                new_student_names = []
+                new_student_thresholds = []
+                
+                # Fetch personal_thresholds
+                c.execute("SELECT id, personal_threshold FROM staff_members")
+                threshold_dict = {row[0]: row[1] for row in c.fetchall()}
+                
+                name_dict = {s["staff_id"]: s["name"] for s in unbackfilled}
+                
+                for staff_id, emb_blob in all_embs:
+                    if staff_id in target_staff_ids:
+                        emb = np.frombuffer(emb_blob, dtype=np.float32)
+                        new_student_embeddings.append(emb)
+                        new_student_ids.append(staff_id)
+                        new_student_names.append(name_dict[staff_id])
+                        new_student_thresholds.append(threshold_dict.get(staff_id, 0.50))
+                        
+                if new_student_embeddings:
+                    new_student_embeddings = np.array(new_student_embeddings, dtype=np.float32)
+                    
+                    # 2. ดึงเวกเตอร์ของรูปในกิจกรรมทั้งหมดเพื่อมาจับคู่
+                    logger.info("[SCHEDULE] 💾 กำลังดึงข้อมูลรูปภาพกิจกรรมทั้งหมดจาก SQLite เพื่อทำ Matrix Matching...")
+                    c.execute("SELECT photo_id, face_index, embedding FROM scanned_photo_faces")
+                    photo_faces = c.fetchall()
+                    
+                    logger.info(f"[SCHEDULE] 🚀 กำลังจับคู่ Matrix {len(photo_faces)} ใบหน้ากิจกรรมกับ {len(new_student_embeddings)} ใบหน้านักเรียนใหม่...")
+                    
+                    batch_matches = []
+                    # การวนลูปรูปทีละหน้าเพื่อเอาเวกเตอร์มาเทียบกับ Array นักเรียนใหม่ทั้งหมด
+                    for photo_id, face_idx, emb_blob in photo_faces:
+                        photo_emb = np.frombuffer(emb_blob, dtype=np.float32)
+                        photo_emb = np.array([photo_emb], dtype=np.float32)
+                        
+                        res = self.analyzer.match_faces_matrix(
+                            photo_emb, new_student_embeddings, new_student_names, new_student_ids, 
+                            threshold=0.50, template_thresholds=new_student_thresholds
+                        )
+                        
+                        best_match = res[0]
+                        if best_match['name'] != "Unknown":
+                            batch_matches.append((photo_id, best_match['staff_id'], best_match['confidence']))
+                            
+                    if batch_matches:
+                        # 3. เซฟลง detected_faces แบบ Batch
+                        logger.info(f"[SCHEDULE] ✅ พบรูปภาพย้อนหลังทั้งหมด {len(batch_matches)} แมตช์ กำลังเซฟลงฐานข้อมูล...")
+                        c.executemany("INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)", batch_matches)
+                        conn.commit()
+                        
+            # Mark backfilled
+            self.db.mark_students_backfilled(target_staff_ids)
+            
+            # ----------------------------------------------------
+            # Bulk JSON Update (3 โฟลเดอร์หลัก)
+            # ----------------------------------------------------
+            logger.info("[SCHEDULE] 📤 กำลังเตรียมอัปเดตไฟล์ JSON บน Google Drive 3 โฟลเดอร์หลักใหญ่...")
+            top_folders = [item["id"] for item in self._load_year_folders()]
+            
+            for folder_id in top_folders:
+                try:
+                    self.sync_manager.update_json_indexes_on_drive(None, folder_id, scan_mode="all")
+                except Exception as e:
+                    logger.error(f"[SCHEDULE] Error updating JSON for root folder {folder_id}: {e}")
+                    
+            logger.info("[SCHEDULE] 🎉 การ Bulk Sync New Students เสร็จสมบูรณ์แล้ว!")
+        else:
+            logger.info("[SCHEDULE] ✅ ไม่มีนักเรียนใหม่หรือรูปอัปเดตที่ต้องทำ Backfill Matching ในรอบนี้")
+

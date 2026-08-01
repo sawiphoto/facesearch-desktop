@@ -187,6 +187,8 @@ def check_and_download_model():
             os.remove(zip_path)
         return False
 
+import threading
+
 class FaceAnalyzer:
     def __init__(self, use_gpu=False):
         """
@@ -195,6 +197,7 @@ class FaceAnalyzer:
         self.app = None
         self.use_gpu = use_gpu
         self.initialized = False
+        self.lock = threading.Lock()
 
     def initialize(self):
         """ดาวน์โหลดโมเดลและเริ่มทำงาน InsightFace"""
@@ -297,14 +300,28 @@ class FaceAnalyzer:
             scale = 1.0
             img_resized = img
 
-        faces = self.app.get(img_resized)
-        if scale != 1.0:
-            for face in faces:
-                if hasattr(face, 'bbox') and face.bbox is not None:
-                    face.bbox = face.bbox / scale
-                if hasattr(face, 'kps') and face.kps is not None:
-                    face.kps = face.kps / scale
-        return faces
+        with self.lock:
+            faces = self.app.get(img_resized)
+            if not faces:
+                # Fallback สำหรับรูปที่ตัดชิดใบหน้าแน่นเกินไป (Tight Crop): เติมขอบภาพ 50%
+                pad = int(max(h, w) * 0.5)
+                img_padded = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=[128, 128, 128])
+                faces_padded = self.app.get(img_padded)
+                if faces_padded:
+                    for face in faces_padded:
+                        if hasattr(face, 'bbox') and face.bbox is not None:
+                            face.bbox = face.bbox - pad
+                        if hasattr(face, 'kps') and face.kps is not None:
+                            face.kps = face.kps - pad
+                    return faces_padded
+
+            if scale != 1.0:
+                for face in faces:
+                    if hasattr(face, 'bbox') and face.bbox is not None:
+                        face.bbox = face.bbox / scale
+                    if hasattr(face, 'kps') and face.kps is not None:
+                        face.kps = face.kps / scale
+            return faces
 
     def detect_and_extract_faces(self, image_path):
         """
@@ -356,12 +373,13 @@ class FaceAnalyzer:
         similarity = dot_product / (norm1 * norm2)
         return float(similarity)
 
-    def match_faces_matrix(self, detected_embeddings, template_embeddings, template_names, template_staff_ids, threshold=0.65):
+    def match_faces_matrix(self, detected_embeddings, template_embeddings, template_names, template_staff_ids, threshold=0.65, template_thresholds=None):
         """
         เปรียบเทียบชุดใบหน้าที่ตรวจจับได้กับใบหน้าต้นแบบพร้อมกันโดยใช้ Numpy Matrix Operation
         detected_embeddings: numpy array ขนาด (M, 512)
         template_embeddings: numpy array ขนาด (N, 512)
-        คืนค่า: รายชื่อของครูที่จับคู่ได้สำหรับแต่ละใบหน้าตรวจพบ
+        template_thresholds: list/array ของ threshold แยกรายบุคคล (ถ้ามี)
+        คืนค่า: รายชื่อของครู/นักเรียนที่จับคู่ได้สำหรับแต่ละใบหน้าตรวจพบ
         """
         if len(detected_embeddings) == 0 or len(template_embeddings) == 0:
             return []
@@ -385,9 +403,10 @@ class FaceAnalyzer:
             max_idx = np.argmax(scores)
             max_score = scores[max_idx]
 
-            # logger.debug(f"Face #{i+1} matched with template #{max_idx} ({template_names[max_idx]}) - score: {max_score:.4f}")
+            # ตรวจสอบ threshold เฉพาะบุคคล (ถ้าไม่มีให้สลับไปใช้ threshold กลาง)
+            target_thresh = template_thresholds[max_idx] if (template_thresholds is not None and max_idx < len(template_thresholds)) else threshold
 
-            if max_score >= threshold:
+            if max_score >= target_thresh:
                 results.append({
                     "staff_id": template_staff_ids[max_idx],
                     "name": template_names[max_idx],

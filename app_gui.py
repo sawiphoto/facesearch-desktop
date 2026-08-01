@@ -11,6 +11,8 @@ import customtkinter as ctk
 from PIL import Image
 import numpy as np
 import cv2
+import webbrowser
+import requests
 
 # นำเข้าโมดูลหลังบ้านที่เราพัฒนาไว้
 from db_manager import DatabaseManager
@@ -186,10 +188,15 @@ class GoogleDrivePicker(ctk.CTkToplevel):
         # ดึงประวัติโฟลเดอร์ที่ทำการ Matching สำเร็จแล้ว
         matched_folders = getattr(self.parent, "get_matched_folders", lambda: {})()
         
+        # ดึงประวัติชื่อ event_name จากฐานข้อมูลด้วย (เพื่อความชัวร์ว่าโฟลเดอร์เคยสแกนแล้ว 100%)
+        db_events = set()
+        if hasattr(self.parent, 'db_manager'):
+            db_events = self.parent.db_manager.get_scanned_event_names()
+
         for idx, item in enumerate(self.filtered_items):
             if item["mimeType"] == "application/vnd.google-apps.folder":
                 prefix = "📂 [Folder] "
-                is_matched = item["id"] in matched_folders
+                is_matched = (item["id"] in matched_folders) or (item["name"] in db_events)
                 self.listbox.insert(tk.END, prefix + item["name"])
                 # ถ้าเคยสแกนแล้ว ใช้สีเขียว (#2ECC71) ถ้ายังไม่เคยสแกนใช้สีแดง (#E74C3C)
                 self.listbox.itemconfig(idx, fg="#2ECC71" if is_matched else "#E74C3C")
@@ -665,14 +672,24 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v1.9.10")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.10 (Orange Full-Scan Log & Crash History)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
         # --- ส่วนประกอบฐานข้อมูลและหลังบ้าน ---
         self.db = DatabaseManager()
         self.sync_manager = GoogleSyncManager()
-        self.analyzer = None
+        from face_analyzer import FaceAnalyzer
+        self.analyzer = FaceAnalyzer(use_gpu=True)
+        self.analyzer.initialize()
+        
+        # ThreadPoolExecutor ควบคุมคิวโหลดภาพพรีวิวไม่ให้ค้าง (สูงสุด 4 เธรด)
+        from concurrent.futures import ThreadPoolExecutor
+        self.thumb_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ThumbWorker")
+        self.http_session = requests.Session()
+        self.http_session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
         
         # คิวจัดการ Log เพื่อป้องกันหน้าจอค้าง
         self.log_queue = queue.Queue()
@@ -695,6 +712,8 @@ class FaceSearchApp(ctk.CTk):
         self.selected_teacher_ids = []  # v1.7.4 รายชื่อ ID ครูที่เลือกสแกนเฉพาะเจาะจง
         self.selected_student_ids = []  # v1.7.4 รายชื่อ ID นักเรียนที่เลือกสแกนเฉพาะเจาะจง
         self.dashboard_sort_desc = True  # True = เรียงมากไปน้อย, False = เรียงน้อยไปมาก
+        self.db_current_page = 1
+        self.db_page_size = 200
 
         # Settings cache
         self.settings = {}
@@ -731,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v1.9.10",
+            text="FACE MATCHING\nSYSTEM v4.10",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -773,39 +792,46 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_database.grid(row=5, column=0, padx=15, pady=8, sticky="ew")
 
+        self.btn_matched_gallery = ctk.CTkButton(
+            self.sidebar_frame, text="🖼️ ภาพกิจกรรมที่แมตช์แล้ว",
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("matched_gallery")
+        )
+        self.btn_matched_gallery.grid(row=6, column=0, padx=15, pady=8, sticky="ew")
+
         self.btn_settings = ctk.CTkButton(
             self.sidebar_frame, text="ตั้งค่าระบบ",
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("settings")
         )
-        self.btn_settings.grid(row=6, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_settings.grid(row=7, column=0, padx=15, pady=8, sticky="ew")
 
         self.btn_delete_req = ctk.CTkButton(
             self.sidebar_frame, text="คำขอลบภาพ (Requests)",
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("delete_req")
         )
-        self.btn_delete_req.grid(row=7, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_delete_req.grid(row=8, column=0, padx=15, pady=8, sticky="ew")
         self.btn_start_schedule = ctk.CTkButton(
-            self.sidebar_frame, text="▶️ Start Schedule Now",
+            self.sidebar_frame, text="▶️ 1. เริ่มสแกนรูปภาพที่เพิ่มมาใหม่",
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=8, column=0, padx=15, pady=(15, 5), sticky="ew")
+        self.btn_start_schedule.grid(row=9, column=0, padx=15, pady=(15, 5), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
-            self.sidebar_frame, text="▶️ Start Task 2 (Sync Students)",
+            self.sidebar_frame, text="▶️ 2. Sync New Student",
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=9, column=0, padx=15, pady=5, sticky="ew")
+        self.btn_start_task2.grid(row=10, column=0, padx=15, pady=5, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task",
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=10, column=0, padx=15, pady=(5, 15), sticky="ew")
+        self.btn_stop_schedule.grid(row=11, column=0, padx=15, pady=(5, 15), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -814,8 +840,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=11, column=0, pady=20, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(11, weight=1)
+        self.credit_label.grid(row=12, column=0, pady=20, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(12, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -824,6 +850,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_student_registry.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_scan.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_database.configure(fg_color="transparent", text_color="#A2B5CD")
+        self.btn_matched_gallery.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_delete_req.configure(fg_color="transparent", text_color="#A2B5CD")
 
@@ -833,6 +860,7 @@ class FaceSearchApp(ctk.CTk):
         self.frame_student_registry.grid_forget()
         self.frame_scan.grid_forget()
         self.frame_database.grid_forget()
+        self.frame_matched_gallery.grid_forget()
         self.frame_settings.grid_forget()
         self.frame_delete_req.grid_forget()
 
@@ -856,6 +884,11 @@ class FaceSearchApp(ctk.CTk):
             self.btn_database.configure(fg_color="#1F3A60", text_color="white")
             self.frame_database.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
             self.load_db_table_data()
+        elif menu_name == "matched_gallery":
+            self.btn_matched_gallery.configure(fg_color="#1F3A60", text_color="white")
+            self.frame_matched_gallery.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+            if hasattr(self, 'on_matched_role_change'):
+                self.on_matched_role_change(self.combo_matched_role.get())
         elif menu_name == "settings":
             self.btn_settings.configure(fg_color="#1F3A60", text_color="white")
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
@@ -885,12 +918,17 @@ class FaceSearchApp(ctk.CTk):
         self.frame_database = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_database_ui()
 
-        # 6. เฟรมหน้าตั้งค่าระบบ
+        # 6. เฟรมหน้าภาพกิจกรรมที่แมตช์แล้ว (v3.2)
+        self.frame_matched_gallery = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_matched_gallery_ui()
+
+        # 7. เฟรมหน้าตั้งค่าระบบ
         self.frame_settings = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_settings_ui()
 
-        # 7. เฟรมหน้าคำขอลบภาพ (Delete Requests)
+        # 8. เฟรมหน้าคำขอลบภาพ (Delete Requests)
         self.frame_delete_req = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_delete_req_ui()
         self.setup_delete_req_ui()
 
     # ==================== (1) หน้า Dashboard ====================
@@ -1903,12 +1941,14 @@ class FaceSearchApp(ctk.CTk):
                     if not student_code or not student_name:
                         continue
 
-                    # รวบรวม URL ภาพจาก 3 คอลัมน์ที่ระบุ
+                    # รวบรวม URL ภาพใบหน้าตรงสูงสุด 2 ภาพสำหรับนักเรียน (v3.4 Dual-Frontal Standard)
                     photo_urls = []
-                    for col_idx in [col_img1, col_img2, col_img3]:
+                    for col_idx in [col_img1, col_img2]:
                         url = row[col_idx].strip() if col_idx < len(row) else ""
                         if url and url != "-":
                             photo_urls.append((chr(65 + col_idx), url))
+
+
 
                     if not photo_urls:
                         continue
@@ -2479,8 +2519,17 @@ class FaceSearchApp(ctk.CTk):
         self.chk_use_gpu = ctk.CTkCheckBox(device_frame, text="เปิดใช้งานการสแกนด้วย GPU (CUDA)", text_color="#A2B5CD")
         self.chk_use_gpu.pack(anchor="e", pady=(5, 2))
 
-        self.chk_re_scan = ctk.CTkCheckBox(device_frame, text="เปิดฟังก์ชั่นให้แสกนรูปภาพเดิมซ้ำ (Re-scan)", text_color="#A2B5CD")
-        self.chk_re_scan.pack(anchor="e", pady=(2, 5))
+        self.chk_re_scan = ctk.CTkCheckBox(
+            device_frame, text="เปิดฟังก์ชั่นให้แสกนรูปภาพเดิมซ้ำ (Re-scan)",
+            text_color="#A2B5CD", command=self.toggle_rescan_options
+        )
+        self.chk_re_scan.pack(anchor="e", pady=(2, 2))
+
+        self.chk_fast_rescan = ctk.CTkCheckBox(
+            device_frame, text="⚡ Fast Rescan (นำเวกเตอร์เดิมใน DB มาจับคู่ซ้ำทันที)",
+            text_color="#A2B5CD", state="disabled"
+        )
+        self.chk_fast_rescan.pack(anchor="e", pady=(2, 5))
 
         # เฟรมเลือกเป้าหมายการจับคู่ใบหน้า (Matching Target Panel v1.7.5)
         self.match_target_box = ctk.CTkFrame(option_panel, fg_color="#101B2B")
@@ -2531,7 +2580,7 @@ class FaceSearchApp(ctk.CTk):
         self.action_panel.grid_columnconfigure(0, weight=1)
 
         self.btn_start_scan = ctk.CTkButton(
-            self.action_panel, text="เริ่มต้นดาวน์โหลดและสแกนใบหน้ากิจกรรม", 
+            self.action_panel, text="3. เริ่มดาวน์โหลดและสแกนใบหน้า", 
             fg_color="#2ECC71", hover_color="#27AE60", text_color="black",
             font=ctk.CTkFont(size=14, weight="bold"), height=40,
             command=self.toggle_scanning
@@ -2653,32 +2702,23 @@ class FaceSearchApp(ctk.CTk):
                     tag = "red"
                 elif "[WARNING]" in msg_upper or "WARNING:" in msg_upper:
                     tag = "orange_red"
-                elif "[INIT]" in msg_upper:
+                elif "[DEBUG]" in msg_upper:
+                    tag = "cyan"
+                elif "[SCHEDULE]" in msg_upper:
+                    tag = "schedule"
+                elif "[GALLERY]" in msg_upper:
+                    tag = "magenta"
+                elif "[GSHEETS]" in msg_upper or "GOOGLE SHEET" in msg_upper or "SHEET" in msg_upper:
+                    tag = "yellow_green"
+                elif "[GDRIVE]" in msg_upper or "GOOGLE DRIVE" in msg_upper or "[DOWNLOAD]" in msg_upper:
+                    tag = "yellow"
+                elif "[INIT]" in msg_upper or "[FULLSCAN]" in msg_upper:
                     tag = "orange"
                 elif "[DATABASE]" in msg_upper or "SQLITE" in msg_upper or "DB_" in msg_upper:
                     tag = "yellow_orange"
-                elif "[GDRIVE]" in msg_upper or "GOOGLE DRIVE" in msg_upper:
-                    tag = "yellow"
-                elif "[GSHEETS]" in msg_upper or "GOOGLE SHEET" in msg_upper:
-                    tag = "yellow_green"
-                elif "[MATCH_OK]" in msg_upper or "SUCCESSFULLY" in msg_upper:
+                elif "[MATCH_OK]" in msg_upper or "SUCCESSFULLY" in msg_upper or "[FAST RESCAN]" in msg_upper:
                     tag = "green"
-                elif "MATCHED WITH TEMPLATE" in msg_upper:
-                    # ตรวจวิเคราะห์คะแนน Threshold และแบ่งเป็นสีเขียว/แดงตามจริง
-                    if "SCORE:" in msg_upper:
-                        try:
-                            score_str = msg_upper.split("SCORE:")[1].strip()
-                            score_val = float(''.join(c for c in score_str if c.isdigit() or c == '.'))
-                            thresh_val = self.slider_threshold.get()
-                            if score_val >= thresh_val:
-                                tag = "green"
-                            else:
-                                tag = "red"
-                        except Exception:
-                            tag = "green"
-                    else:
-                        tag = "green"
-                elif "[SCAN_INFO]" in msg_upper or "SCANNING" in msg_upper:
+                elif "[SCAN_INFO]" in msg_upper or "[SETTINGS]" in msg_upper or "SCANNING" in msg_upper:
                     tag = "green_blue"
                 elif "[FACE_AI]" in msg_upper or "INSIGHTFACE" in msg_upper or "EMBEDDING" in msg_upper:
                     tag = "blue"
@@ -2688,6 +2728,7 @@ class FaceSearchApp(ctk.CTk):
                     tag = "purple"
                 elif "FALLBACK" in msg_upper:
                     tag = "magenta"
+
                 
                 self.console_text.insert("end", msg + "\n", tag)
                 self.console_text.see("end")
@@ -2750,6 +2791,117 @@ class FaceSearchApp(ctk.CTk):
             logger.info("[UI] Scan process paused by user.")
             self.lbl_progress_text.configure(text="⏸️ หยุดพักการสแกนชั่วคราว...")
 
+    def toggle_rescan_options(self):
+        """เปิด/ปิด การใช้งานปุ่มย่อย Fast Rescan สัมพันธ์กับ Re-scan"""
+        if hasattr(self, 'chk_re_scan') and hasattr(self, 'chk_fast_rescan'):
+            if self.chk_re_scan.get():
+                self.chk_fast_rescan.configure(state="normal")
+            else:
+                self.chk_fast_rescan.deselect()
+                self.chk_fast_rescan.configure(state="disabled")
+
+    def get_current_scan_settings(self):
+        """ดึงค่าการตั้งค่าสแกนปัจจุบันจาก GUI และพ่น Log แสดงการตั้งค่าในสีเขียวฟ้า"""
+        thresh = self.slider_threshold.get() if hasattr(self, 'slider_threshold') else 0.5
+        use_gpu = self.chk_use_gpu.get() if hasattr(self, 'chk_use_gpu') else False
+        rescan = self.chk_re_scan.get() if hasattr(self, 'chk_re_scan') else False
+        fast_rescan = self.chk_fast_rescan.get() if hasattr(self, 'chk_fast_rescan') else False
+        
+        target = "all"
+        if hasattr(self, 'match_mode'):
+            target = self.match_mode.get()
+            
+        target_str = "ครู + นักเรียน ทั้งหมด"
+        if target == "teachers":
+            target_str = "เฉพาะครู"
+        elif target == "students":
+            target_str = "เฉพาะนักเรียน"
+        elif target in ["selected_teachers", "custom_teacher"]:
+            target_str = "เลือกครูเฉพาะกลุ่ม"
+        elif target in ["selected_students", "custom_student"]:
+            target_str = "เลือกนักเรียนเฉพาะกลุ่ม"
+
+        gpu_str = "เปิดใช้งาน (CUDA)" if use_gpu else "ปิดใช้งาน (CPU)"
+        rescan_str = "เปิดใช้งาน" if rescan else "ปิดใช้งาน"
+        if rescan and fast_rescan:
+            rescan_str += " (Fast Rescan)"
+
+        msg = f"[SETTINGS] ⚙️ การตั้งค่าสแกนปัจจุบัน -> Threshold: {thresh:.2f} | GPU: {gpu_str} | Re-scan: {rescan_str} | เป้าหมาย: {target_str}"
+        logger.info(msg)
+        return {
+            "threshold": thresh,
+            "use_gpu": use_gpu,
+            "rescan": rescan,
+            "fast_rescan": fast_rescan,
+            "match_target": target
+        }
+
+    def load_staff_templates(self, match_mode="all"):
+        """โหลดเวกเตอร์ภาพต้นแบบแม่แบบตามโหมดการเปรียบเทียบที่กำหนด (all, teachers, students, ฯลฯ)"""
+        templates = self.db.get_all_embeddings()
+        if not templates or "embeddings" not in templates or len(templates["embeddings"]) == 0:
+            return {
+                "embeddings": np.empty((0, 512), dtype=np.float32),
+                "names": [],
+                "staff_ids": [],
+                "personal_thresholds": []
+            }
+
+        filtered_embeddings = []
+        filtered_names = []
+        filtered_staff_ids = []
+        filtered_thresholds = []
+
+        all_thresh = templates.get("personal_thresholds", [0.50] * len(templates["names"]))
+
+        if match_mode == "all":
+            filtered_embeddings = list(templates["embeddings"])
+            filtered_names = list(templates["names"])
+            filtered_staff_ids = list(templates["staff_ids"])
+            filtered_thresholds = list(all_thresh)
+        elif match_mode == "teachers":
+            for i, role in enumerate(templates.get("roles", [])):
+                if role == "teacher" or not role:
+                    filtered_embeddings.append(templates["embeddings"][i])
+                    filtered_names.append(templates["names"][i])
+                    filtered_staff_ids.append(templates["staff_ids"][i])
+                    filtered_thresholds.append(all_thresh[i] if i < len(all_thresh) else 0.50)
+        elif match_mode == "students":
+            for i, role in enumerate(templates.get("roles", [])):
+                if role == "student":
+                    filtered_embeddings.append(templates["embeddings"][i])
+                    filtered_names.append(templates["names"][i])
+                    filtered_staff_ids.append(templates["staff_ids"][i])
+                    filtered_thresholds.append(all_thresh[i] if i < len(all_thresh) else 0.50)
+        elif match_mode == "custom_teacher" or match_mode == "selected_teachers":
+            selected_ids = getattr(self, 'selected_staff_ids', getattr(self, 'selected_teacher_ids', []))
+            for i, role in enumerate(templates.get("roles", [])):
+                if (role == "teacher" or not role) and templates["staff_ids"][i] in selected_ids:
+                    filtered_embeddings.append(templates["embeddings"][i])
+                    filtered_names.append(templates["names"][i])
+                    filtered_staff_ids.append(templates["staff_ids"][i])
+                    filtered_thresholds.append(all_thresh[i] if i < len(all_thresh) else 0.50)
+        elif match_mode == "custom_student" or match_mode == "selected_students":
+            selected_ids = getattr(self, 'selected_student_ids', [])
+            for i, role in enumerate(templates.get("roles", [])):
+                if role == "student" and templates["staff_ids"][i] in selected_ids:
+                    filtered_embeddings.append(templates["embeddings"][i])
+                    filtered_names.append(templates["names"][i])
+                    filtered_staff_ids.append(templates["staff_ids"][i])
+                    filtered_thresholds.append(all_thresh[i] if i < len(all_thresh) else 0.50)
+        else:
+            filtered_embeddings = list(templates["embeddings"])
+            filtered_names = list(templates["names"])
+            filtered_staff_ids = list(templates["staff_ids"])
+            filtered_thresholds = list(all_thresh)
+
+        return {
+            "embeddings": np.array(filtered_embeddings) if len(filtered_embeddings) > 0 else np.empty((0, 512), dtype=np.float32),
+            "names": filtered_names,
+            "staff_ids": filtered_staff_ids,
+            "personal_thresholds": filtered_thresholds
+        }
+
     def process_scanning_headless(self, folder_ids, folder_name="Unknown"):
         """สำหรับเรียกผ่าน Scheduler (ทำงานเงียบๆ ใน Thread ของ Scheduler)"""
         if not hasattr(self, 'scheduler_scanning'):
@@ -2766,7 +2918,9 @@ class FaceSearchApp(ctk.CTk):
                 return
                 
             logger.info("======================= START HEADLESS SCAN =======================")
-            templates = self.db.get_all_embeddings()
+            scan_settings = self.get_current_scan_settings()
+            match_target = scan_settings.get("match_target", "all")
+            templates = self.load_staff_templates(match_target)
             if len(templates["embeddings"]) == 0:
                 logger.warning("[SCHEDULE] No target embeddings found.")
                 return
@@ -2784,8 +2938,18 @@ class FaceSearchApp(ctk.CTk):
                     return
                 
             # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
+            # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
             for f_id in folder_ids:
-                logger.info(f"[SCHEDULE] Processing headless scan for folder ID: {f_id}")
+                # ดึงชื่อโฟลเดอร์จริงจาก Google Drive API หากระบุชื่อเป็น TargetFolder หรือ Unknown
+                if (folder_name in ["Unknown", "TargetFolder"]) and hasattr(self.sync_manager, "drive_service") and self.sync_manager.drive_service:
+                    try:
+                        f_meta = self.sync_manager.drive_service.files().get(fileId=f_id, fields="name").execute()
+                        if f_meta and f_meta.get("name"):
+                            folder_name = f_meta["name"]
+                    except Exception:
+                        pass
+
+                logger.info(f"[SCHEDULE] Processing scan for folder: '{folder_name}' (ID: {f_id})")
                 images_to_scan = []
                 query = f"'{f_id}' in parents and (mimeType contains 'image/') and trashed = false"
                 try:
@@ -2793,7 +2957,6 @@ class FaceSearchApp(ctk.CTk):
                         q=query, fields="nextPageToken, files(id, name, mimeType)", pageSize=500
                     ).execute()
                     files = results.get("files", [])
-                    # (Assume subfolders don't have deeper subfolders for this specific task)
                     for file_info in files:
                         images_to_scan.append({
                             "file_id": file_info['id'],
@@ -2804,14 +2967,50 @@ class FaceSearchApp(ctk.CTk):
                     logger.error(f"[SCHEDULE] Error listing files in {f_id}: {e}")
                     continue
                     
-                # Scan Process
+                # --- ⚡ Fast Rescan Batch Mode (Ultra-Fast Sub-Second Vector Matching) ---
+                is_fast_rescan = scan_settings.get("fast_rescan", False)
+                drive_file_ids = [img["file_id"] for img in images_to_scan]
+                batch_cached = self.db.get_batch_photo_face_embeddings(drive_file_ids) if drive_file_ids else {}
+
+                if is_fast_rescan and batch_cached:
+                    import time
+                    t_fast_start = time.time()
+                    current_thresh = self.slider_threshold.get() if hasattr(self, 'slider_threshold') else 0.5
+                    photo_matches_dict = {}
+                    total_matched_faces = 0
+
+                    for photo_id, p_data in batch_cached.items():
+                        if getattr(self.scheduler, 'stop_requested', False):
+                            break
+                        embs = p_data["embeddings"]
+                        if len(embs) > 0:
+                            detected_embeddings = np.array(embs)
+                            match_results = self.analyzer.match_faces_matrix(
+                                detected_embeddings,
+                                templates["embeddings"],
+                                templates["names"],
+                                templates["staff_ids"],
+                                threshold=current_thresh,
+                                template_thresholds=templates.get("personal_thresholds")
+                            )
+                            valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
+                            photo_matches_dict[photo_id] = valid_matches
+                            total_matched_faces += len(valid_matches)
+
+                    # บันทึกผลลัพธ์ลง DB รวดเดียวทั้งโฟลเดอร์ใน 1 Transaction
+                    self.db.batch_save_detected_faces(photo_matches_dict)
+                    t_fast_elapsed = time.time() - t_fast_start
+                    logger.info(f"[FAST RESCAN] ⚡ สแกนเปรียบเทียบซ้ำด้วย Fast Rescan สำเร็จทั้งโฟลเดอร์ '{folder_name}' (พบแมตช์ทั้งหมด {total_matched_faces} หน้า ใน {len(batch_cached)}/ {len(images_to_scan)} รูปถ่าย) ใช้เวลาทั้งหมด {t_fast_elapsed:.2f}s")
+                    continue
+
+                # --- Normal Scan / Full Scan Process (ทีละภาพ) ---
                 success_scan_count = 0
                 for idx, img_info in enumerate(images_to_scan):
                     if getattr(self.scheduler, 'stop_requested', False):
                         break
                     existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
                     if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
-                        # Fast Rescan
+                        # Fallback Single Fast Rescan
                         if folder_name != "Unknown":
                             with self.db.get_connection() as conn:
                                 conn.cursor().execute(
@@ -2827,9 +3026,9 @@ class FaceSearchApp(ctk.CTk):
                                 templates["embeddings"],
                                 templates["names"],
                                 templates["staff_ids"],
-                                threshold=current_thresh
+                                threshold=current_thresh,
+                                template_thresholds=templates.get("personal_thresholds")
                             )
-                            # Update DB
                             valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
                             if valid_matches:
                                 self.db.save_detected_faces(existing_photo_id, valid_matches)
@@ -2867,7 +3066,8 @@ class FaceSearchApp(ctk.CTk):
                                         templates["embeddings"],
                                         templates["names"],
                                         templates["staff_ids"],
-                                        threshold=current_thresh
+                                        threshold=current_thresh,
+                                        template_thresholds=templates.get("personal_thresholds")
                                     )
                                     valid_matches = [(m["staff_id"], m["confidence"]) for m in match_results if m]
                                     if valid_matches:
@@ -3037,12 +3237,14 @@ class FaceSearchApp(ctk.CTk):
             # 3. โหลดโมเดล InsightFace
             self.lbl_progress_text.configure(text="กำลังเตรียมโมเดล AI (InsightFace)...")
             use_gpu = self.chk_use_gpu.get()
-            self.analyzer = FaceAnalyzer(use_gpu=use_gpu)
-            if not self.analyzer.initialize():
-                logger.error("Could not initialize FaceAnalyzer.")
-                self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถโหลดโมเดล AI ได้"))
-                self.after(0, self.reset_scan_ui)
-                return
+            if self.analyzer is None or self.analyzer.use_gpu != use_gpu:
+                self.analyzer = FaceAnalyzer(use_gpu=use_gpu)
+            if not self.analyzer.initialized:
+                if not self.analyzer.initialize():
+                    logger.error("Could not initialize FaceAnalyzer.")
+                    self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถโหลดโมเดล AI ได้"))
+                    self.after(0, self.reset_scan_ui)
+                    return
 
             # 4. ดึงรายชื่อภาพจาก Google Drive (รองรับระบบ Multi-folders แยกประจุด้วยจุลภาค)
             self.lbl_progress_text.configure(text="กำลังตรวจสอบไฟล์ใน Google Drive...")
@@ -3144,7 +3346,8 @@ class FaceSearchApp(ctk.CTk):
                                 templates["embeddings"],
                                 templates["names"],
                                 templates["staff_ids"],
-                                threshold=current_thresh
+                                threshold=current_thresh,
+                                template_thresholds=templates.get("personal_thresholds")
                             )
                             
                             for i, f in enumerate(faces):
@@ -3250,7 +3453,8 @@ class FaceSearchApp(ctk.CTk):
                         templates["embeddings"],
                         templates["names"],
                         templates["staff_ids"],
-                        threshold=current_thresh
+                        threshold=current_thresh,
+                        template_thresholds=templates.get("personal_thresholds")
                     )
                     
                     # กรองและประมวลผลวาดกรอบผลลัพธ์
@@ -3391,7 +3595,7 @@ class FaceSearchApp(ctk.CTk):
     def reset_scan_ui(self):
         self.is_scanning = False
         self.is_paused = False
-        self.btn_start_scan.configure(text="เริ่มต้นดาวน์โหลดและสแกนใบหน้ากิจกรรม", fg_color="#2ECC71", hover_color="#27AE60", text_color="black", state="normal")
+        self.btn_start_scan.configure(text="3. เริ่มดาวน์โหลดและสแกนใบหน้า", fg_color="#2ECC71", hover_color="#27AE60", text_color="black", state="normal")
         self.btn_pause_scan.configure(state="disabled", text="⏸️ พักการสแกน (Pause)", fg_color="#F39C12", hover_color="#D68910")
         self.progress_bar.grid_remove()
         self.lbl_progress_text.grid_remove()
@@ -3476,7 +3680,8 @@ class FaceSearchApp(ctk.CTk):
             "delete_req_file_id": self.entry_delete_req_file_id.get().strip() if hasattr(self, "entry_delete_req_file_id") else "",
             "threshold": self.slider_threshold.get(),
             "use_gpu": self.chk_use_gpu.get(),
-            "re_scan": self.chk_re_scan.get()
+            "re_scan": self.chk_re_scan.get(),
+            "fast_rescan": self.chk_fast_rescan.get() if hasattr(self, "chk_fast_rescan") else False
         }
         
         try:
@@ -3538,6 +3743,13 @@ class FaceSearchApp(ctk.CTk):
                     self.chk_re_scan.select()
                 else:
                     self.chk_re_scan.deselect()
+                self.toggle_rescan_options()
+
+            if "fast_rescan" in settings and hasattr(self, "chk_fast_rescan"):
+                if settings["fast_rescan"] and self.chk_re_scan.get():
+                    self.chk_fast_rescan.select()
+                else:
+                    self.chk_fast_rescan.deselect()
                     
         except Exception as e:
             logger.error(f"Error loading settings file: {e}")
@@ -3570,18 +3782,25 @@ class FaceSearchApp(ctk.CTk):
         ).grid(row=0, column=0, sticky="w")
 
         btn_copy_log = ctk.CTkButton(
-            log_header, text="📋 คัดลอก Log", width=90, height=20, 
+            log_header, text="📋 คัดลอกส่วนที่เลือก", width=110, height=20, 
             font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
             command=self.copy_console_selection
         )
         btn_copy_log.grid(row=0, column=1, padx=(0, 5), sticky="e")
+
+        btn_copy_all = ctk.CTkButton(
+            log_header, text="📋 คัดลอกทั้งหมด", width=100, height=20, 
+            font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
+            command=self.copy_all_console_log
+        )
+        btn_copy_all.grid(row=0, column=2, padx=(0, 5), sticky="e")
 
         btn_clear_log = ctk.CTkButton(
             log_header, text="🧹 ล้าง Log", width=75, height=20, 
             font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
             command=self.clear_console_log
         )
-        btn_clear_log.grid(row=0, column=2, sticky="e")
+        btn_clear_log.grid(row=0, column=3, sticky="e")
 
         # กล่อง Textbox แสดง Log สีขาวพื้นฐานบนพื้นดำสไตล์ Terminal
         self.console_text = ctk.CTkTextbox(
@@ -3608,7 +3827,9 @@ class FaceSearchApp(ctk.CTk):
         tb.tag_config("blue", foreground="#26C6DA")         # 9. ฟ้า (Face AI)
         tb.tag_config("navy", foreground="#42A5F5")         # 10. น้ำเงิน (System)
         tb.tag_config("purple", foreground="#AB47BC")       # 11. ม่วง (UI)
-        tb.tag_config("magenta", foreground="#EC407A")      # 12. ม่วงแดง (Fallback / อื่นๆ)
+        tb.tag_config("magenta", foreground="#E040FB")      # 12. ม่วงนีออน (Gallery / Fallback)
+        tb.tag_config("cyan", foreground="#00E5FF")         # 13. ฟ้าสว่าง (Debug)
+        tb.tag_config("schedule", foreground="#AEEA00")     # 14. เขียวมะนาว (Task Schedule)
         tb.tag_config("white", foreground="#ECEFF1")        # สีขาวปกติ
 
         # 2. เฟรมฝั่งขวาสำหรับ Real-time Bounding Box Preview และสตริงข้อความสรุปรายชื่อคู่แมตช์
@@ -3675,14 +3896,19 @@ class FaceSearchApp(ctk.CTk):
                 "รายชื่อนักเรียน (staff_members - นักเรียน)", 
                 "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
                 "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
-                "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)"
+                "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)",
+                "📋 ตารางทั้งหมด: staff_members",
+                "📋 ตารางทั้งหมด: scanned_photos",
+                "📋 ตารางทั้งหมด: detected_faces",
+                "📋 ตารางทั้งหมด: scanned_photo_faces",
+                "📋 ตารางทั้งหมด: staff_embeddings"
             ],
-            command=self.load_db_table_data
+            command=lambda v: self.load_db_table_data(v, page=1)
         )
         self.option_db_table.pack(side="left", padx=5, pady=15)
 
         # ปุ่มรีเฟรช
-        btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=80, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get()))
+        btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=80, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get(), page=1))
         btn_refresh.pack(side="left", padx=10, pady=15)
 
         # ปุ่มรีเซ็ตผลการจับคู่ของบุคคล
@@ -3694,6 +3920,22 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_reset_matching.pack(side="left", padx=10, pady=15)
 
+        # ส่วนตั้งค่าและแก้ไข Personal Threshold ของบุคคล
+        self.lbl_personal_thresh = ctk.CTkLabel(control_frame, text="Threshold บุคคล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#AEEA00")
+        self.lbl_personal_thresh.pack(side="left", padx=(10, 2), pady=15)
+
+        self.entry_personal_thresh = ctk.CTkEntry(control_frame, width=65, placeholder_text="0.50", font=ctk.CTkFont(size=12, weight="bold"), justify="center")
+        self.entry_personal_thresh.insert(0, "0.50")
+        self.entry_personal_thresh.pack(side="left", padx=2, pady=15)
+
+        self.btn_save_personal_thresh = ctk.CTkButton(
+            control_frame, text="💾 บันทึก Threshold", width=125,
+            fg_color="#1F3A60", hover_color="#20334F", text_color="#00E5FF",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.save_selected_person_threshold
+        )
+        self.btn_save_personal_thresh.pack(side="left", padx=5, pady=15)
+
         # ปุ่มเปิดโฟลเดอร์ DB
         btn_open_folder = ctk.CTkButton(control_frame, text="📂 เปิดโฟลเดอร์ฐานข้อมูล", width=140, fg_color="#1F3A60", hover_color="#20334F", command=self.open_db_folder)
         btn_open_folder.pack(side="right", padx=15, pady=15)
@@ -3702,14 +3944,22 @@ class FaceSearchApp(ctk.CTk):
         btn_export = ctk.CTkButton(control_frame, text="📊 ส่งออก CSV", width=100, fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=self.export_current_table)
         btn_export.pack(side="right", padx=5, pady=15)
 
-        # โซนควบคุมที่สอง: ซิงค์ข้อมูล JSON ขึ้น Google Drive (v1.7.7)
+        # โซนควบคุมที่สอง: ซิงค์ข้อมูล JSON และรูปภาพ ขึ้น Google Drive (v2.5/v2.8)
         sync_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         sync_control_frame.grid(row=2, column=0, sticky="ew", pady=(0, 15), padx=2)
         
-        ctk.CTkLabel(sync_control_frame, text="ซิงค์ดัชนี JSON ไป Google Drive:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
+        ctk.CTkLabel(sync_control_frame, text="ซิงค์ดัชนีและรูปภาพไป Google Drive:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
         
+        self.btn_sync_photos = ctk.CTkButton(
+            sync_control_frame, text="0. 🖼️ ซิงค์รูปภาพถ่ายทั้งหมดไป Google Drive", width=230, 
+            fg_color="#27AE60", hover_color="#219552", text_color="white",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self.run_manual_photos_sync
+        )
+        self.btn_sync_photos.pack(side="left", padx=5, pady=10)
+
         self.btn_sync_json_all = ctk.CTkButton(
-            sync_control_frame, text="1. ซิงค์ทั้งครูและนักเรียน", width=165, 
+            sync_control_frame, text="1. ซิงค์ทั้งครูและนักเรียน", width=150, 
             fg_color="#8E44AD", hover_color="#7D3C98", text_color="white",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=lambda: self.run_manual_json_sync("all")
@@ -3717,7 +3967,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_sync_json_all.pack(side="left", padx=5, pady=10)
         
         self.btn_sync_json_teachers = ctk.CTkButton(
-            sync_control_frame, text="2. ซิงค์เฉพาะครู", width=120, 
+            sync_control_frame, text="2. ซิงค์เฉพาะครู", width=110, 
             fg_color="#2980B9", hover_color="#2471A3", text_color="white",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=lambda: self.run_manual_json_sync("teachers")
@@ -3725,7 +3975,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_sync_json_teachers.pack(side="left", padx=5, pady=10)
         
         self.btn_sync_json_students = ctk.CTkButton(
-            sync_control_frame, text="3. ซิงค์เฉพาะนักเรียน", width=140, 
+            sync_control_frame, text="3. ซิงค์เฉพาะนักเรียน", width=130, 
             fg_color="#D35400", hover_color="#BA4A00", text_color="white",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=lambda: self.run_manual_json_sync("students")
@@ -3778,46 +4028,122 @@ class FaceSearchApp(ctk.CTk):
         self.db_tree = ttk.Treeview(table_container, show="headings")
         self.db_tree.grid(row=0, column=0, sticky="nsew", padx=(15, 0), pady=(0, 15))
         
-        # ป้ายแนะนำการดับเบิ้ลคลิก (v1.8.9)
-        self.lbl_db_hint = ctk.CTkLabel(table_container, text="💡 ดับเบิ้ลคลิกที่แถวข้อมูล (ตาราง scanned_photos) เพื่อเปิดลิงก์รูปภาพในเบราว์เซอร์", font=ctk.CTkFont(size=11, slant="italic"), text_color="#F39C12")
+        # ป้ายแนะนำการดับเบิ้ลคลิก (v2.6)
+        self.lbl_db_hint = ctk.CTkLabel(table_container, text="💡 ดับเบิ้ลคลิกที่แถวข้อมูล (ตาราง scanned_photos, detected_faces ผลการจับคู่ ฯลฯ) เพื่อเปิดลิงก์รูปภาพบน Google Drive ในเบราว์เซอร์", font=ctk.CTkFont(size=11, slant="italic"), text_color="#F39C12")
         self.lbl_db_hint.grid(row=1, column=0, columnspan=2, pady=(0, 5), sticky="e", padx=15)
 
         self.db_tree.bind("<Double-1>", self.on_db_tree_double_click)
+        self.db_tree.bind("<<TreeviewSelect>>", self.on_db_tree_select)
 
         # แถบสกรอลด้านแนวตั้ง
         tree_scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.db_tree.yview)
         tree_scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 15), pady=15)
         self.db_tree.configure(yscrollcommand=tree_scrollbar.set)
 
-    def on_db_tree_double_click(self, event):
-        """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview"""
-        selected_table = self.option_db_table.get()
-        if "scanned_photos" not in selected_table:
+        # โซนควบคุมการแบ่งหน้า Pagination (v2.5/v2.8)
+        pagination_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
+        pagination_frame.grid(row=5, column=0, sticky="ew", pady=(5, 15), padx=2)
+
+        self.btn_db_first_page = ctk.CTkButton(pagination_frame, text="⏮️ หน้าแรก", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(1))
+        self.btn_db_first_page.pack(side="left", padx=5, pady=8)
+
+        self.btn_db_prev_page = ctk.CTkButton(pagination_frame, text="◀️ ก่อนหน้า", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page - 1))
+        self.btn_db_prev_page.pack(side="left", padx=5, pady=8)
+
+        self.lbl_db_page_info = ctk.CTkLabel(pagination_frame, text="หน้า 1 / 1 (พบทั้งหมด 0 รายการ)", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD")
+        self.lbl_db_page_info.pack(side="left", padx=20, pady=8, expand=True)
+
+        self.btn_db_next_page = ctk.CTkButton(pagination_frame, text="ถัดไป ▶️", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page + 1))
+        self.btn_db_next_page.pack(side="right", padx=5, pady=8)
+
+        self.btn_db_last_page = ctk.CTkButton(pagination_frame, text="หน้าสุดท้าย ⏭️", width=95, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(999999))
+        self.btn_db_last_page.pack(side="right", padx=5, pady=8)
+
+    def change_db_page(self, target_page):
+        """เปลี่ยนหน้าการแสดงผลในตาราง SQL Viewer"""
+        self.db_current_page = max(1, target_page)
+        self.load_db_table_data(page=self.db_current_page)
+
+    def update_pagination_controls(self, total_rows):
+        """อัปเดตสถานะปุ่มกด และข้อความแสดงจำนวนหน้าของ Pagination Bar"""
+        import math
+        total_pages = max(1, math.ceil(total_rows / self.db_page_size))
+        if self.db_current_page > total_pages:
+            self.db_current_page = total_pages
+
+        self.lbl_db_page_info.configure(text=f"หน้า {self.db_current_page} / {total_pages} (พบทั้งหมด {total_rows:,} รายการ)")
+        
+        self.btn_db_first_page.configure(state="normal" if self.db_current_page > 1 else "disabled")
+        self.btn_db_prev_page.configure(state="normal" if self.db_current_page > 1 else "disabled")
+        self.btn_db_next_page.configure(state="normal" if self.db_current_page < total_pages else "disabled")
+        self.btn_db_last_page.configure(state="normal" if self.db_current_page < total_pages else "disabled")
+
+    def run_manual_photos_sync(self):
+        """รันกระบวนการซิงค์รูปภาพถ่ายทั้งหมดไปยัง Google Drive ใน Thread ย่อย"""
+        if not self.sync_manager.connected:
+            messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google API ได้ (กรุณาตรวจสอบไฟล์ Credentials)")
             return
-            
+
+        def do_sync():
+            try:
+                logger.info("[GSHEETS] Manual Photos Sync Started: Uploading scanned photos to Google Drive...")
+                self.sync_manager.sync_scanned_photos_to_drive()
+                self.after(0, lambda: messagebox.showinfo("สำเร็จ", "ซิงค์รูปภาพถ่ายทั้งหมดไปยัง Google Drive เรียบร้อยแล้ว"))
+            except Exception as e:
+                logger.error(f"Error in manual photos sync: {e}")
+
+        threading.Thread(target=do_sync, daemon=True).start()
+
+    def on_db_tree_double_click(self, event):
+        """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview เพื่อเปิดลิงก์รูปภาพบน Google Drive"""
         selected_items = self.db_tree.selection()
         if not selected_items:
             return
             
         item = selected_items[0]
         item_values = self.db_tree.item(item, "values")
-        
-        # ตาราง scanned_photos มีค่า: (photo_id, file_id, event, cache_status, link)
-        # ดังนั้นลิงก์จะอยู่ที่ index 4
-        if len(item_values) >= 5:
-            link = item_values[4]
-            if link and "http" in link:
-                import webbrowser
-                webbrowser.open(link)
+        if not item_values:
+            return
+
+        import webbrowser
+        # 1. เช็คว่ามี URL ตรงๆ ใน values หรือไม่
+        for val in item_values:
+            val_str = str(val).strip()
+            if val_str.startswith("http://") or val_str.startswith("https://"):
+                webbrowser.open(val_str)
+                return
+
+        # 2. ค้นหา photo_id จากแถวที่ดับเบิ้ลคลิก (เช่น P00123)
+        photo_id = None
+        for val in item_values:
+            val_str = str(val).strip()
+            if val_str.startswith("P") and len(val_str) == 6 and val_str[1:].isdigit():
+                photo_id = val_str
+                break
+
+        if photo_id:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT drive_link, drive_file_id FROM scanned_photos WHERE photo_id = ?", (photo_id,))
+                row = cursor.fetchone()
+                if row:
+                    link, fid = row
+                    if link and link.startswith("http"):
+                        webbrowser.open(link)
+                    elif fid:
+                        webbrowser.open(f"https://drive.google.com/file/d/{fid}/view")
 
     def clear_db_search(self):
         if hasattr(self, 'entry_db_search'):
             self.entry_db_search.delete(0, "end")
         self.load_db_table_data()
 
-    def load_db_table_data(self, selected_table_text=None):
+    def load_db_table_data(self, selected_table_text=None, page=1):
         if not selected_table_text:
             selected_table_text = self.option_db_table.get()
+
+        self.db_current_page = page
+        offset = (self.db_current_page - 1) * self.db_page_size
 
         search_query = ""
         if hasattr(self, 'entry_db_search'):
@@ -3826,13 +4152,61 @@ class FaceSearchApp(ctk.CTk):
         # ล้างข้อมูลเดิมใน Treeview
         self.db_tree.delete(*self.db_tree.get_children())
         
+        def fmt_cell(v):
+            if v is None:
+                return ""
+            s = str(v)
+            return s[:100] + "..." if len(s) > 100 else s
+
         conn = self.db.get_connection()
         cursor = conn.cursor()
+        total_rows = 0
         
         try:
-            if "staff_members" in selected_table_text and "ครู" in selected_table_text:
+            # --- 1. โหมดดูทุกตารางดิบ (📋 ตารางทั้งหมด: <table_name>) ---
+            if "📋 ตารางทั้งหมด:" in selected_table_text:
+                table_name = selected_table_text.split("📋 ตารางทั้งหมด:")[1].strip()
+                
+                # ดึงรายชื่อคอลัมน์แบบไดนามิกผ่าน PRAGMA table_info
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                col_info = cursor.fetchall()
+                col_names = [col[1] for col in col_info]
+                
+                self.db_tree["columns"] = col_names
+                for col in col_names:
+                    self.db_tree.column(col, width=130, anchor="w")
+                    self.db_tree.heading(col, text=col)
+                    
+                # นับจำนวนแถวทั้งหมด (Global Count)
+                if search_query:
+                    where_clauses = [f"CAST({c} AS TEXT) LIKE ?" for c in col_names]
+                    params = [f"%{search_query}%"] * len(col_names)
+                    count_sql = f"SELECT COUNT(*) FROM {table_name} WHERE {' OR '.join(where_clauses)}"
+                    cursor.execute(count_sql, params)
+                    total_rows = cursor.fetchone()[0]
+                    
+                    data_sql = f"SELECT * FROM {table_name} WHERE {' OR '.join(where_clauses)} ORDER BY 1 DESC LIMIT ? OFFSET ?"
+                    cursor.execute(data_sql, params + [self.db_page_size, offset])
+                else:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    total_rows = cursor.fetchone()[0]
+                    cursor.execute(f"SELECT * FROM {table_name} ORDER BY 1 DESC LIMIT ? OFFSET ?", (self.db_page_size, offset))
+                    
+                rows = cursor.fetchall()
+                for r in rows:
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
+
+            elif "staff_members" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง staff_members (ครู)
                 if search_query:
+                    cursor.execute("""
+                        SELECT COUNT(DISTINCT s.id)
+                        FROM staff_members s
+                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT s.id, s.name, COUNT(e.id)
                         FROM staff_members s
@@ -3841,9 +4215,12 @@ class FaceSearchApp(ctk.CTk):
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
                         GROUP BY s.id, s.name
                         ORDER BY s.id DESC
-                        LIMIT 100
-                    """, (f"%{search_query}%", f"%{search_query}%"))
+                        LIMIT ? OFFSET ?
+                    """, (f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
+                    cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT s.id, s.name, COUNT(e.id)
                         FROM staff_members s
@@ -3851,8 +4228,8 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         GROUP BY s.id, s.name
                         ORDER BY s.id DESC
-                        LIMIT 100
-                    """)
+                        LIMIT ? OFFSET ?
+                    """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("id", "name", "photos")
@@ -3865,11 +4242,19 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
-                    self.db_tree.insert("", "end", values=r)
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง staff_members (นักเรียน)
                 if search_query:
+                    cursor.execute("""
+                        SELECT COUNT(DISTINCT s.id)
+                        FROM staff_members s
+                        WHERE s.role = 'student'
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT s.id, s.name, s.student_id, COUNT(e.id)
                         FROM staff_members s
@@ -3878,9 +4263,12 @@ class FaceSearchApp(ctk.CTk):
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
                         GROUP BY s.id, s.name, s.student_id
                         ORDER BY s.id DESC
-                        LIMIT 100
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                        LIMIT ? OFFSET ?
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
+                    cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT s.id, s.name, s.student_id, COUNT(e.id)
                         FROM staff_members s
@@ -3888,8 +4276,8 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'student'
                         GROUP BY s.id, s.name, s.student_id
                         ORDER BY s.id DESC
-                        LIMIT 100
-                    """)
+                        LIMIT ? OFFSET ?
+                    """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("id", "name", "student_id", "photos")
@@ -3904,28 +4292,38 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
-                    self.db_tree.insert("", "end", values=r)
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "scanned_photos" in selected_table_text:
-                # ตาราง scanned_photos (พร้อมแสดงสถานะแคชใบหน้า v1.8.5)
-                query_sql = """
-                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
-                    FROM scanned_photos p
-                    LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
-                    {where_clause}
-                    GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                    ORDER BY p.photo_id DESC
-                """
+                # ตาราง scanned_photos
                 if search_query:
                     where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?"
-                    if "มีแคช" in search_query or "cache" in search_query.lower():
-                        where_clause += " OR pf.id IS NOT NULL"
-                    elif "ไม่มีแคช" in search_query or "no cache" in search_query.lower():
-                        where_clause += " OR pf.id IS NULL"
-                    
-                    cursor.execute(query_sql.format(where_clause=where_clause), (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    cursor.execute(f"SELECT COUNT(DISTINCT p.photo_id) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = f"""
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
+                        FROM scanned_photos p
+                        LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
+                        {where_clause}
+                        GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                        ORDER BY p.photo_id DESC
+                        LIMIT ? OFFSET ?
+                    """
+                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
-                    cursor.execute(query_sql.format(where_clause=""))
+                    cursor.execute("SELECT COUNT(*) FROM scanned_photos")
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = """
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
+                        FROM scanned_photos p
+                        LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
+                        GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                        ORDER BY p.photo_id DESC
+                        LIMIT ? OFFSET ?
+                    """
+                    cursor.execute(query_sql, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
@@ -3944,11 +4342,22 @@ class FaceSearchApp(ctk.CTk):
                 for r in rows:
                     pid, fid, evt, link, c_count = r
                     c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)" if c_count > 0 else "❌ ยังไม่มีแคช (0)"
-                    self.db_tree.insert("", "end", values=(pid, fid, evt, c_status, link))
+                    row_vals = (pid, fid, evt, c_status, link)
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
                 if search_query:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT df.id, df.photo_id, s.name, df.confidence
                         FROM detected_faces df
@@ -3957,15 +4366,25 @@ class FaceSearchApp(ctk.CTk):
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                           AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
                         ORDER BY df.id DESC
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                        LIMIT ? OFFSET ?
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                    """)
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT df.id, df.photo_id, s.name, df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         ORDER BY df.id DESC
-                    """)
+                        LIMIT ? OFFSET ?
+                    """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "name", "conf")
@@ -3981,15 +4400,24 @@ class FaceSearchApp(ctk.CTk):
                 
                 for r in rows:
                     match_id, pid, name, conf = r
-                    try:
-                        conf_val = float(conf)
-                    except (ValueError, TypeError):
-                        conf_val = 0.0
-                    self.db_tree.insert("", "end", values=(match_id, pid, name, f"{conf_val*100:.2f}%"))
+                    conf_val = self.db.safe_float(conf)
+                    row_vals = (match_id, pid, name, f"{conf_val*100:.2f}%")
+
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง detected_faces (นักเรียน)
                 if search_query:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                        WHERE s.role = 'student'
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
                         FROM detected_faces df
@@ -3998,15 +4426,25 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'student'
                           AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
                         ORDER BY df.id DESC
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                        LIMIT ? OFFSET ?
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        WHERE s.role = 'student'
+                    """)
+                    total_rows = cursor.fetchone()[0]
+
                     cursor.execute("""
                         SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         WHERE s.role = 'student'
                         ORDER BY df.id DESC
-                    """)
+                        LIMIT ? OFFSET ?
+                    """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "name", "student_id", "conf")
@@ -4024,12 +4462,14 @@ class FaceSearchApp(ctk.CTk):
                 
                 for r in rows:
                     match_id, pid, name, std_id, conf = r
-                    try:
-                        conf_val = float(conf)
-                    except (ValueError, TypeError):
-                        conf_val = 0.0
-                    self.db_tree.insert("", "end", values=(match_id, pid, name, std_id, f"{conf_val*100:.2f}%"))
-                    
+                    conf_val = self.db.safe_float(conf)
+                    row_vals = (match_id, pid, name, std_id, f"{conf_val*100:.2f}%")
+
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
+
+            # อัปเดตสถานะปุ่มและข้อความบน Pagination Bar
+            self.update_pagination_controls(total_rows)
+
         except Exception as e:
             logger.error(f"Error loading SQLite table into Treeview: {e}", exc_info=True)
         finally:
@@ -4045,7 +4485,6 @@ class FaceSearchApp(ctk.CTk):
 
     def export_current_table(self):
         selected_table_text = self.option_db_table.get()
-        # เสนอชื่อไฟล์ตั้งต้นตามตาราง
         default_name = "export_staff.csv"
         if "scanned_photos" in selected_table_text:
             default_name = "export_photos.csv"
@@ -4068,7 +4507,7 @@ class FaceSearchApp(ctk.CTk):
         
         try:
             import csv
-            with open(file_path, "w", newline="", encoding="utf-8-sig") as f: # utf-8-sig สำหรับเปิดใน Excel ภาษาไทยไม่เพี้ยน
+            with open(file_path, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
                 
                 if "staff_members" in selected_table_text and "ครู" in selected_table_text:
@@ -4131,7 +4570,6 @@ class FaceSearchApp(ctk.CTk):
 
     def reset_selected_person_matches(self):
         selected_table_text = self.option_db_table.get()
-        # เช็คว่าอยู่ในตารางครูหรือนักเรียนหรือไม่
         if "staff_members" not in selected_table_text:
             messagebox.showwarning("คำเตือน", "กรุณาเลือกตารางรายชื่อครู หรือ รายชื่อนักเรียน ก่อนใช้ปุ่มนี้")
             return
@@ -4148,7 +4586,6 @@ class FaceSearchApp(ctk.CTk):
         staff_id = values[0]
         name = values[1]
         
-        # ป๊อปอัปยืนยัน
         confirm = messagebox.askyesno(
             "ยืนยันการรีเซ็ต",
             f"คุณต้องการลบข้อมูลประวัติการสแกนจับคู่รูปภาพทั้งหมดของ '{name}' หรือไม่?\n\n"
@@ -4160,15 +4597,10 @@ class FaceSearchApp(ctk.CTk):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             try:
-                # ลบผลการจับคู่ใน detected_faces ของคนๆ นี้ทั้งหมด
                 cursor.execute("DELETE FROM detected_faces WHERE staff_id = ?", (staff_id,))
                 conn.commit()
                 messagebox.showinfo("รีเซ็ตสำเร็จ", f"รีเซ็ตประวัติการจับคู่ของ '{name}' เรียบร้อยแล้ว")
-                
-                # โหลดตารางข้อมูลใหม่
                 self.load_db_table_data(selected_table_text)
-                
-                # โหลดสถิติหน้าแรกใหม่ด้วย
                 self.refresh_dashboard_stats()
             except Exception as e:
                 logger.error(f"Error resetting person matching data: {e}", exc_info=True)
@@ -4176,8 +4608,61 @@ class FaceSearchApp(ctk.CTk):
             finally:
                 conn.close()
 
+    def on_db_tree_select(self, event=None):
+        """เมื่อผู้ใช้คลิกเลือกแถวในตาราง Treeview หน้าค้นหาฐานข้อมูล"""
+        selected_items = self.db_tree.selection()
+        if not selected_items:
+            return
+        selected_table_text = self.option_db_table.get()
+        if "staff_members" not in selected_table_text:
+            return
+        item_values = self.db_tree.item(selected_items[0], "values")
+        if not item_values:
+            return
+        staff_id = item_values[0]
+        thresh = self.db.get_personal_threshold(staff_id)
+        if hasattr(self, 'entry_personal_thresh'):
+            self.entry_personal_thresh.delete(0, "end")
+            self.entry_personal_thresh.insert(0, f"{thresh:.2f}")
+
+    def save_selected_person_threshold(self):
+        """บันทึกค่า Personal Threshold ของบุคคลที่เลือกจากตาราง"""
+        selected_table_text = self.option_db_table.get()
+        if "staff_members" not in selected_table_text:
+            messagebox.showwarning("คำเตือน", "กรุณาเลือกตารางรายชื่อครู หรือ รายชื่อนักเรียน ก่อนใช้งานปุ่มนี้")
+            return
+            
+        selected_item = self.db_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("คำเตือน", "กรุณาคลิกเลือกชื่อบุคคลจากตารางที่ต้องการบันทึก Threshold ก่อน")
+            return
+            
+        values = self.db_tree.item(selected_item[0], "values")
+        if not values:
+            return
+            
+        staff_id = values[0]
+        name = values[1]
+        
+        try:
+            val_str = self.entry_personal_thresh.get().strip()
+            new_thresh = float(val_str)
+            if new_thresh < 0.10 or new_thresh > 1.00:
+                messagebox.showerror("ข้อผิดพลาด", "กรุณากรอกค่า Threshold ระหว่าง 0.10 ถึง 1.00 (เช่น 0.50)")
+                return
+        except ValueError:
+            messagebox.showerror("ข้อผิดพลาด", "กรุณากรอกตัวเลขทศนิยมที่ถูกต้อง (เช่น 0.50)")
+            return
+            
+        success = self.db.update_personal_threshold(staff_id, new_thresh)
+        if success:
+            messagebox.showinfo("บันทึกสำเร็จ", f"บันทึก Personal Threshold ของ '{name}' เป็น {new_thresh:.2f} เรียบร้อยแล้ว")
+            logger.info(f"[SETTINGS] Updated personal_threshold for {name} (ID: {staff_id}) to {new_thresh:.2f}")
+            self.load_db_table_data(selected_table_text)
+        else:
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถบันทึกข้อมูล Threshold ของ '{name}' ได้")
+
     def run_manual_json_sync(self, mode):
-        # 1. ตรวจสอบ Authentication
         if not self.sync_manager.connected:
             cred_path = self.entry_cred_path.get().strip()
             if not os.path.exists(cred_path):
@@ -4189,16 +4674,13 @@ class FaceSearchApp(ctk.CTk):
                 messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google API ได้ (กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือไฟล์ Service Account)")
                 return
 
-        # 2. ตรวจสอบ JSON Folder ID
         json_folder_id = self.entry_json_folder_id.get().strip()
         if not json_folder_id:
             messagebox.showerror("ข้อผิดพลาด", "กรุณาระบุ ID โฟลเดอร์เก็บไฟล์ JSON ดัชนีก่อนซิงค์")
             return
 
-        # 3. กำหนดป้ายแสดงผล
         mode_th = "ทั้งหมด (ครู+นักเรียน)" if mode == "all" else ("เฉพาะครู" if mode == "teachers" else "เฉพาะนักเรียน")
         
-        # ปิดปุ่มควบคุมระหว่างทำ sync เพื่อป้องกันการกดซ้อน
         self.btn_sync_json_all.configure(state="disabled")
         self.btn_sync_json_teachers.configure(state="disabled")
         self.btn_sync_json_students.configure(state="disabled")
@@ -4207,17 +4689,13 @@ class FaceSearchApp(ctk.CTk):
             try:
                 logger.info(f"[GDRIVE] Manual JSON Sync: starting sync for mode={mode}")
                 sync_data = self.db.get_all_sync_data()
-                
-                # เรียกใช้งาน sync manager เพื่ออัพเดต JSON ไฟล์
                 self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode=mode)
-                
                 logger.info(f"[GDRIVE] Manual JSON Sync: mode={mode} completed.")
                 self.after(0, lambda: messagebox.showinfo("ซิงค์สำเร็จ", f"อัปเดตไฟล์ JSON ดัชนีกลุ่ม {mode_th} ขึ้น Google Drive สำเร็จ!"))
             except Exception as e:
                 logger.error(f"[GDRIVE] Manual JSON Sync Error: {e}", exc_info=True)
                 self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการซิงค์ JSON: {e}"))
             finally:
-                # เปิดปุ่มให้ใช้งานได้อีกครั้ง
                 self.after(0, lambda: [
                     self.btn_sync_json_all.configure(state="normal"),
                     self.btn_sync_json_teachers.configure(state="normal"),
@@ -4227,7 +4705,392 @@ class FaceSearchApp(ctk.CTk):
         import threading
         threading.Thread(target=task, daemon=True).start()
 
-    # --- ฟังก์ชันเพิ่มเติมใหม่เพื่อการใช้งานที่ง่ายขึ้น ---
+    # ==================== (6) หน้าภาพกิจกรรมที่แมตช์แล้ว (v3.2 Fix Bug 5) ====================
+    def setup_matched_gallery_ui(self):
+        """จัดสร้างส่วนแสดงผลแกลเลอรีรูปภาพกิจกรรมที่แมตช์แล้วคัดแยกรายบุคคลและเรียงตามเดือน"""
+        self.frame_matched_gallery.grid_columnconfigure(0, weight=1)
+        self.frame_matched_gallery.grid_rowconfigure(1, weight=1)
+
+        # 1. แถบควบคุมเมนูด้านบน (Header Bar)
+        ctrl_frame = ctk.CTkFrame(self.frame_matched_gallery, fg_color="#1A2636")
+        ctrl_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
+        self.combo_matched_role = ctk.CTkOptionMenu(
+            ctrl_frame, values=["คุณครู", "นักเรียน"], width=110,
+            command=self.on_matched_role_change
+        )
+        self.combo_matched_role.pack(side="left", padx=5, pady=10)
+
+        ctk.CTkLabel(ctrl_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
+        self.combo_matched_person = ctk.CTkOptionMenu(
+            ctrl_frame, values=["-- กรุณาเลือก --"], width=280,
+            command=self.on_matched_person_change
+        )
+        self.combo_matched_person.pack(side="left", padx=5, pady=10)
+
+        self.entry_matched_search = ctk.CTkEntry(ctrl_frame, placeholder_text="🔍 กรองชื่อ...", width=140)
+        self.entry_matched_search.pack(side="left", padx=10, pady=10)
+        self.entry_matched_search.bind("<KeyRelease>", lambda event: self.filter_matched_person_dropdown())
+
+        btn_refresh_gallery = ctk.CTkButton(
+            ctrl_frame, text="🔄 รีเฟรช", width=80, fg_color="#34495E", hover_color="#2C3E50",
+            command=lambda: self.on_matched_person_change(self.combo_matched_person.get())
+        )
+        btn_refresh_gallery.pack(side="left", padx=5, pady=10)
+
+        self.lbl_matched_summary = ctk.CTkLabel(ctrl_frame, text="พบ 0 รูปภาพ", font=ctk.CTkFont(size=12, weight="bold"), text_color="#2ECC71")
+        self.lbl_matched_summary.pack(side="right", padx=15, pady=10)
+
+        # 2. พื้นที่แสดงรูปภาพแบบ Scrollable Frame (รองรับเมาส์ Scroll & Drag)
+        self.scr_matched_gallery = ctk.CTkScrollableFrame(self.frame_matched_gallery, fg_color="#0D1622")
+        self.scr_matched_gallery.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.bind_scroll_events(self.scr_matched_gallery)
+
+        self.matched_persons_map = {}
+
+    def bind_scroll_events(self, widget):
+        """ผูกการ Scroll เมาส์ล้อหมุน เลื่อนรวดเร็วและราบรื่น 150x"""
+        def _on_mousewheel(event):
+            try:
+                units = int(-1 * (event.delta / 120) * 150)
+                self.scr_matched_gallery._parent_canvas.yview_scroll(units, "units")
+            except Exception:
+                pass
+        try:
+            widget.bind("<MouseWheel>", _on_mousewheel)
+            for child in widget.winfo_children():
+                self.bind_scroll_events(child)
+        except Exception:
+            pass
+
+    def on_matched_role_change(self, role):
+        """เมื่อเปลี่ยนหมวดระหว่าง คุณครู และ นักเรียน ให้โหลดรายชื่อใหม่"""
+        self.matched_persons_map.clear()
+        if role == "คุณครู":
+            persons = self.db.get_all_teachers()
+            options = []
+            for p in persons:
+                disp = f"{p['name']} (ID: {p['id']})"
+                options.append(disp)
+                self.matched_persons_map[disp] = p["id"]
+        else:
+            persons = self.db.get_all_students()
+            options = []
+            for p in persons:
+                sid = p.get("student_id", "")
+                disp = f"{p['name']} (รหัส: {sid})" if sid else f"{p['name']} (ID: {p['id']})"
+                options.append(disp)
+                self.matched_persons_map[disp] = p["id"]
+
+        if not options:
+            options = ["-- ไม่พบข้อมูล --"]
+        
+        self.full_matched_options = options
+        self.combo_matched_person.configure(values=options)
+        self.combo_matched_person.set(options[0])
+        self.on_matched_person_change(options[0])
+
+    def filter_matched_person_dropdown(self):
+        """กรองรายชื่อใน Dropdown ตามคำค้นหาในช่อง entry_matched_search"""
+        query = self.entry_matched_search.get().strip().lower()
+        if not hasattr(self, 'full_matched_options'):
+            return
+        if not query:
+            filtered = self.full_matched_options
+        else:
+            filtered = [opt for opt in self.full_matched_options if query in opt.lower()]
+        
+        if not filtered:
+            filtered = ["-- ไม่พบรายชื่อ --"]
+        self.combo_matched_person.configure(values=filtered)
+        self.combo_matched_person.set(filtered[0])
+        self.on_matched_person_change(filtered[0])
+
+    def on_matched_person_change(self, selected_disp):
+        """เมื่อเลือกบุคคลใน Dropdown ให้คิวรีรูปภาพและสร้าง UI แกลเลอรี (v3.2 Fix Bug 9)"""
+        if not hasattr(self, 'gallery_worker_gen'):
+            self.gallery_worker_gen = 0
+        self.gallery_worker_gen += 1
+        current_gen = self.gallery_worker_gen
+
+        # ล้างวิดเจ็ตในแกลเลอรีทันทีที่กดเลือกรายชื่อใหม่ (Immediate UI Reset)
+        for widget in self.scr_matched_gallery.winfo_children():
+            widget.destroy()
+
+        staff_id = self.matched_persons_map.get(selected_disp)
+        if not staff_id:
+            self.lbl_matched_summary.configure(text="พบ 0 รูปภาพ")
+            return
+
+        self.lbl_matched_summary.configure(text=f"⌛ กำลังคิวรีรูปภาพของ {selected_disp}...")
+
+        def load_thread():
+            try:
+                matched_photos = self.db.get_matched_photos_for_staff(staff_id)
+                if current_gen == self.gallery_worker_gen:
+                    self.after(0, lambda: self.render_matched_gallery(selected_disp, matched_photos, current_gen))
+            except Exception as err:
+                logger.error(f"[GALLERY] Error querying matched photos for {selected_disp}: {err}")
+                if current_gen == self.gallery_worker_gen:
+                    self.after(0, lambda: self.lbl_matched_summary.configure(text=f"❌ เกิดข้อผิดพลาดในการโหลดรูปภาพของ {selected_disp}"))
+
+        threading.Thread(target=load_thread, daemon=True).start()
+
+    def format_month_year_header(self, date_str):
+        """แปลงข้อความวันที่ YYYY-MM-DD เป็นชื่อเดือนภาษาไทย พ.ศ. (เช่น 2026-02 -> กุมภาพันธ์ 2569 / 2026)"""
+        if not date_str or len(date_str) < 7 or "-" not in date_str:
+            return "📅 รูปภาพกิจกรรมที่ไม่ระบุช่วงเวลา"
+        parts = date_str.split("-")
+        try:
+            year = int(parts[0])
+            month = int(parts[1])
+            months_th = [
+                "", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+                "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+            ]
+            month_name = months_th[month] if 1 <= month <= 12 else f"เดือน {month}"
+            buddhist_year = year + 543
+            return f"📅 เดือน{month_name} พ.ศ. {buddhist_year} ({year})"
+        except Exception:
+            return f"📅 ช่วงเวลา {date_str[:7]}"
+
+    def render_matched_gallery(self, person_name, matched_photos, gen_id=0):
+        """วาดองค์ประกอบรูปภาพในแกลเลอรี เรียงตามเดือนล่าสุดลงไปหาเก่าสุด ในรูปแบบตาราง 3 คอลัมน์ (v3.2 Fix Bug 8)"""
+        for widget in self.scr_matched_gallery.winfo_children():
+            widget.destroy()
+
+        self.lbl_matched_summary.configure(text=f"พบ {len(matched_photos)} รูปภาพที่แมตช์")
+
+        if not matched_photos:
+            lbl_empty = ctk.CTkLabel(
+                self.scr_matched_gallery,
+                text=f"ไม่พบประวัติรูปภาพกิจกรรมที่สแกนพบ '{person_name}'",
+                font=ctk.CTkFont(size=14),
+                text_color="#A2B5CD"
+            )
+            lbl_empty.pack(pady=40)
+            return
+
+        # 1. จัดกลุ่มรูปภาพตามเดือน/ปี (YYYY-MM)
+        from collections import defaultdict
+        grouped_photos = defaultdict(list)
+        for item in matched_photos:
+            pdate = item.get("photo_date", "")
+            month_key = pdate[:7] if pdate and len(pdate) >= 7 and "-" in pdate else "9999-99"
+            grouped_photos[month_key].append(item)
+
+        # เรียงลำดับเดือนจากล่าสุดไปเก่าสุด
+        sorted_month_keys = sorted(grouped_photos.keys(), reverse=True)
+
+        cols = 3
+        for c in range(cols):
+            self.scr_matched_gallery.grid_columnconfigure(c, weight=1)
+
+        cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # ฟังก์ชันค้นหาไฟล์แคชในดิสก์แบบ Dual-Pass (Direct Check + Prefix Match Scan)
+        def get_cached_thumb_path(c_dir, pid, fid):
+            if not os.path.exists(c_dir):
+                logger.warning(f"[GALLERY] Cache dir does not exist: {c_dir}")
+                return None
+            pid_str = str(pid).strip()
+            fid_str = str(fid).strip()
+            
+            # Pass 1: เช็คชื่อไฟล์ตรงเป้าทันที
+            p1 = os.path.join(c_dir, f"{pid_str}.jpg")
+            if os.path.exists(p1) and os.path.getsize(p1) > 0:
+                return p1
+            p2 = os.path.join(c_dir, f"thumb_{fid_str}.jpg")
+            if os.path.exists(p2) and os.path.getsize(p2) > 0:
+                return p2
+            p3 = os.path.join(c_dir, f"{fid_str}.jpg")
+            if os.path.exists(p3) and os.path.getsize(p3) > 0:
+                return p3
+
+            # Pass 2: สแกนชื่อไฟล์ที่เปิดดูได้
+            pid_clean = pid_str.lower()
+            fid_clean = fid_str.lower()
+            try:
+                files_in_cache = os.listdir(c_dir)
+                for fname in files_in_cache:
+                    fl = fname.lower()
+                    if pid_clean in fl or fid_clean in fl:
+                        full_p = os.path.join(c_dir, fname)
+                        if os.path.isfile(full_p) and os.path.getsize(full_p) > 0:
+                            return full_p
+            except Exception as scan_err:
+                logger.error(f"[GALLERY] Error scanning cache dir {c_dir}: {scan_err}")
+            return None
+
+        uncached_queue = []
+        row_counter = 0
+        for month_key in sorted_month_keys:
+            items_in_month = grouped_photos[month_key]
+            sample_date = items_in_month[0].get("photo_date", "") if items_in_month else ""
+            header_text = self.format_month_year_header(sample_date)
+
+            # วาดแถบหัวข้อเดือน/ปี
+            header_frame = ctk.CTkFrame(self.scr_matched_gallery, fg_color="#1E2D40", corner_radius=6)
+            header_frame.grid(row=row_counter, column=0, columnspan=cols, sticky="ew", padx=5, pady=(15, 8))
+            
+            lbl_h = ctk.CTkLabel(
+                header_frame,
+                text=f"{header_text}  ({len(items_in_month)} รูปภาพ)",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#6CA6CD"
+            )
+            lbl_h.pack(side="left", padx=15, pady=8)
+            self.bind_scroll_events(header_frame)
+            row_counter += 1
+
+            # วาดรูปภาพในเดือนนี้เป็น Grid 3 คอลัมน์
+            for idx, item in enumerate(items_in_month):
+                r_idx = row_counter + (idx // cols)
+                c_idx = idx % cols
+
+                card = ctk.CTkFrame(self.scr_matched_gallery, fg_color="#141E2B", corner_radius=8, border_width=1, border_color="#26384D")
+                card.grid(row=r_idx, column=c_idx, padx=6, pady=6, sticky="nsew")
+
+                fid = item["drive_file_id"]
+                pid_code = item["photo_id"]
+                event_name = item["event_name"]
+                conf_pct = item["confidence"] * 100.0 if item["confidence"] <= 1.0 else item["confidence"]
+                drive_link = item["drive_link"]
+
+                img_label = ctk.CTkLabel(card, text="⌛ กำลังโหลดรูป...", width=200, height=180, fg_color="#0A111A", corner_radius=6)
+                img_label.pack(padx=8, pady=(8, 4), fill="both", expand=True)
+
+                lbl_info = ctk.CTkLabel(
+                    card,
+                    text=f"📌 {event_name[:24]}\n🎯 ตรงกัน: {conf_pct:.1f}% | {pid_code}",
+                    font=ctk.CTkFont(size=11),
+                    text_color="#E0E6ED",
+                    justify="center"
+                )
+                lbl_info.pack(padx=6, pady=(0, 4))
+
+                btn_open = ctk.CTkButton(
+                    card,
+                    text="🌐 เปิดดูรูปบน Google Drive",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    fg_color="#27AE60", hover_color="#219150", text_color="white", height=24,
+                    command=lambda url=drive_link: webbrowser.open(url)
+                )
+                btn_open.pack(padx=8, pady=(0, 8), fill="x")
+
+                self.bind_scroll_events(card)
+
+                # 1. เช็ค Local Cache ดึงมาแสดงผลทันทีใน 0.001s บน Main GUI Thread!
+                existing_path = get_cached_thumb_path(cache_dir, pid_code, fid)
+                if existing_path:
+                    try:
+                        pil_img = Image.open(existing_path).convert("RGB")
+                        pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
+                        ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(200, 180))
+                        img_label.configure(image=ctk_img, text="")
+                        img_label.bind("<Double-Button-1>", lambda ev, u=drive_link: webbrowser.open(u))
+                    except Exception:
+                        img_label.configure(text="🖼️ อ่านรูปไม่ได้")
+                else:
+                    # 2. ถ้ายังไม่มีแคชในเครื่อง ใส่เข้าคิวเตรียมทยอยดาวน์โหลดทีละภาพ
+                    uncached_queue.append((pid_code, fid, drive_link, img_label))
+
+            row_counter += (len(items_in_month) + cols - 1) // cols
+
+        # 3. ลูปดาวน์โหลดทีละภาพเรียงตามคิวในเธรดเบื้องหลังเดี่ยว (Sequential Worker Thread)
+        if uncached_queue:
+            def sequential_download_worker(q_items, task_gen):
+                import time, requests
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                
+                for p_code, target_fid, target_link, target_lbl in q_items:
+                    # ถ้าผู้ใช้สลับไปเลือกครู/นักเรียน คนอื่น ให้ยกเลิกคิวเดิมทันที!
+                    if task_gen != self.gallery_worker_gen:
+                        logger.info(f"[GALLERY] ⏹️ สลับรายชื่อบุคคล ยกเลิกคิวดาวน์โหลดรูปภาพเดิม ({p_code})")
+                        return
+
+                    try:
+                        logger.info(f"[GALLERY] 🌐 ทยอยดาวน์โหลด Thumbnail รูป {p_code} จาก Google Drive (File ID: {target_fid})...")
+                        t_start = time.time()
+                        target_thumb_path = os.path.join(cache_dir, f"{p_code}.jpg")
+                        downloaded = False
+
+                        # Auto-Connect Google Drive API หากยังไม่ได้เชื่อมต่อ
+                        if hasattr(self, 'sync_manager') and self.sync_manager:
+                            if hasattr(self, 'entry_cred_path') and self.entry_cred_path and self.entry_cred_path.get().strip():
+                                self.sync_manager.credentials_path = self.entry_cred_path.get().strip()
+                            if not self.sync_manager.connected or not getattr(self.sync_manager, 'drive_service', None):
+                                if not hasattr(self, '_drive_connect_lock'):
+                                    self._drive_connect_lock = threading.Lock()
+                                with self._drive_connect_lock:
+                                    if not self.sync_manager.connected or not getattr(self.sync_manager, 'drive_service', None):
+                                        logger.info("[GALLERY] 🔑 Auto-connecting Google Sync Manager Drive API...")
+                                        self.sync_manager.connect()
+
+                        # 1. ลองใช้ Drive API thumbnailLink (=s500) เพื่อความเร็วสูงสุด 0.1s
+                        if hasattr(self, 'sync_manager') and self.sync_manager and getattr(self.sync_manager, 'drive_service', None):
+                            try:
+                                f_meta = self.sync_manager.drive_service.files().get(fileId=target_fid, fields='thumbnailLink').execute()
+                                thumb_url = f_meta.get('thumbnailLink')
+                                if thumb_url:
+                                    t_url_500 = thumb_url.replace('=s220', '=s500')
+                                    fast_resp = requests.get(t_url_500, headers=headers, timeout=10)
+                                    if fast_resp.status_code == 200 and len(fast_resp.content) > 0:
+                                        import cv2
+                                        nparr = np.frombuffer(fast_resp.content, np.uint8)
+                                        img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                        if img_cv is not None:
+                                            success, encoded = cv2.imencode('.jpg', img_cv)
+                                            if success:
+                                                encoded.tofile(target_thumb_path)
+                                                downloaded = True
+                                                t_elapsed = time.time() - t_start
+                                                logger.info(f"[GALLERY] ⚡ ดาวน์โหลดสำเร็จ: {p_code}.jpg (ใช้เวลา {t_elapsed:.2f}s)")
+                            except Exception as thumb_err:
+                                logger.warning(f"[GALLERY] Fast thumbnail fetch failed for {target_fid}: {thumb_err}")
+
+                        # 2. Fallback สแกนดาวน์โหลดภาพเต็ม
+                        if not downloaded and hasattr(self, 'sync_manager') and self.sync_manager:
+                            img_bytes, dl_time, _ = self.sync_manager.download_image_bytes_with_stats(target_fid, f"thumb_{target_fid}")
+                            if img_bytes:
+                                import cv2
+                                nparr = np.frombuffer(img_bytes, np.uint8)
+                                img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                if img_cv is not None:
+                                    h, w = img_cv.shape[:2]
+                                    scale = 300.0 / max(h, w)
+                                    new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+                                    resized = cv2.resize(img_cv, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                                    success, encoded = cv2.imencode('.jpg', resized)
+                                    if success:
+                                        encoded.tofile(target_thumb_path)
+                                        downloaded = True
+                                        t_elapsed = time.time() - t_start
+                                        logger.info(f"[GALLERY] ✅ บันทึกแคช Thumbnail สำเร็จ: {p_code}.jpg (ใช้เวลา {t_elapsed:.2f}s)")
+
+                        # 3. อัปเดตหน้าจอ GUI สำหรับภาพนี้หากผู้ใช้ยังไม่ได้สลับรายชื่อไปคนอื่น
+                        if task_gen == self.gallery_worker_gen:
+                            final_path = get_cached_thumb_path(cache_dir, p_code, target_fid)
+                            if final_path:
+                                pil_img = Image.open(final_path).convert("RGB")
+                                pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
+                                
+                                def render_on_main(p_img, lbl, url):
+                                    ctk_img = ctk.CTkImage(light_image=p_img, dark_image=p_img, size=(200, 180))
+                                    lbl.configure(image=ctk_img, text="")
+                                    lbl.bind("<Double-Button-1>", lambda ev, u=url: webbrowser.open(u))
+
+                                self.after(0, lambda p=pil_img, l=target_lbl, u=target_link: render_on_main(p, l, u))
+                            else:
+                                self.after(0, lambda lbl=target_lbl: lbl.configure(text="🖼️ ไม่มีพรีวิว"))
+                    except Exception as err:
+                        logger.error(f"[GALLERY] Error loading thumbnail {target_fid}: {err}")
+                        self.after(0, lambda lbl=target_lbl: lbl.configure(text="🖼️ อ่านรูปไม่ได้"))
+
+            threading.Thread(target=sequential_download_worker, args=(uncached_queue, gen_id), daemon=True).start()
+
 
     def save_cropped_face(self, staff_id, original_path, bbox, count, orig_filename=None):
         """ตัดส่วนใบหน้าคุณครูแล้วเก็บเป็นไฟล์ย่อยลงในแอป ป้องกันไฟล์ต้นฉบับหาย"""
@@ -4729,6 +5592,14 @@ class FaceSearchApp(ctk.CTk):
             self.clipboard_clear()
             self.clipboard_append(selected_text)
             logger.info("[UI] คัดลอกข้อความล็อกไปยัง Clipboard สำเร็จ")
+
+    def copy_all_console_log(self):
+        """คัดลอกข้อความ Log ทั้งหมด 100% ลงสู่ Clipboard ทันที"""
+        text = self.console_text.get("1.0", "end-1c")
+        if text:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            logger.info("[UI] คัดลอกข้อความ Log ทั้งหมดไปยัง Clipboard เรียบร้อยแล้ว")
 
     # ==================== (6) หน้าเฟรมคำขอลบรูปภาพจากไฟล์ JSON (v1.6.7) ====================
     def setup_delete_req_ui(self):
