@@ -780,6 +780,10 @@ class SchedulerTask:
                             "folder_name": f_name,
                             "files_to_scan": unscanned
                         })
+                    else:
+                        # ถ้าภาพทุกภาพในโฟลเดอร์มีสแกนใน DB ครบแล้ว ให้บันทึกสถานะโฟลเดอร์เป็นสีเขียวทันที (v4.14)
+                        if hasattr(self.app_gui, 'record_matched_folder'):
+                            self.app_gui.record_matched_folder(f_id, f_name)
                 except Exception as e:
                     logger.error(f"[SCHEDULE] Error checking folder {f_name}: {e}")
 

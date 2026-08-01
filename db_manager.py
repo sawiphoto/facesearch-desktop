@@ -37,7 +37,8 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 role TEXT DEFAULT 'teacher',
                 student_id TEXT,
-                pin_code TEXT
+                pin_code TEXT,
+                personal_threshold REAL DEFAULT 0.50
             )
             """)
 
@@ -127,6 +128,32 @@ class DatabaseManager:
             except Exception:
                 pass # คอลัมน์อาจจะมีอยู่แล้ว
 
+            # Migration: เพิ่มคอลัมน์ personal_threshold ใน staff_members (v3.5)
+            try:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN personal_threshold REAL DEFAULT 0.50")
+                logger.info("Executed database migration: added personal_threshold to staff_members.")
+            except Exception:
+                pass # คอลัมน์อาจจะมีอยู่แล้ว
+
+            try:
+                cursor.execute("UPDATE staff_members SET personal_threshold = 0.50 WHERE personal_threshold IS NULL")
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Could not update personal_threshold for existing staff: {e}")
+
+            # Migration: เพิ่มคอลัมน์ is_backfilled ใน staff_members (v4.0)
+            try:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN is_backfilled INTEGER DEFAULT 1")
+                logger.info("Executed database migration: added is_backfilled to staff_members.")
+            except Exception:
+                pass # คอลัมน์อาจจะมีอยู่แล้ว
+
+            try:
+                cursor.execute("UPDATE staff_members SET is_backfilled = 1 WHERE is_backfilled IS NULL")
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Could not update is_backfilled for existing staff: {e}")
+
             # สร้าง unique index สำหรับ student_id (เฉพาะนักเรียน)
             try:
                 cursor.execute("""
@@ -139,12 +166,15 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create unique index for student_id: {e}")
 
-            # Migration: เพิ่มคอลัมน์ source_url ใน staff_embeddings (v1.7.2 Fix 2)
+            # Migration: เพิ่ม Indexes เพื่อความเร็วสูง (v4.14)
             try:
-                cursor.execute("ALTER TABLE staff_embeddings ADD COLUMN source_url TEXT")
-                logger.info("Migration: added source_url to staff_embeddings.")
-            except Exception:
-                pass  # คอลัมน์อาจจะมีอยู่แล้ว
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_df_staff_id ON detected_faces(staff_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_df_photo_id ON detected_faces(photo_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_photo_id ON scanned_photos(photo_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_date ON scanned_photos(photo_date)")
+                logger.info("Migration: created performance indexes for detected_faces & scanned_photos.")
+            except Exception as e:
+                logger.warning(f"Could not create performance indexes: {e}")
 
             conn.commit()
         logger.info("SQLite database initialized successfully.")
@@ -363,7 +393,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role
+                SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, COALESCE(s.personal_threshold, 0.50)
                 FROM staff_embeddings e
                 JOIN staff_members s ON e.staff_id = s.id
             """)
@@ -374,9 +404,10 @@ class DatabaseManager:
             staff_ids = []
             image_paths = []
             roles = []
+            personal_thresholds = []
             
             for row in rows:
-                staff_id, name, blob, img_path, role = row
+                staff_id, name, blob, img_path, role, thresh = row
                 # แปลง bytes กลับเป็น numpy array
                 vec = np.frombuffer(blob, dtype=np.float32)
                 embeddings.append(vec)
@@ -384,14 +415,40 @@ class DatabaseManager:
                 staff_ids.append(staff_id)
                 image_paths.append(img_path)
                 roles.append(role if role else "teacher")
+                personal_thresholds.append(float(thresh) if thresh is not None else 0.50)
                 
             return {
                 "embeddings": np.array(embeddings) if embeddings else np.empty((0, 512), dtype=np.float32),
                 "names": names,
                 "staff_ids": staff_ids,
                 "image_paths": image_paths,
-                "roles": roles
+                "roles": roles,
+                "personal_thresholds": personal_thresholds
             }
+
+    def get_personal_threshold(self, staff_id):
+        """ดึงค่า Personal Threshold ของบุคคลจาก staff_id"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COALESCE(personal_threshold, 0.50) FROM staff_members WHERE id = ?", (staff_id,))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                return float(row[0])
+            return 0.50
+
+    def update_personal_threshold(self, staff_id, threshold_value):
+        """อัปเดตค่า Personal Threshold ของบุคคลในฐานข้อมูล"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                val = float(threshold_value)
+                cursor.execute("UPDATE staff_members SET personal_threshold = ? WHERE id = ?", (val, staff_id))
+                conn.commit()
+                logger.info(f"Updated personal_threshold for staff_id {staff_id} to {val:.2f}")
+                return True
+            except Exception as e:
+                logger.error(f"Error updating personal_threshold for staff_id {staff_id}: {e}")
+                return False
 
     # --- ส่วนการจัดการภาพสแกนกิจกรรม (Photo Matching DB) ---
     
@@ -420,7 +477,7 @@ class DatabaseManager:
                 for staff_id, confidence in matches:
                     cursor.execute(
                         "INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)",
-                        (photo_id, staff_id, confidence)
+                        (photo_id, staff_id, float(confidence))
                     )
                 conn.commit()
                 logger.info(f"Saved scanned photo {photo_id} with {len(matches)} matches to SQLite.")
@@ -428,6 +485,22 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 logger.error(f"Error saving scanned photo {photo_id} to SQLite: {e}")
                 conn.rollback()
+                return False
+
+    def mark_skipped_photo(self, photo_id, drive_file_id, event_name, reason="SKIPPED_UNREADABLE"):
+        """บันทึกประวัติไฟล์รูปภาพที่ไม่สามารถอ่านได้/เสียหาย/ไม่ใช่ไฟล์รูปภาพลง SQLite เพื่อป้องกันการติดลูปสแกนซ้ำ"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
+                    (photo_id, drive_file_id, event_name, f"https://drive.google.com/file/d/{drive_file_id}/view", reason)
+                )
+                conn.commit()
+                logger.info(f"[DATABASE] Marked unreadable photo {photo_id} as '{reason}' in SQLite.")
+                return True
+            except sqlite3.Error as e:
+                logger.error(f"Error marking skipped photo {photo_id}: {e}")
                 return False
 
     def get_all_sync_data(self):
@@ -574,7 +647,7 @@ class DatabaseManager:
                 for staff_id, confidence in matches:
                     cursor.execute(
                         "INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)",
-                        (photo_id, staff_id, confidence)
+                        (photo_id, staff_id, float(confidence))
                     )
                 conn.commit()
                 # logger.debug(f"Saved {len(matches)} matches to detected_faces for photo_id: {photo_id}")
@@ -604,3 +677,174 @@ class DatabaseManager:
                 conn.rollback()
                 return False
 
+    def get_batch_photo_face_embeddings(self, drive_file_ids):
+        """ดึงเวกเตอร์ใบหน้าแคชทั้งหมดในโฟลเดอร์รวดเดียวใน 1 Query (drive_file_ids: list ของ Drive File ID)"""
+        if not drive_file_ids:
+            return {}
+        result = {}
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                placeholders = ",".join("?" for _ in drive_file_ids)
+                query = f"""
+                    SELECT p.photo_id, p.drive_file_id, p.event_name, pf.embedding
+                    FROM scanned_photos p
+                    JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
+                    WHERE p.drive_file_id IN ({placeholders})
+                """
+                cursor.execute(query, list(drive_file_ids))
+                rows = cursor.fetchall()
+                for pid, fid, event_name, emb_blob in rows:
+                    if pid not in result:
+                        result[pid] = {
+                            "drive_file_id": fid,
+                            "event_name": event_name,
+                            "embeddings": []
+                        }
+                    if emb_blob:
+                        try:
+                            emb = np.frombuffer(emb_blob, dtype=np.float32)
+                            result[pid]["embeddings"].append(emb)
+                        except Exception as e:
+                            logger.error(f"[DATABASE] Error decoding face embedding blob for photo {pid}: {e}")
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error in get_batch_photo_face_embeddings: {e}")
+        return result
+
+    def safe_float(self, val):
+        if val is None:
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, bytes):
+            try:
+                import struct
+                if len(val) == 4:
+                    return float(struct.unpack('<f', val)[0])
+                elif len(val) == 8:
+                    return float(struct.unpack('<d', val)[0])
+            except Exception:
+                pass
+            return 0.0
+        try:
+            return float(val)
+        except Exception:
+            return 0.0
+
+    def batch_save_detected_faces(self, photo_matches_dict):
+        """บันทึกความเชื่อมโยงใบหน้าแบบ Batch ทั้งโฟลเดอร์ใน 1 Transaction (photo_matches_dict: {photo_id: [(staff_id, confidence), ...]})"""
+        if not photo_matches_dict:
+            return True
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                photo_ids = list(photo_matches_dict.keys())
+                placeholders = ",".join("?" for _ in photo_ids)
+                cursor.execute(f"DELETE FROM detected_faces WHERE photo_id IN ({placeholders})", photo_ids)
+
+                insert_rows = []
+                for pid, matches in photo_matches_dict.items():
+                    for staff_id, confidence in matches:
+                        insert_rows.append((pid, staff_id, float(confidence)))
+
+                if insert_rows:
+                    cursor.executemany(
+                        "INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)",
+                        insert_rows
+                    )
+                conn.commit()
+                return True
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error in batch_save_detected_faces: {e}")
+                conn.rollback()
+                return False
+
+    def get_matched_photos_for_staff(self, staff_id):
+        """ดึงประวัติรูปภาพกิจกรรมทั้งหมดที่สแกนพบบุคคลนี้ (staff_id) เรียงจากวันที่ใหม่ล่าสุดไปเก่าสุด"""
+        results = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                query = """
+                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.photo_date, df.confidence
+                    FROM detected_faces df
+                    JOIN scanned_photos p ON df.photo_id = p.photo_id
+                    WHERE df.staff_id = ?
+                    ORDER BY p.photo_date DESC, p.photo_id DESC
+                """
+                cursor.execute(query, (staff_id,))
+                rows = cursor.fetchall()
+                for pid, fid, event, link, pdate, conf in rows:
+                    results.append({
+                        "photo_id": pid,
+                        "drive_file_id": fid,
+                        "event_name": event or "กิจกรรมทั่วไป",
+                        "drive_link": link or f"https://drive.google.com/file/d/{fid}/view",
+                        "photo_date": pdate or "ไม่ระบุวันที่",
+                        "confidence": self.safe_float(conf)
+                    })
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error in get_matched_photos_for_staff for staff_id {staff_id}: {e}")
+        return results
+
+    def get_unbackfilled_students(self):
+        """ดึงรายการ staff_id ของนักเรียน/ครูที่เพิ่งเพิ่มใหม่ หรืออัปเดตรูปใหม่ (is_backfilled = 0)"""
+        results = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT id, name, role, student_id FROM staff_members WHERE is_backfilled = 0")
+                for row in cursor.fetchall():
+                    results.append({"staff_id": row[0], "name": row[1], "role": row[2], "student_id": row[3]})
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error getting unbackfilled students: {e}")
+        return results
+
+    def mark_students_backfilled(self, staff_ids):
+        """อัปเดตสถานะ is_backfilled = 1 หลังจากแมตช์ย้อนหลังสำเร็จ"""
+        if not staff_ids:
+            return
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                placeholders = ",".join("?" for _ in staff_ids)
+                cursor.execute(f"UPDATE staff_members SET is_backfilled = 1 WHERE id IN ({placeholders})", staff_ids)
+                conn.commit()
+                logger.info(f"Marked {len(staff_ids)} students as backfilled.")
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error marking students backfilled: {e}")
+
+    def clear_staff_embeddings(self, staff_id):
+        """ลบเวกเตอร์ใบหน้าทั้งหมดของ staff_id นี้ (เพื่อเตรียมรับรูปใหม่)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM staff_embeddings WHERE staff_id = ?", (staff_id,))
+                conn.commit()
+                logger.debug(f"Cleared embeddings for staff_id: {staff_id}")
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error clearing embeddings for {staff_id}: {e}")
+
+    def set_staff_backfill_status(self, staff_id, status=0):
+        """เซตค่า is_backfilled ของ staff_id นี้"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("UPDATE staff_members SET is_backfilled = ? WHERE id = ?", (status, staff_id))
+                conn.commit()
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error setting backfill status for {staff_id}: {e}")
+
+    def get_scanned_event_names(self):
+        """ดึงรายชื่อ event_name ทั้งหมดที่เคยสแกนไปแล้ว (เพื่อใช้อ้างอิงแสดงแถบสีเขียวบน GUI)"""
+        events = set()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT DISTINCT event_name FROM scanned_photos")
+                for row in cursor.fetchall():
+                    if row[0]:
+                        events.add(row[0])
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error getting scanned event names: {e}")
+        return events

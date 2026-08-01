@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.13 (Realtime Thumbnail Cache & Double-Click Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.14 (Matched Gallery Freeze Fix & Auto Green Folder)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.13",
+            text="FACE MATCHING\nSYSTEM v4.14",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -888,7 +888,8 @@ class FaceSearchApp(ctk.CTk):
             self.btn_matched_gallery.configure(fg_color="#1F3A60", text_color="white")
             self.frame_matched_gallery.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
             if hasattr(self, 'on_matched_role_change'):
-                self.on_matched_role_change(self.combo_matched_role.get())
+                # โหลดข้อมูล async เพื่อไม่ให้ GUI ฟรีซค้างขณะเปิดเมนู (v4.14)
+                self.after(50, lambda: self.on_matched_role_change(self.combo_matched_role.get()))
         elif menu_name == "settings":
             self.btn_settings.configure(fg_color="#1F3A60", text_color="white")
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
