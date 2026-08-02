@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.24 Changelog (Task 2 Image Read & Auto-Recovery Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.24)
+
+1. ** แก้ไข OpenCV Read Error และการข้ามสแกนเมื่อเปลี่ยนรูปใน Task 2:**
+   - **สาเหตุ:** ฟังก์ชัน `download_image_from_url()` ส่งคืนข้อมูลรูปภาพเป็นวัตถุ `bytes` แต่ใน `scheduler_task.py` ไปเรียกใช้ `cv2.imread(bytes)` ทำให้ OpenCV โยน Error ทันที และไปบันทึกประวัติลวงใน `student_sync_temp.json` ว่าอัปเดตแล้ว ทั้งๆ ที่ยังไม่ได้เซฟเวกเตอร์ใบหน้าลง DB
+   - **การแก้ไขใน `scheduler_task.py`:** ใน [scheduler_task.py](scheduler_task.py#L1057) เปลี่ยนมาใช้ `cv2.imdecode(np.frombuffer(...), cv2.IMREAD_COLOR)` รองรับ `bytes` โดยตรง 100% และบันทึกประวัติลง `temp` เฉพาะรูปที่เซฟเวกเตอร์สำเร็จเท่านั้น (`added_faces > 0`)
+   - **ระบบ Auto-Recovery:** เพิ่มการเช็กยอดเวกเตอร์ใบหน้าใน DB หากพบว่านักเรียนคนไหนยังไม่มีเวกเตอร์ใบหน้า (`count_embeddings == 0`) ระบบจะดึงกลับมาทำ Re-sync สแกนรูปใหม่อัตโนมัติทันที
+   - **ผลลัพธ์:** การเปลี่ยนรูปนักเรียนใน Task 2 จะทำการดาวน์โหลด อ่านรูป ถอนเวกเตอร์ และทำ Bulk Backfill Matching สำเร็จสมบูรณ์ 100%!
+
+---
+
 ## 📋 Version 4.23 Changelog (Instant Preview & Web View URL Fix)
 
 **Date:** 3 สิงหาคม 2026  

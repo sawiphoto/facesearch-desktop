@@ -1033,17 +1033,16 @@ class SchedulerTask:
             if url1: urls.append(url1)
             if url2: urls.append(url2)
             
-            new_data[s_id] = {"name": s_name, "urls": urls}
-            
-            is_new_or_updated = False
-            if s_id not in old_data:
-                is_new_or_updated = True
-            else:
-                old_urls = set(old_data[s_id].get("urls", []))
-                new_urls = set(urls)
-                if old_urls != new_urls:
-                    is_new_or_updated = True
-                    
+            # 🌟 Auto-Recovery Check: ถ้า DB ยังไม่มี embedding สำหรับนักเรียนคนนี้ ให้ถือว่าต้องทำ Re-sync
+            staff_id_check = self.db.get_staff_id_by_student_id(s_id) if hasattr(self.db, 'get_staff_id_by_student_id') else None
+            if staff_id_check:
+                with self.db.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = ?", (staff_id_check,))
+                    emb_count = cur.fetchone()[0]
+                    if emb_count == 0:
+                        is_new_or_updated = True
+
             if is_new_or_updated:
                 logger.info(f"[SCHEDULE] 🔄 พบการอัปเดตรูปของนักเรียน: {s_name} ({s_id})")
                 try:
@@ -1054,15 +1053,23 @@ class SchedulerTask:
                     added_faces = 0
                     for url in urls:
                         try:
-                            img_path = self.sync_manager.download_image_from_url(url)
-                            if not img_path: continue
+                            img_data = self.sync_manager.download_image_from_url(url)
+                            if not img_data: continue
                             
-                            img = cv2.imread(img_path)
+                            if isinstance(img_data, str) and os.path.exists(img_data):
+                                img = cv2.imdecode(np.fromfile(img_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                            elif isinstance(img_data, bytes):
+                                nparr = np.frombuffer(img_data, np.uint8)
+                                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            else:
+                                img = None
+
                             if img is not None:
                                 faces = self.analyzer.detect_and_extract_faces_from_image(img)
                                 if faces:
                                     best_face = faces[0]
-                                    self.db.add_staff_embedding(staff_id, img_path, best_face.embedding.tolist(), source_url=url)
+                                    img_ref_path = f"url:{url}"
+                                    self.db.add_staff_embedding(staff_id, img_ref_path, best_face.embedding.tolist(), source_url=url)
                                     added_faces += 1
                         except Exception as e:
                             logger.error(f"[SCHEDULE] Error embedding for {s_name}: {e}")
@@ -1071,10 +1078,17 @@ class SchedulerTask:
                         self.db.set_staff_backfill_status(staff_id, 0)
                         processed_students += 1
                         logger.info(f"[SCHEDULE] ✅ อัปเดตเวกเตอร์ใหม่ให้ {s_name} ({added_faces} รูป)")
+                        new_data[s_id] = {"name": s_name, "urls": urls}
+                    else:
+                        # ❌ หากสแกนเพิ่มเวกเตอร์ไม่สำเร็จ ไม่เซฟลง new_data เพื่อให้รอบหน้ากลับมาลองสแกนใหม่
+                        new_data.pop(s_id, None)
                 except Exception as e:
                     logger.error(f"[SCHEDULE] Error process sync for {s_name}: {e}")
-                    
-        # เซฟประวัติ
+                    new_data.pop(s_id, None)
+            else:
+                new_data[s_id] = {"name": s_name, "urls": urls}
+
+        # เซฟประวัติเฉพาะรายการที่สแกนสมบูรณ์แล้ว
         try:
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(new_data, f, ensure_ascii=False, indent=2)
