@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.22 Changelog (Async Thumbnail Render Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.22)
+
+1. ** แก้ไขบั๊ก `NameError: name 'get_cached_thumb_path' is not defined` หลังดาวน์โหลดภาพสดจาก Drive:**
+   - **สาเหตุ:** ใน [app_gui.py](app_gui.py#L5083) มีการสะกดชื่อฟังก์ชันผิดเนื่องจากการ refactor ความเร็วใน v4.15 โดยใน Background Thread ไปเรียกใช้ `get_cached_thumb_path()` แทนที่จะเป็น `get_cached_thumb_path_fast()` ทำให้เมื่อภาพถูกดาวน์โหลดลงดิสก์สำเร็จแล้ว พายอนจะโยน NameError สลับไปขึ้นป้าย "🖼️ อ่านรูปไม่ได้" 
+   - **การแก้ไขใน `app_gui.py`:** ปรับแก้การเรียกชื่อฟังก์ชันใน [app_gui.py](app_gui.py#L5083) ให้เป็น `get_cached_thumb_path_fast(p_code, target_fid)` อย่างถูกต้อง
+   - **ผลลัพธ์:** รูปภาพที่เพิ่งดาวน์โหลดสดๆ จาก Google Drive จะถูกอ่านและเรนเดอร์ขึ้นพรีวิวแสดงผลบนหน้าต่าง GUI ทันทีสมบูรณ์ 100% ไร้ป้ายอ่านรูปไม่ได้อีก!
+
+---
+
 ## 📋 Version 4.21 Changelog (DB Orphan Cleanup & Auto Integrity)
 
 **Date:** 2 สิงหาคม 2026  

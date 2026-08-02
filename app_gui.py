@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.21 (DB Orphan Cleanup & Auto Integrity)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.22 (Async Thumbnail Render Fix)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.21",
+            text="FACE MATCHING\nSYSTEM v4.22",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -5080,7 +5080,7 @@ class FaceSearchApp(ctk.CTk):
 
                         # 3. อัปเดตหน้าจอ GUI สำหรับภาพนี้หากผู้ใช้ยังไม่ได้สลับรายชื่อไปคนอื่น
                         if task_gen == self.gallery_worker_gen:
-                            final_path = get_cached_thumb_path(cache_dir, p_code, target_fid)
+                            final_path = get_cached_thumb_path_fast(p_code, target_fid)
                             if final_path:
                                 pil_img = Image.open(final_path).convert("RGB")
                                 pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
