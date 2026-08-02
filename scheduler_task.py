@@ -1104,85 +1104,37 @@ class SchedulerTask:
         except: pass
         
         # ----------------------------------------------------
-        # Bulk Backfill Matching
+        # Bulk Backfill Matching (ใช้เมธอดเดิมของระบบ 100%)
         # ----------------------------------------------------
         logger.info("[SCHEDULE] 🔍 กำลังค้นหานักเรียน/บุคลากรที่ต้องทำ Bulk Backfill Matching...")
         unbackfilled = self.db.get_unbackfilled_students()
         
         if unbackfilled:
             logger.info(f"[SCHEDULE] พบ {len(unbackfilled)} คน ที่ต้องการทำจับคู่ย้อนหลัง")
+            target_staff_ids = [s["staff_id"] for s in unbackfilled]
             
             with self.db.get_connection() as conn:
                 c = conn.cursor()
-                # 1. ดึงเวกเตอร์ของนักเรียนใหม่
                 c.execute("SELECT staff_id, embedding FROM staff_embeddings")
                 all_embs = c.fetchall()
                 
-                target_staff_ids = [s["staff_id"] for s in unbackfilled]
-                
-                new_student_embeddings = []
-                new_student_ids = []
-                new_student_names = []
-                new_student_thresholds = []
-                
-                # Fetch personal_thresholds
-                c.execute("SELECT id, personal_threshold FROM staff_members")
-                threshold_dict = {row[0]: row[1] for row in c.fetchall()}
-                
-                name_dict = {s["staff_id"]: s["name"] for s in unbackfilled}
-                
+                matched_faces_to_process = []
                 for staff_id, emb_blob in all_embs:
-                    if staff_id in target_staff_ids:
+                    if staff_id in target_staff_ids and emb_blob:
                         emb = np.frombuffer(emb_blob, dtype=np.float32)
-                        new_student_embeddings.append(emb)
-                        new_student_ids.append(staff_id)
-                        new_student_names.append(name_dict[staff_id])
-                        new_student_thresholds.append(threshold_dict.get(staff_id, 0.50))
-                        
-                if new_student_embeddings:
-                    new_student_embeddings = np.array(new_student_embeddings, dtype=np.float32)
-                    
-                    # 2. ดึงเวกเตอร์ของรูปในกิจกรรมทั้งหมดเพื่อมาจับคู่
-                    logger.info("[SCHEDULE] 💾 กำลังดึงข้อมูลรูปภาพกิจกรรมทั้งหมดจาก SQLite เพื่อทำ Matrix Matching...")
-                    c.execute("SELECT photo_id, face_index, embedding FROM scanned_photo_faces")
-                    photo_faces = c.fetchall()
-                    
-                    logger.info(f"[SCHEDULE] 🚀 กำลังจับคู่ Matrix {len(photo_faces)} ใบหน้ากิจกรรมกับ {len(new_student_embeddings)} ใบหน้านักเรียนใหม่...")
-                    
-                    batch_matches = []
-                    # การวนลูปรูปทีละหน้าเพื่อเอาเวกเตอร์มาเทียบกับ Array นักเรียนใหม่ทั้งหมด
-                    for photo_id, face_idx, emb_blob in photo_faces:
-                        photo_emb = np.frombuffer(emb_blob, dtype=np.float32)
-                        photo_emb = np.array([photo_emb], dtype=np.float32)
-                        
-                        res = self.analyzer.match_faces_matrix(
-                            photo_emb, new_student_embeddings, new_student_names, new_student_ids, 
-                            threshold=0.50, template_thresholds=new_student_thresholds
-                        )
-                        
-                        best_match = res[0]
-                        if best_match is not None and best_match.get('name') != "Unknown":
-                            batch_matches.append((photo_id, best_match['staff_id'], best_match['confidence']))
-                            
-                    if batch_matches:
-                        # 3. เซฟลง detected_faces แบบ Batch
-                        logger.info(f"[SCHEDULE] ✅ พบรูปภาพย้อนหลังทั้งหมด {len(batch_matches)} แมตช์ กำลังเซฟลงฐานข้อมูล...")
-                        c.executemany("INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)", batch_matches)
-                        conn.commit()
-                        
+                        matched_faces_to_process.append({"staff_id": staff_id, "emb": emb})
+            
+            if matched_faces_to_process:
+                logger.info(f"[SCHEDULE] กำลังทำ Retroactive Match กับเวกเตอร์ทั้งหมด {len(matched_faces_to_process)} เวกเตอร์...")
+                if hasattr(self.app_gui, 'process_retroactive_match_headless'):
+                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process)
+                else:
+                    logger.error("[SCHEDULE] Error: app_gui does not have process_retroactive_match_headless")
+            
             # Mark backfilled
             self.db.mark_students_backfilled(target_staff_ids)
-            
-            # ----------------------------------------------------
-            # Single JSON Update (โฟลเดอร์หลักเหมือนปุ่ม GUI)
-            # ----------------------------------------------------
-            logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON บน Google Drive...")
-            sync_data = self.db.get_all_sync_data() if hasattr(self, 'db') and self.db else None
-            json_folder_id = self.app_gui.entry_json_folder_id.get().strip() if hasattr(self, 'app_gui') and hasattr(self.app_gui, 'entry_json_folder_id') else ""
-            if not json_folder_id:
-                json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
-            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
             logger.info("[SCHEDULE] 🎉 การ Bulk Sync New Students เสร็จสมบูรณ์แล้ว!")
         else:
             logger.info("[SCHEDULE] ✅ ไม่มีนักเรียนใหม่หรือรูปอัปเดตที่ต้องทำ Backfill Matching ในรอบนี้")
+
 
