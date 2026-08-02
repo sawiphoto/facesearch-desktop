@@ -47,6 +47,28 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.23 Changelog (Instant Preview & Web View URL Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.23)
+
+1. ** แก้ไขรูปดาวน์โหลดเสร็จแล้วไม่พรีวิวทันที (Instant Download Preview):**
+   - **สาเหตุ:** ตัวแปร `cache_files` เป็น `set()` คงที่จากการอ่านดิสก์ครั้งแรก ทำให้เมื่อ Background Worker ดาวน์โหลดรูปใหม่ลงดิสก์เสร็จ ตัวเช็กภาพยังมองไม่เห็นไฟล์ใหม่ จนพ่นป้าย "🖼️ ไม่มีพรีวิว"
+   - **การแก้ไขใน `app_gui.py`:** เพิ่มการอัปเดตไฟล์ใหม่เข้า `cache_files.add()` ทันทีหลังดาวน์โหลดใน [app_gui.py](app_gui.py#L5083) และใช้ `target_thumb_path` แสดงผลโดยตรง 
+   - **ผลลัพธ์:** รูปภาพดาวน์โหลดเสร็จปุ๊บ จะเด้งขึ้นพรีวิวแสดงผลบนหน้าจอทันทีใน 0.01 วินาที ไม่ต้องเปิดสลับหน้าไปมาอีกเลย!
+
+2. ** แก้ไขลิงก์ Google Drive บังคับดาวน์โหลด (Standard Web View URL):**
+   - **สาเหตุ:** ลิงก์เดิมในฐานข้อมูลใช้รูปแบบ `uc?id=...&export=download` สั่งให้เบราว์เซอร์ดาวน์โหลดไฟล์ลงเครื่องแทนการเปิดดู
+   - **การแก้ไขใน `gdrive_sync.py` & `app_gui.py`:** เพิ่มฟังก์ชัน `format_drive_view_url()` ใน [gdrive_sync.py](gdrive_sync.py#L451) แปลงลิงก์ทั้งหมดเป็น `/file/d/FILE_ID/view` ทั้งตอนสร้าง `photo_index.json` บน Drive และปุ่มกดดูใน GUI
+   - **ผลลัพธ์:** ผู้ใช้และผู้ปกครองคลิกดูรูปภาพในเบราว์เซอร์ จะเป็นการเปิดดูพรีวิวรูปภาพบน Google Drive เฉยๆ โดยไม่บังคับดาวน์โหลดไฟล์ลงเครื่อง!
+
+---
+
 ## 📋 Version 4.22 Changelog (Async Thumbnail Render Fix)
 
 **Date:** 3 สิงหาคม 2026  

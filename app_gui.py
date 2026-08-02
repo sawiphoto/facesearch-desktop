@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.22 (Async Thumbnail Render Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.23 (Instant Preview & Web View URL Fix)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.22",
+            text="FACE MATCHING\nSYSTEM v4.23",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4953,12 +4953,14 @@ class FaceSearchApp(ctk.CTk):
                 )
                 lbl_info.pack(padx=6, pady=(0, 4))
 
+                open_view_url = self.sync_manager.format_drive_view_url(drive_link) if hasattr(self, 'sync_manager') and hasattr(self.sync_manager, 'format_drive_view_url') else drive_link
+
                 btn_open = ctk.CTkButton(
                     card,
                     text="🌐 เปิดดูรูปบน Google Drive",
                     font=ctk.CTkFont(size=11, weight="bold"),
                     fg_color="#27AE60", hover_color="#219150", text_color="white", height=24,
-                    command=lambda url=drive_link: webbrowser.open(url)
+                    command=lambda url=open_view_url: webbrowser.open(url)
                 )
                 btn_open.pack(padx=8, pady=(0, 8), fill="x")
 
@@ -5080,17 +5082,23 @@ class FaceSearchApp(ctk.CTk):
 
                         # 3. อัปเดตหน้าจอ GUI สำหรับภาพนี้หากผู้ใช้ยังไม่ได้สลับรายชื่อไปคนอื่น
                         if task_gen == self.gallery_worker_gen:
-                            final_path = get_cached_thumb_path_fast(p_code, target_fid)
+                            cache_files.add(f"{p_code}.jpg")
+                            cache_files.add(f"thumb_{target_fid}.jpg")
+                            cache_files.add(f"{target_fid}.jpg")
+                            
+                            final_path = target_thumb_path if (downloaded and os.path.exists(target_thumb_path)) else get_cached_thumb_path_fast(p_code, target_fid)
                             if final_path:
                                 pil_img = Image.open(final_path).convert("RGB")
                                 pil_img = pil_img.resize((200, 180), Image.Resampling.LANCZOS)
                                 
+                                target_view_url = self.sync_manager.format_drive_view_url(target_link) if hasattr(self, 'sync_manager') and hasattr(self.sync_manager, 'format_drive_view_url') else target_link
+
                                 def render_on_main(p_img, lbl, url):
                                     ctk_img = ctk.CTkImage(light_image=p_img, dark_image=p_img, size=(200, 180))
                                     lbl.configure(image=ctk_img, text="")
                                     lbl.bind("<Double-Button-1>", lambda ev, u=url: webbrowser.open(u))
 
-                                self.after(0, lambda p=pil_img, l=target_lbl, u=target_link: render_on_main(p, l, u))
+                                self.after(0, lambda p=pil_img, l=target_lbl, u=target_view_url: render_on_main(p, l, u))
                             else:
                                 self.after(0, lambda lbl=target_lbl: lbl.configure(text="🖼️ ไม่มีพรีวิว"))
                     except Exception as err:

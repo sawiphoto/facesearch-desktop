@@ -353,13 +353,14 @@ class GoogleSyncManager:
                     if photo_id not in person_index[person]:
                         person_index[person].append(photo_id)
 
-            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json
+            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ)
             photo_index = {}
             for item in sync_data["photos"]:
                 photo_id = item["photo_id"]
+                raw_link = item["drive_link"]
                 photo_index[photo_id] = {
                     "event": item["event"],
-                    "drive_link": item["drive_link"],
+                    "drive_link": self.format_drive_view_url(raw_link),
                     "date": item.get("date", "")
                 }
 
@@ -448,6 +449,13 @@ class GoogleSyncManager:
             logger.error(f"[GDRIVE JSON] Error updating JSON search indexes: {e}", exc_info=True)
             return False
 
+    def format_drive_view_url(self, raw_url):
+        """แปลง Drive URL ให้เป็นลิงก์เปิดดูบน Web Browser เสมอ (ไม่บังคับดาวน์โหลด)"""
+        file_id = self.extract_file_id_from_url(raw_url)
+        if file_id:
+            return f"https://drive.google.com/file/d/{file_id}/view"
+        return raw_url
+
     def extract_file_id_from_url(self, url):
         """แปลง Google Drive URL เป็น File ID"""
         if not url:
@@ -460,7 +468,7 @@ class GoogleSyncManager:
                 file_id = parts[1].split('/')[0]
                 return file_id
 
-        # รูปแบบ: https://drive.google.com/open?id=FILE_ID
+        # รูปแบบ: https://drive.google.com/open?id=FILE_ID หรือ uc?id=FILE_ID
         if 'id=' in url:
             parts = url.split('id=')
             if len(parts) > 1:
