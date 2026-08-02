@@ -47,6 +47,27 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.00 Changelog (Major Release: Task 2 Auto JSON Sync & Drive Web View Standard)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.00)
+
+1. **เพิ่มการซิงค์ไฟล์ JSON ดัชนี 3 ไฟล์ขึ้น Google Drive อัตโนมัติปิดท้าย Task 2:**
+   - **การทำงาน:** ในเมธอด `process_retroactive_match_headless()` หลังบันทึกข้อมูลการสแกนลง SQLite และซิงค์ Google Sheets เรียบร้อยแล้ว ระบบจะทำการเรียกใช้ `self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")` ทันที
+   - **ผลลัพธ์:** เมื่อรัน Task 2 เสร็จสิ้น ไฟล์ดัชนีทั้ง 3 ไฟล์บน Google Drive (`photo_index.json`, `staff_index.json`, `student_index.json`) จะถูกอัปเดตให้เป็นเวอร์ชันล่าสุด 100% โดยไม่ต้องกดซิงค์มืออีกต่อไป
+
+2. **ปรับปรุงการเปิดลิงก์ Google Drive ในหน้า "ดูฐานข้อมูล SQLite" ให้เป็น Web View Standard (`/file/d/FILE_ID/view`):**
+   - **สาเหตุเดิม:** ลิงก์รูปภาพในตารางฐานข้อมูล SQLite บางเรคคอร์ดอยู่ในรูปแบบ `https://drive.google.com/uc?id=...&export=download` เมื่อผู้ใช้ดับเบิ้ลคลิกเพื่อเปิดดู ระบบปฏิบัติการจะดาวน์โหลดไฟล์ลงเครื่องแทนการเปิดหน้าเว็บ
+   - **การแก้ไขใน `app_gui.py` (`on_db_tree_double_click`):** ปรับให้ผ่านการฟอร์แมตทุกลิงก์ด้วย `self.sync_manager.format_drive_view_url(url)` ก่อนส่งให้เบราว์เซอร์เปิด
+   - **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):** รันสคริปต์ [test_v500_features.py](scratch/test_v500_features.py) ทดสอบส่งลิงก์ `https://drive.google.com/uc?id=1VwKEolZe3JFuVxIDJIjKftUkHzKE5KZq&export=download` ผลการแปลง: `https://drive.google.com/file/d/1VwKEolZe3JFuVxIDJIjKftUkHzKE5KZq/view` ผ่าน 100%!
+
+---
+
 ## 📋 Version 4.30 Changelog (Gallery Photo Deduplication & Max Confidence Fix)
 
 **Date:** 3 สิงหาคม 2026  

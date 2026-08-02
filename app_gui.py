@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.30 (Gallery Photo Deduplication & Max Confidence)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.00 (Task 2 Auto JSON Sync & Drive Web View Standard)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.30",
+            text="FACE MATCHING\nSYSTEM v5.00",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3161,6 +3161,14 @@ class FaceSearchApp(ctk.CTk):
             sync_data = self.db.get_all_sync_data()
             self.sync_manager.sync_to_google_sheet(sync_data)
             
+            # ซิงค์ดัชนี JSON 3 ไฟล์ขึ้น Google Drive (v5.00 Auto Sync)
+            json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+            if not json_folder_id:
+                json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+            logger.info("[SCHEDULE] 📤 กำลังซิงค์ดัชนี JSON 3 ไฟล์ขึ้น Google Drive ปิดท้าย...")
+            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+            logger.info("[SCHEDULE] ✅ ซิงค์ดัชนี JSON 3 ไฟล์เรียบร้อยสมบูรณ์!")
+            
         except Exception as e:
             logger.error(f"[SCHEDULE] Error in retroactive match: {e}")
 
@@ -4105,7 +4113,8 @@ class FaceSearchApp(ctk.CTk):
         for val in item_values:
             val_str = str(val).strip()
             if val_str.startswith("http://") or val_str.startswith("https://"):
-                webbrowser.open(val_str)
+                target_url = self.sync_manager.format_drive_view_url(val_str) if hasattr(self, 'sync_manager') and hasattr(self.sync_manager, 'format_drive_view_url') else val_str
+                webbrowser.open(target_url)
                 return
 
         # 2. ค้นหา photo_id / drive_file_id จากแถวที่ดับเบิ้ลคลิก
@@ -4131,7 +4140,8 @@ class FaceSearchApp(ctk.CTk):
                 if row:
                     link, fid = row
                     if link and link.startswith("http"):
-                        webbrowser.open(link)
+                        target_url = self.sync_manager.format_drive_view_url(link) if hasattr(self, 'sync_manager') and hasattr(self.sync_manager, 'format_drive_view_url') else link
+                        webbrowser.open(target_url)
                     elif fid:
                         webbrowser.open(f"https://drive.google.com/file/d/{fid}/view")
                 elif len(photo_id) >= 10:
