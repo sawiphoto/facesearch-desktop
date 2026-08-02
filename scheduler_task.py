@@ -1161,7 +1161,7 @@ class SchedulerTask:
                         )
                         
                         best_match = res[0]
-                        if best_match['name'] != "Unknown":
+                        if best_match is not None and best_match.get('name') != "Unknown":
                             batch_matches.append((photo_id, best_match['staff_id'], best_match['confidence']))
                             
                     if batch_matches:
