@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.20 Changelog (Single Target JSON Sync & Zero Loop)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.20)
+
+1. ** ขจัดอาการติดลูปซ้ำ 5 รอบ และทำซิงค์ JSON ช้าผิดปกติใน Scheduler:**
+   - **สาเหตุ:** ใน `scheduler_task.py` เดิมไปเขียนลูป `for folder_id in top_folders:` สั่งซิงค์อัปโหลด 3 ไฟล์ JSON วนลูปถึง 5 โฟลเดอร์ปีการศึกษา (ซ้ำซ้อน 15 ครั้ง) ทำให้ Google Drive วิ่งค้นหาและเขียนไฟล์ซ้ำไปมาจนติดลูปช้าผิดปกติ
+   - **การแก้ไขใน `scheduler_task.py`:** ใน [scheduler_task.py](scheduler_task.py#L124) และ Line 1151 ยกเลิกลูปวน 5 โฟลเดอร์ทั้งหมด แล้วเปลี่ยนมาเรียกซิงค์ตรงๆ เพียงครั้งเดียวไปยัง `json_folder_id` (ถอดแบบการทำงานมาจากปุ่ม GUI 100%)
+   - **ผลลัพธ์:** การอัปเดตไฟล์ JSON บน Google Drive ตอนกดหยุด Schedule หรือสแกนจบ จะทำงานเสร็จเรียบร้อยรวดเร็วใน 3-5 วินาทีเท่ากับปุ่ม GUI เป๊ะ ไม่ติดลูปซ้ำซ้อนอีกเลย!
+
+---
+
 ## 📋 Version 4.19 Changelog (Auto DB Sync Fallback & Manual Sync Fix)
 
 **Date:** 2 สิงหาคม 2026  

@@ -122,13 +122,14 @@ class SchedulerTask:
             self.stop_requested = False
 
     def _sync_all_json_to_drive(self):
-        """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 โฟลเดอร์หลักขึ้น Google Drive"""
+        """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 ไฟล์ขึ้น Google Drive (ทำงานเหมือนปุ่ม GUI เป๊ะ)"""
         try:
             sync_data = self.db.get_all_sync_data() if hasattr(self, 'db') and self.db else None
-            top_folders = [folder_id for _, folder_id in self._load_year_folders()]
-            for folder_id in top_folders:
-                self.sync_manager.update_json_indexes_on_drive(sync_data, folder_id, scan_mode="all")
-            logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive สำเร็จแล้ว")
+            json_folder_id = self.app_gui.entry_json_folder_id.get().strip() if hasattr(self, 'app_gui') and hasattr(self.app_gui, 'entry_json_folder_id') else ""
+            if not json_folder_id:
+                json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+            logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON สรุปย่อขึ้น Google Drive สำเร็จเรียบร้อยแล้ว")
         except Exception as e:
             logger.error(f"[SCHEDULE] Error updating JSON to drive: {e}")
 
@@ -1150,17 +1151,14 @@ class SchedulerTask:
             self.db.mark_students_backfilled(target_staff_ids)
             
             # ----------------------------------------------------
-            # Bulk JSON Update (3 โฟลเดอร์หลัก)
+            # Single JSON Update (โฟลเดอร์หลักเหมือนปุ่ม GUI)
             # ----------------------------------------------------
-            logger.info("[SCHEDULE] 📤 กำลังเตรียมอัปเดตไฟล์ JSON บน Google Drive 3 โฟลเดอร์หลักใหญ่...")
-            top_folders = [folder_id for _, folder_id in self._load_year_folders()]
-            
-            for folder_id in top_folders:
-                try:
-                    self.sync_manager.update_json_indexes_on_drive(None, folder_id, scan_mode="all")
-                except Exception as e:
-                    logger.error(f"[SCHEDULE] Error updating JSON for root folder {folder_id}: {e}")
-                    
+            logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON บน Google Drive...")
+            sync_data = self.db.get_all_sync_data() if hasattr(self, 'db') and self.db else None
+            json_folder_id = self.app_gui.entry_json_folder_id.get().strip() if hasattr(self, 'app_gui') and hasattr(self.app_gui, 'entry_json_folder_id') else ""
+            if not json_folder_id:
+                json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
             logger.info("[SCHEDULE] 🎉 การ Bulk Sync New Students เสร็จสมบูรณ์แล้ว!")
         else:
             logger.info("[SCHEDULE] ✅ ไม่มีนักเรียนใหม่หรือรูปอัปเดตที่ต้องทำ Backfill Matching ในรอบนี้")
