@@ -1033,6 +1033,15 @@ class SchedulerTask:
             if url1: urls.append(url1)
             if url2: urls.append(url2)
             
+            is_new_or_updated = False
+            if s_id not in old_data:
+                is_new_or_updated = True
+            else:
+                old_urls = set(old_data[s_id].get("urls", []))
+                new_urls = set(urls)
+                if old_urls != new_urls:
+                    is_new_or_updated = True
+
             # 🌟 Auto-Recovery Check: ถ้า DB ยังไม่มี embedding สำหรับนักเรียนคนนี้ ให้ถือว่าต้องทำ Re-sync
             staff_id_check = self.db.get_staff_id_by_student_id(s_id) if hasattr(self.db, 'get_staff_id_by_student_id') else None
             if staff_id_check:

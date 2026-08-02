@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.25 Changelog (Task 2 Variable Scope Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.25)
+
+1. ** แก้ไข UnboundLocalError ใน Task 2 (`is_new_or_updated` variable scope):**
+   - **สาเหตุ:** ตัวแปร `is_new_or_updated` ขาดการประกาศตั้งค่าเริ่มต้น (`is_new_or_updated = False`) ด้านบนลูปเปรียบเทียบ URL ใน `scheduler_task.py` ส่งผลให้เมื่อรัน Task 2 พายอนฟ้อง UnboundLocalError
+   - **การแก้ไขใน `scheduler_task.py`:** เพิ่มการกำหนดค่าเริ่มต้น `is_new_or_updated = False` ใน [scheduler_task.py](scheduler_task.py#L1033) ก่อนตรวจสอบความแตกต่างของ URL และ Auto-Recovery
+   - **ผลลัพธ์:** Task 2 รันตรวจสอบรายชื่อนักเรียนและรูปอัปเดตใหม่สำเร็จสมบูรณ์ 100% ไร้ UnboundLocalError ทันที!
+
+---
+
 ## 📋 Version 4.24 Changelog (Task 2 Image Read & Auto-Recovery Fix)
 
 **Date:** 3 สิงหาคม 2026  
