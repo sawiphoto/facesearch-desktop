@@ -1074,7 +1074,7 @@ class SchedulerTask:
                                 img = None
 
                             if img is not None:
-                                faces = self.analyzer.detect_and_extract_faces_from_image(img)
+                                faces = self.analyzer.get_faces_optimized(img)
                                 if faces:
                                     best_face = faces[0]
                                     img_ref_path = f"url:{url}"

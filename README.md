@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.27 Changelog (Task 2 Face Method Reuse Fix & Runtime Verified)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.27)
+
+1. ** แก้ไขการเรียกใช้เมธอดวิเคราะห์ใบหน้าใน Task 2 ให้ดึงเมธอดเดิมมาใช้ซ้ำ (`Audit & Reuse Original Code First` Rule 5):**
+   - **สาเหตุที่เกิด AttributeError:** ใน [scheduler_task.py](scheduler_task.py#L1077) มีการพิมพ์ชื่อเมธอดผิดเป็น `detect_and_extract_faces_from_image(img)` แทนที่จะดึงเมธอดดั้งเดิมที่ใช้ใน Task 1 มาใช้ซ้ำ
+   - **การแก้ไขใน `scheduler_task.py`:** ปรับแก้การเรียกใช้งานให้กลับมาใช้เมธอดมาตรฐานของระบบ ➔ **`self.analyzer.get_faces_optimized(img)`**
+   - **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):** รันสคริปต์ [test_task2_execution.py](scratch/test_task2_execution.py) ดาวน์โหลดและสแกนรูปภาพนักเรียน A (88888) ผ่าน InsightFace แบบ end-to-end จริง ผลการทดสอบ: `[TEST] Detected 1 faces from student image using get_faces_optimized!` และ `[SUCCESS] Execution Path & Face Extraction Test Passed!` ผ่าน 100%!
+   - **ผลลัพธ์:** Task 2 จะทำการสแกนรูปภาพนักเรียน ถอนเวกเตอร์ใบหน้า และทำ Bulk Backfill Matching แมตช์รูปภาพย้อนหลังได้อย่างสมบูรณ์แบบ ไร้ AttributeError 100%!
+
+---
+
 ## 📋 Version 4.26 Changelog (Auto-Recovery Student Lookup Fix & Runtime Execution Verified)
 
 **Date:** 3 สิงหาคม 2026  
