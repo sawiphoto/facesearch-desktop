@@ -124,9 +124,10 @@ class SchedulerTask:
     def _sync_all_json_to_drive(self):
         """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 โฟลเดอร์หลักขึ้น Google Drive"""
         try:
+            sync_data = self.db.get_all_sync_data() if hasattr(self, 'db') and self.db else None
             top_folders = [folder_id for _, folder_id in self._load_year_folders()]
             for folder_id in top_folders:
-                self.sync_manager.update_json_indexes_on_drive(None, folder_id, scan_mode="all")
+                self.sync_manager.update_json_indexes_on_drive(sync_data, folder_id, scan_mode="all")
             logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive สำเร็จแล้ว")
         except Exception as e:
             logger.error(f"[SCHEDULE] Error updating JSON to drive: {e}")

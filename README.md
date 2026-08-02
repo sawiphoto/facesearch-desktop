@@ -47,6 +47,27 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.19 Changelog (Auto DB Sync Fallback & Manual Sync Fix)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.19)
+
+1. ** แก้ไขบั๊ก `'NoneType' object is not subscriptable` ระหว่างอัปเดตไฟล์ JSON บน Drive:**
+   - **สาเหตุ:** ฟังก์ชัน `update_json_indexes_on_drive()` ใน `gdrive_sync.py` บรรทัด 328 สมมติว่าพารามิเตอร์ `sync_data` จะต้องถูกส่งมาจากภายนอกเสมอ เมื่อ Scheduler Task เรียกใช้งานโดยส่ง `sync_data = None` จึงเกิด TypeError ล้มเหลวทันที
+   - **การแก้ไขใน `gdrive_sync.py`:** เพิ่มระบบ **Auto DB Sync Fallback** ใน [gdrive_sync.py](gdrive_sync.py#L321) หาก `sync_data is None` ระบบจะดึงข้อมูลภาพและใบหน้าจาก SQLite DB ผ่าน `self.db.get_all_sync_data()` ให้อัตโนมัติทันทีแบบเดียวกับที่ปุ่มกดใน GUI ทำงาน
+   - **การแก้ไขใน `scheduler_task.py`:** ใน [scheduler_task.py](scheduler_task.py#L127) ดึงข้อมูล `sync_data` จาก SQLite DB ล่วงหน้าส่งไปให้ `update_json_indexes_on_drive()` อย่างสมบูรณ์
+
+2. ** ซ่อมปุ่ม "0. ซิงค์รูปภาพถ่ายทั้งหมดไป Google Drive" ในหน้า SQLite Viewer:**
+   - **สาเหตุ:** ปุ่มเดิมใน `app_gui.py` ไปเรียกฟังก์ชัน `sync_scanned_photos_to_drive()` ซึ่งเคยถูกลบทิ้งไปในการ refactor ก่อนหน้า
+   - **การแก้ไขใน `app_gui.py`:** ใน [app_gui.py](app_gui.py#L4082) เชื่อมต่อคำสั่งให้ปุ่ม 0 เรียกใช้งาน `run_manual_json_sync("all")` เพื่อดึงข้อมูลรูปภาพและอัปเดตไฟล์ JSON ทั้งหมดขึ้น Google Drive สำเร็จ 100%
+
+---
+
 ## 📋 Version 4.18 Changelog (Tuple Index Fix for Mandatory Drive JSON Sync)
 
 **Date:** 2 สิงหาคม 2026  

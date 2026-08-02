@@ -267,47 +267,11 @@ class GoogleSyncManager:
     def sync_to_google_sheet(self, sync_data):
         """
         อัปเดตข้อมูลขึ้น Google Sheet
-        sync_data: ผลลัพธ์จาก db_manager.get_all_sync_data() ที่มีคีย์ {"photos": [...], "faces": [...]}
+        (v2.7 Optimization: ยกเลิกการเขียน photos และ faces 40,000+ แถวขึ้น Google Sheets
+         เพื่อป้องกันอาการค้างและเพิ่มความเร็ว โดยหันมาใช้ระบบ Google Drive JSON Index แทน)
         """
-        if not self.connected or not self.spreadsheet_id:
-            logger.error("Google Sheets sync failed: Connection or Spreadsheet ID is missing.")
-            return False
-
-        try:
-            sheet = self._execute_with_retry(lambda: self.gspread_client.open_by_key(self.spreadsheet_id), max_retries=3, initial_delay=2)
-            
-            # 1. เขียนข้อมูลแผ่นงาน photos
-            photos_sheet = sheet.worksheet("photos")
-            # เคลียร์ค่าเก่ายกเว้นหัวคอลัมน์ (row 1)
-            photos_sheet.clear()
-            photos_sheet.append_row(["photo_id", "event", "drive_link", "date"])
-            
-            photo_rows = []
-            for item in sync_data["photos"]:
-                photo_rows.append([item["photo_id"], item["event"], item["drive_link"], item.get("date", "")])
-            
-            if photo_rows:
-                # เขียนข้อมูลแบบ Bulk ในครั้งเดียว
-                photos_sheet.append_rows(photo_rows)
-                logger.info(f"Successfully synced {len(photo_rows)} rows to 'photos' worksheet.")
-
-            # 2. เขียนข้อมูลแผ่นงาน faces
-            faces_sheet = sheet.worksheet("faces")
-            faces_sheet.clear()
-            faces_sheet.append_row(["face_id", "person", "photo_id"])
-            
-            face_rows = []
-            for item in sync_data["faces"]:
-                face_rows.append([item["face_id"], item["person"], item["photo_id"]])
-                
-            if face_rows:
-                faces_sheet.append_rows(face_rows)
-                logger.info(f"Successfully synced {len(face_rows)} rows to 'faces' worksheet.")
-                
-            return True
-        except Exception as e:
-            logger.error(f"Error syncing data to Google Sheets: {e}", exc_info=True)
-            return False
+        logger.info("[GSHEETS] Optimized (v2.7): Skipped legacy 'photos' & 'faces' worksheets bulk writing (Using Google Drive JSON Index instead).")
+        return True
 
     def save_local_excel_mirror(self, sync_data):
         """
@@ -355,6 +319,16 @@ class GoogleSyncManager:
             return False
 
         try:
+            # 🌟 ถ้า sync_data ส่งมาเป็น None ให้ดึงจาก SQLite DB ให้อัตโนมัติ (v4.19)
+            if sync_data is None:
+                from db_manager import DatabaseManager
+                db = DatabaseManager()
+                sync_data = db.get_all_sync_data()
+
+            if not sync_data or not isinstance(sync_data, dict):
+                logger.warning("sync_data is empty or invalid. Skipping Drive JSON index update.")
+                return False
+
             # 1. แยกกลุ่มและสร้างดัชนีสำหรับ person_index.json (ครู) และ student_index.json (นักเรียน)
             person_index = {}
             student_index = {}

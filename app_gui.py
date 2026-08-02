@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.18 (Tuple Index Fix for Mandatory Drive JSON Sync)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.19 (Auto DB Sync Fallback & Manual Sync Fix)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.18",
+            text="FACE MATCHING\nSYSTEM v4.19",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4080,20 +4080,8 @@ class FaceSearchApp(ctk.CTk):
         self.btn_db_last_page.configure(state="normal" if self.db_current_page < total_pages else "disabled")
 
     def run_manual_photos_sync(self):
-        """รันกระบวนการซิงค์รูปภาพถ่ายทั้งหมดไปยัง Google Drive ใน Thread ย่อย"""
-        if not self.sync_manager.connected:
-            messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google API ได้ (กรุณาตรวจสอบไฟล์ Credentials)")
-            return
-
-        def do_sync():
-            try:
-                logger.info("[GSHEETS] Manual Photos Sync Started: Uploading scanned photos to Google Drive...")
-                self.sync_manager.sync_scanned_photos_to_drive()
-                self.after(0, lambda: messagebox.showinfo("สำเร็จ", "ซิงค์รูปภาพถ่ายทั้งหมดไปยัง Google Drive เรียบร้อยแล้ว"))
-            except Exception as e:
-                logger.error(f"Error in manual photos sync: {e}")
-
-        threading.Thread(target=do_sync, daemon=True).start()
+        """รันกระบวนการซิงค์ข้อมูลดัชนีภาพถ่ายไปยัง Google Drive (v4.19 Fix)"""
+        self.run_manual_json_sync("all")
 
     def on_db_tree_double_click(self, event):
         """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview เพื่อเปิดลิงก์รูปภาพบน Google Drive"""
