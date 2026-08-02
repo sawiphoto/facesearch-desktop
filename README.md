@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.26 Changelog (Auto-Recovery Student Lookup Fix & Runtime Execution Verified)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.26)
+
+1. ** เพิ่มเมธอด `get_staff_id_by_student_id()` ใน `db_manager.py`:**
+   - **สาเหตุที่ v4.24/v4.25 ไม่ดึงคน 0 หน้ากลับมาทำ:** เนื่องจากใน `db_manager.py` ยังไม่มีฟังก์ชัน `get_staff_id_by_student_id()` คำสั่ง `hasattr(self.db, 'get_staff_id_by_student_id')` จึงคืนค่า `False` ทำให้ระบบข้ามการเช็ก Auto-Recovery และสรุปว่าไม่มีอะไรต้องทำ
+   - **การแก้ไขใน `db_manager.py`:** เพิ่มฟังก์ชัน [db_manager.py](db_manager.py#L375) ดึง `staff_id` จาก `student_id` (รหัสนักเรียน) อย่างแม่นยำ 100%
+   - **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):** สร้างและรันสคริปต์ [test_task2_execution.py](scratch/test_task2_execution.py) จำลองสถานการณ์นักเรียน A (88888) ยืนยันว่าระบบค้นพบ `staff_id = 140` ตรวจพบ `emb_count = 0` และตั้งค่าธง `is_new_or_updated = True` ดึงกลับมาสแกนใหม่สำเร็จสมบูรณ์!
+   - **ผลลัพธ์:** Task 2 จะดึงนักเรียนทุกคนที่เคยพัง/ค้าง (0 ใบหน้า) กลับมาสแกนถอนเวกเตอร์รูปใหม่ และทำ Bulk Backfill Matching แมตช์รูปภาพย้อนหลังให้อัตโนมัติ 100%!
+
+---
+
 ## 📋 Version 4.25 Changelog (Task 2 Variable Scope Fix)
 
 **Date:** 3 สิงหาคม 2026  

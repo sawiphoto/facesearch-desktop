@@ -372,6 +372,16 @@ class DatabaseManager:
 
                 return None
 
+    def get_staff_id_by_student_id(self, student_id):
+        """ดึง staff_id จาก student_id (รหัสนักเรียน)"""
+        if not student_id:
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM staff_members WHERE student_id = ? AND role = 'student'", (str(student_id).strip(),))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     def delete_staff_member(self, staff_id):
         """ลบข้อมูลครูและลบความสัมพันธ์อื่น ๆ ทั้งหมด (Cascaded)"""
         with self.get_connection() as conn:
