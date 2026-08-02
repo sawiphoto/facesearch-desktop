@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.17 Changelog (Thai Path Encoding Fix & Realtime Thumbnail Cache)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.17)
+
+1. ** แก้ไขบั๊ก `cv2.imwrite` ล้มเหลวแบบเงียบบน Windows เนื่องจากโฟลเดอร์มีชื่อภาษาไทย:**
+   - **สาเหตุ:** ฟังก์ชัน `cv2.imwrite()` ของ OpenCV บน Windows ไม่รองรับตัวอักษรภาษาไทยใน Path ไดเรกทอรี (`D:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\...`) ส่งผลให้ไฟล์ภาพย่อ Thumbnail Cache ไม่ถูกเขียนลงดิสก์ตามที่ตั้งไว้
+   - **การแก้ไขใน `scheduler_task.py`:** ใน [scheduler_task.py](scheduler_task.py#L888) เปลี่ยนมาใช้ `cv2.imencode('.jpg', thumb_img)` และเซฟไฟล์ผ่าน `encoded_img.tofile(thumb_path)` ซึ่งรองรับ Unicode/Thai Path บน Windows ได้ 100%
+   - **ผลลัพธ์:** ทุกรูปที่สแกนใน Task 1 จะถูกบันทึกย่อขนาด (500px) ลงโฟลเดอร์ `data/thumbnail_cache` เรียลไทม์สมบูรณ์ทุกรูปจริงๆ แล้วครับ!
+
+---
+
 ## 📋 Version 4.16 Changelog (Chunk Pagination & Zero Freeze Gallery)
 
 **Date:** 2 สิงหาคม 2026  

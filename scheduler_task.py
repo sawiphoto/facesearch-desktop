@@ -884,17 +884,20 @@ class SchedulerTask:
                         match_str = f"-> [MATCH_OK] เจอ: {', '.join(match_names)}" if match_names else "-> ไม่พบคนในระบบ"
                         logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) ✅ {f_name} | DL: {t_dl:.2f}s | AI: {t_ai:.2f}s | พบ {len(faces) if faces else 0} ใบหน้า {match_str}")
                         
-                        # Save Thumbnail Cache
+                        # Save Thumbnail Cache (รองรับ Encoding โฟลเดอร์ภาษาไทยบน Windows)
                         try:
                             thumb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbnail_cache")
                             os.makedirs(thumb_dir, exist_ok=True)
                             thumb_path = os.path.join(thumb_dir, f"{f_id}.jpg")
                             if not os.path.exists(thumb_path):
                                 h, w = img.shape[:2]
-                                scale = 500 / max(h, w)
+                                scale = 500.0 / max(h, w)
                                 thumb_img = cv2.resize(img, (int(w * scale), int(h * scale))) if scale < 1.0 else img
-                                cv2.imwrite(thumb_path, thumb_img)
-                        except Exception: pass
+                                success, encoded_img = cv2.imencode('.jpg', thumb_img)
+                                if success:
+                                    encoded_img.tofile(thumb_path)
+                        except Exception as thumb_err:
+                            logger.error(f"[AI SCAN] ⚠️ บันทึก Thumbnail Cache ล้มเหลวสำหรับ {f_id}: {thumb_err}")
 
                         results_data.append({
                             "photo_id": f_id,
