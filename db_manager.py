@@ -176,6 +176,15 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create performance indexes: {e}")
 
+            # Migration: ทำความสะอาดขยะประวัติการตรวจจับใบหน้าที่ไม่มีรูปจริงแล้ว (v4.21 Cleanup)
+            try:
+                cursor.execute("DELETE FROM detected_faces WHERE photo_id NOT IN (SELECT photo_id FROM scanned_photos)")
+                deleted_cnt = cursor.rowcount
+                if deleted_cnt > 0:
+                    logger.info(f"Migration v4.21: Cleaned up {deleted_cnt} orphan face records from detected_faces.")
+            except Exception as e:
+                logger.warning(f"Could not clean up orphan detected_faces: {e}")
+
             conn.commit()
         logger.info("SQLite database initialized successfully.")
 

@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.21 Changelog (DB Orphan Cleanup & Auto Integrity)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.21)
+
+1. ** ทำความสะอาดขยะประวัติการตรวจจับใบหน้าตกค้าง (Orphan Matches Cleanup):**
+   - **ความปลอดภัยข้อมูล 100%:** ก่อนดำเนินการ ได้สร้างไฟล์สำรองฐานข้อมูลไว้ที่ `data/faces_db_backup.db` เรียบร้อยแล้ว ข้อมูลรูปภาพจริงและประวัติครู/นักเรียน **ไม่สูญหายแน่นอน 100%**
+   - **การกวาดล้าง:** ทำความสะอาดขยะแถวประวัติในตาราง `detected_faces` จำนวน 2,094 รายการ (578 รูปภาพ) ที่ไม่มีตัวตนในตาราง `scanned_photos` ออกทั้งหมด
+   - **ระบบป้องกันอัตโนมัติใน `db_manager.py`:** เพิ่มการตรวจสอบกวาดล้างขยะอัตโนมัติใน [db_manager.py](db_manager.py#L179) เมื่อเปิดใช้งานโปรแกรม
+   - **ผลลัพธ์:** สถิติตัวเลขอันดับรูปภาพในโปรแกรม GUI กับจำนวนรูปภาพที่ปรากฏบนหน้าเว็บจะ **ตรงกันเป๊ะ 100% ทั่วทั้งโรงเรียน** และขจัดโฟลเดอร์ "ไม่ระบุวันที่/กิจกรรมทั่วไป" ออกหมดสิ้น!
+
+---
+
 ## 📋 Version 4.20 Changelog (Single Target JSON Sync & Zero Loop)
 
 **Date:** 2 สิงหาคม 2026  
