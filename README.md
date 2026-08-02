@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.18 Changelog (Tuple Index Fix for Mandatory Drive JSON Sync)
+
+**Date:** 2 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.18)
+
+1. ** แก้ไขบั๊ก `tuple indices must be integers or slices, not str` ระหว่างอัปเดตไฟล์ JSON บน Drive:**
+   - **สาเหตุ:** ฟังก์ชัน `_load_year_folders()` ส่งคืนค่ารายชื่อโฟลเดอร์หลักเป็น `List[(name, id)]` (Tuple) แต่ใน `_sync_all_json_to_drive()` ไปดึงผ่าน `item["id"]` ซึ่งเป็น String key ทำให้ Python โยน TypeError ล้มเหลวขณะอัปเดตไฟล์ JSON ปิดท้าย
+   - **การแก้ไขใน `scheduler_task.py`:** ปรับการแกะไอดีโฟลเดอร์ใน [scheduler_task.py](scheduler_task.py#L127) เป็น `top_folders = [folder_id for _, folder_id in self._load_year_folders()]`
+   - **ผลลัพธ์:** การอัปเดตไฟล์ JSON 3 ไฟล์ (Student, Teacher, Photo) ขึ้น Google Drive ปิดท้ายการทำสแกน และตอนกดปุ่ม Stop Schedule จะทำงานได้ราบรื่น 100% ไม่มี Error ขัดจังหวะอีกเลย!
+
+---
+
 ## 📋 Version 4.17 Changelog (Thai Path Encoding Fix & Realtime Thumbnail Cache)
 
 **Date:** 2 สิงหาคม 2026  

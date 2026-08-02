@@ -124,7 +124,7 @@ class SchedulerTask:
     def _sync_all_json_to_drive(self):
         """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 โฟลเดอร์หลักขึ้น Google Drive"""
         try:
-            top_folders = [item["id"] for item in self._load_year_folders()]
+            top_folders = [folder_id for _, folder_id in self._load_year_folders()]
             for folder_id in top_folders:
                 self.sync_manager.update_json_indexes_on_drive(None, folder_id, scan_mode="all")
             logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive สำเร็จแล้ว")
@@ -1152,7 +1152,7 @@ class SchedulerTask:
             # Bulk JSON Update (3 โฟลเดอร์หลัก)
             # ----------------------------------------------------
             logger.info("[SCHEDULE] 📤 กำลังเตรียมอัปเดตไฟล์ JSON บน Google Drive 3 โฟลเดอร์หลักใหญ่...")
-            top_folders = [item["id"] for item in self._load_year_folders()]
+            top_folders = [folder_id for _, folder_id in self._load_year_folders()]
             
             for folder_id in top_folders:
                 try:
