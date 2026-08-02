@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 4.30 Changelog (Gallery Photo Deduplication & Max Confidence Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 4.30)
+
+1. **แก้ไขปัญหาภาพกิจกรรมแสดงซ้ำกันในหน้าแกลเลอรีภาพที่แมตช์แล้ว (`Gallery Deduplication`):**
+   - **สาเหตุที่ภาพซ้ำ:** ในภาพกิจกรรม 1 ภาพ มีใบหน้าที่ตรงกับบุคคลนั้นได้มากกว่า 1 ใบหน้า ทำให้เกิดการบันทึกแถว `(photo_id, staff_id)` ในตาราง `detected_faces` หลายรายการ เมื่อแกลเลอรีดึงภาพมาแสดงจึงเกิดการ์ดภาพซ้ำ (เช่น P23161 ขึ้นซ้ำ 2 ใบ)
+   - **การแก้ไขใน `db_manager.py`:** เพิ่ม `GROUP BY p.photo_id` และดึงค่าความมั่นใจสูงสุด `MAX(df.confidence)` ส่งผลให้ในหน้าแกลเลอรี 1 รูปภาพกิจกรรมจะแสดงผลเพียง 1 การ์ดเสมอ 100%
+   - **การแก้ไขใน `app_gui.py` (`process_retroactive_match_headless`):** ปรับปรุงลูปการบันทึก Retroactive Match ของ Task 1 และ Task 2 ให้จัดกลุ่มหาค่า Confidence สูงสุดของแต่ละ `photo_id` ก่อนสั่ง Insert ป้องกันการบันทึกแถวซ้ำลง DB
+   - **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):** รันสคริปต์ [test_gallery_dedup.py](scratch/test_gallery_dedup.py) ดึงภาพแกลเลอรีของนักเรียน A (140) ผลการทดสอบ: ได้รับ 95 รูปภาพ และทุกรูปไม่ซ้ำกันเลย 100%! (`[SUCCESS] Gallery Deduplication Test Passed 100%!`)
+
+---
+
 ## 📋 Version 4.29 Changelog (Original Headless Retroactive Match Alignment & Runtime Verified)
 
 **Date:** 3 สิงหาคม 2026  

@@ -785,10 +785,11 @@ class DatabaseManager:
             cursor = conn.cursor()
             try:
                 query = """
-                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.photo_date, df.confidence
+                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.photo_date, MAX(df.confidence) as max_conf
                     FROM detected_faces df
                     JOIN scanned_photos p ON df.photo_id = p.photo_id
                     WHERE df.staff_id = ?
+                    GROUP BY p.photo_id
                     ORDER BY p.photo_date DESC, p.photo_id DESC
                 """
                 cursor.execute(query, (staff_id,))

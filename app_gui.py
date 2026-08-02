@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.29 (Original Headless Retroactive Match Alignment)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.30 (Gallery Photo Deduplication & Max Confidence)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v4.29",
+            text="FACE MATCHING\nSYSTEM v4.30",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3141,15 +3141,21 @@ class FaceSearchApp(ctk.CTk):
                 target_emb = item["emb"]
                 target_norm = target_emb / (np.linalg.norm(target_emb) or 1.0)
                 
+                # เก็บเฉพาะค่า confidence สูงสุดของแต่ละ photo_id เพื่อไม่ให้ Insert ซ้ำ
+                photo_best_sim = {}
                 for row in cached_faces:
                     photo_id = row[0]
                     emb_blob = row[1]
                     cached_emb = np.frombuffer(emb_blob, dtype=np.float32)
                     c_norm = cached_emb / (np.linalg.norm(cached_emb) or 1.0)
                     
-                    sim = np.dot(target_norm, c_norm)
+                    sim = float(np.dot(target_norm, c_norm))
                     if sim >= current_thresh:
-                        self.db.save_detected_faces(photo_id, [(staff_id, sim)])
+                        if photo_id not in photo_best_sim or sim > photo_best_sim[photo_id]:
+                            photo_best_sim[photo_id] = sim
+                
+                for photo_id, best_sim in photo_best_sim.items():
+                    self.db.save_detected_faces(photo_id, [(staff_id, best_sim)])
             
             # อัปเดตข้อมูลขึ้น Sheet
             sync_data = self.db.get_all_sync_data()
