@@ -47,6 +47,29 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.01 Changelog (Task 2 Retry Guarding & 60% Personal Threshold)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.01)
+
+1. **ระบบป้องกันรายชื่อขยะ & สแกนใหม่อัตโนมัติ (Task 2 Retry Guarding):**
+   - **พฤติกรรมเดิม:** หากพบนักเรียนใหม่ใน Sheet ระบบจะสั่ง `register_member` ลง DB ก่อน แล้วค่อยดาวน์โหลดรูป หากดาวน์โหลดไม่ผ่านหรือสแกนไม่พบคู่ใบหน้า จะทำให้เกิดรายชื่อนักเรียนที่มี `0 รูปภาพ` ค้างอยู่ในระบบ
+   - **การปรับปรุงใหม่:** สลับลำดับให้ดาวน์โหลดรูปจาก Drive และสกัดเวกเตอร์ใบหน้าให้สำเร็จก่อน หากดาวน์โหลดไม่ผ่านหรือสแกนไม่พบใบหน้า (`added_faces == 0`) ระบบจะ **ห้ามบันทึกชื่อลง DB** และ **ห้ามบันทึกลงไฟล์แคช temp JSON** พร้อมพ่น Warning Log `❌ [RETRY TASK 2] ไม่สามารถสกัดใบหน้าของนักเรียน... (0 รูป) -> ยกเลิกการบันทึก DB และเตรียม Retry สแกนใหม่อัตโนมัติใน Task 2 รอบถัดไป` 
+
+2. **ตั้งค่า Personal Threshold 60% สำหรับนักเรียนใหม่จาก Task 2:**
+   - เมื่อนักเรียนใหม่สแกนรูปภาพโปรไฟล์ผ่านสำเร็จ ระบบจะทำการลงทะเบียนลง SQLite พร้อมตั้งค่า `personal_threshold` ในตาราง `staff_members` เป็น **`0.60` (60%)** โดยอัตโนมัติทันที
+   - บันทึกไฟล์รูปภาพแคชต้นแบบลงในโฟลเดอร์ `data/student_templates/` เพื่อรักษาไฟล์ภาพต้นแบบไว้สร้าง Thumbnails ย่อยบน GUI ถาวร
+
+3. **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):**
+   - รันสคริปต์ [test_v501_retry_and_threshold.py](scratch/test_v501_retry_and_threshold.py) ทดสอบลงทะเบียนนักเรียนใหม่พร้อมค่า `personal_threshold=0.60` ผ่าน 100%!
+
+---
+
 ## 📋 Version 5.00 Changelog (Major Release: Task 2 Auto JSON Sync & Drive Web View Standard)
 
 **Date:** 3 สิงหาคม 2026  

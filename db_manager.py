@@ -327,23 +327,32 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else 0
 
-    def register_member(self, name, role='teacher', student_id=None, pin_code=None):
-        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student), student_id และ pin_code (สำหรับนักเรียน)"""
+    def register_member(self, name, role='teacher', student_id=None, pin_code=None, personal_threshold=None):
+        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student), student_id, pin_code และ personal_threshold"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if role == 'student' and student_id:
-                    cursor.execute("INSERT INTO staff_members (name, role, student_id, pin_code) VALUES (?, ?, ?, ?)", (name, role, student_id, pin_code))
+                    cursor.execute(
+                        "INSERT INTO staff_members (name, role, student_id, pin_code, personal_threshold) VALUES (?, ?, ?, ?, ?)",
+                        (name, role, student_id, pin_code, personal_threshold if personal_threshold is not None else 0.50)
+                    )
                     conn.commit()
-                    logger.info(f"Registered new {role}: {name} (ID: {student_id})")
+                    logger.info(f"Registered new {role}: {name} (ID: {student_id}, Thresh: {personal_threshold or 0.50})")
                     return cursor.lastrowid
                 elif role == 'student':
-                    cursor.execute("INSERT INTO staff_members (name, role, pin_code) VALUES (?, ?, ?)", (name, role, pin_code))
+                    cursor.execute(
+                        "INSERT INTO staff_members (name, role, pin_code, personal_threshold) VALUES (?, ?, ?, ?)",
+                        (name, role, pin_code, personal_threshold if personal_threshold is not None else 0.50)
+                    )
                     conn.commit()
                     logger.info(f"Registered new {role}: {name} (WARNING: no student_id)")
                     return cursor.lastrowid
                 else:
-                    cursor.execute("INSERT INTO staff_members (name, role) VALUES (?, ?)", (name, role))
+                    cursor.execute(
+                        "INSERT INTO staff_members (name, role, personal_threshold) VALUES (?, ?, ?)",
+                        (name, role, personal_threshold if personal_threshold is not None else 0.50)
+                    )
                     conn.commit()
                     logger.info(f"Registered new {role}: {name}")
                     return cursor.lastrowid
@@ -353,7 +362,10 @@ class DatabaseManager:
                     cursor.execute("SELECT id FROM staff_members WHERE student_id = ?", (student_id,))
                     row = cursor.fetchone()
                     if row:
-                        cursor.execute("UPDATE staff_members SET name = ?, role = 'student' WHERE id = ?", (name, row[0]))
+                        if personal_threshold is not None:
+                            cursor.execute("UPDATE staff_members SET name = ?, role = 'student', personal_threshold = ? WHERE id = ?", (name, personal_threshold, row[0]))
+                        else:
+                            cursor.execute("UPDATE staff_members SET name = ?, role = 'student' WHERE id = ?", (name, row[0]))
                         conn.commit()
                         logger.info(f"Student '{name}' updated existing record (ID: {row[0]}, Student ID: {student_id}).")
                         return row[0]

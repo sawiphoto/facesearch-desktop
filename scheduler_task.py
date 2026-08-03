@@ -1055,15 +1055,14 @@ class SchedulerTask:
             if is_new_or_updated:
                 logger.info(f"[SCHEDULE] 🔄 พบการอัปเดตรูปของนักเรียน: {s_name} ({s_id})")
                 try:
-                    staff_id = self.db.register_member(s_name, role='student', student_id=s_id)
-                    # ลบเวกเตอร์เดิม
-                    self.db.clear_staff_embeddings(staff_id)
-                    
-                    added_faces = 0
+                    # 1. พยายามดาวน์โหลดรูปและสกัดเวกเตอร์ใบหน้าก่อนบันทึกลง DB
+                    pending_embeddings = []
                     for url in urls:
                         try:
                             img_data = self.sync_manager.download_image_from_url(url)
-                            if not img_data: continue
+                            if not img_data:
+                                logger.warning(f"[SCHEDULE] ⚠️ ดาวน์โหลดรูปไม่ผ่านจาก URL: {url} สำหรับนักเรียน {s_name} ({s_id})")
+                                continue
                             
                             if isinstance(img_data, str) and os.path.exists(img_data):
                                 img = cv2.imdecode(np.fromfile(img_data, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -1077,19 +1076,36 @@ class SchedulerTask:
                                 faces = self.analyzer.get_faces_optimized(img)
                                 if faces:
                                     best_face = faces[0]
-                                    img_ref_path = f"url:{url}"
-                                    self.db.add_staff_embedding(staff_id, img_ref_path, best_face.embedding.tolist(), source_url=url)
-                                    added_faces += 1
+                                    
+                                    # บันทึกไฟล์ภาพแคชต้นแบบลงดิสก์
+                                    template_dir = os.path.join(self.project_root, "data", "student_templates")
+                                    os.makedirs(template_dir, exist_ok=True)
+                                    file_id = self.sync_manager.extract_file_id_from_url(url) or f"{s_id}_{len(pending_embeddings)}"
+                                    save_path = os.path.join(template_dir, f"{s_id}_{file_id}.jpg")
+                                    cv2.imwrite(save_path, img)
+                                    
+                                    pending_embeddings.append((save_path, best_face.embedding.tolist(), url))
+                                else:
+                                    logger.warning(f"[SCHEDULE] ⚠️ ตรวจไม่พบใบหน้าในรูปของนักเรียน {s_name} ({s_id}) จาก URL: {url}")
                         except Exception as e:
                             logger.error(f"[SCHEDULE] Error embedding for {s_name}: {e}")
+
+                    # 2. ตรวจสอบว่าดาวน์โหลดและสกัดใบหน้าได้สำเร็จอย่างน้อย 1 รูปหรือไม่
+                    if pending_embeddings:
+                        # ลงทะเบียนบันทึก DB พร้อมกำหนด personal_threshold = 0.60 (60%) อัตโนมัติ
+                        staff_id = self.db.register_member(s_name, role='student', student_id=s_id, personal_threshold=0.60)
+                        self.db.clear_staff_embeddings(staff_id)
+                        
+                        for img_ref_path, emb_vector, source_url in pending_embeddings:
+                            self.db.add_staff_embedding(staff_id, img_ref_path, emb_vector, source_url=source_url)
                             
-                    if added_faces > 0:
                         self.db.set_staff_backfill_status(staff_id, 0)
                         processed_students += 1
-                        logger.info(f"[SCHEDULE] ✅ อัปเดตเวกเตอร์ใหม่ให้ {s_name} ({added_faces} รูป)")
+                        logger.info(f"[SCHEDULE] ✅ ลงทะเบียนเวกเตอร์และตั้ง Threshold 60% ให้ {s_name} สำเร็จ ({len(pending_embeddings)} รูป)")
                         new_data[s_id] = {"name": s_name, "urls": urls}
                     else:
-                        # ❌ หากสแกนเพิ่มเวกเตอร์ไม่สำเร็จ ไม่เซฟลง new_data เพื่อให้รอบหน้ากลับมาลองสแกนใหม่
+                        # ❌ หากดาวน์โหลดไม่ผ่าน หรือสแกนไม่พบใบหน้า (0 รูป): ห้ามบันทึก DB และห้ามบันทึก temp JSON
+                        logger.warning(f"[SCHEDULE] ❌ [RETRY TASK 2] ไม่สามารถสกัดใบหน้าของนักเรียน {s_name} ({s_id}) ได้ (0 รูป) -> ยกเลิกการบันทึก DB และเตรียม Retry สแกนใหม่อัตโนมัติใน Task 2 รอบถัดไป")
                         new_data.pop(s_id, None)
                 except Exception as e:
                     logger.error(f"[SCHEDULE] Error process sync for {s_name}: {e}")
