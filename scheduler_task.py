@@ -1079,15 +1079,19 @@ class SchedulerTask:
                                 if faces:
                                     best_face = faces[0]
                                     
-                                    # บันทึกไฟล์ภาพแคชต้นแบบลงดิสก์
+                                    # บันทึกไฟล์ภาพแคชต้นแบบลงดิสก์ (ใช้ imencode.tofile เพื่อรองรับ Unicode Path บน Windows)
                                     from face_analyzer import get_project_root
                                     template_dir = os.path.join(get_project_root(), "data", "student_templates")
                                     os.makedirs(template_dir, exist_ok=True)
                                     file_id = self.sync_manager.extract_file_id_from_url(url) or f"{s_id}_{len(pending_embeddings)}"
-                                    save_path = os.path.join(template_dir, f"{s_id}_{file_id}.jpg")
-                                    cv2.imwrite(save_path, img)
+                                    save_path = os.path.join(template_dir, f"student_{s_id}_{file_id}.jpg")
                                     
-                                    pending_embeddings.append((save_path, best_face.embedding.tolist(), url))
+                                    ok, img_encoded = cv2.imencode('.jpg', img)
+                                    if ok:
+                                        img_encoded.tofile(save_path)
+                                        pending_embeddings.append((save_path, best_face.embedding.tolist(), url))
+                                    else:
+                                        logger.error(f"[SCHEDULE] Could not encode image for {s_name} ({s_id})")
                                 else:
                                     logger.warning(f"[SCHEDULE] ⚠️ ตรวจไม่พบใบหน้าในรูปของนักเรียน {s_name} ({s_id}) จาก URL: {url}")
                         except Exception as e:

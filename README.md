@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.03 Changelog (Task 2 Windows Unicode Path Template Fix)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.03)
+
+1. **แก้ไขการบันทึกภาพแคชต้นแบบบน Windows (Windows Unicode Path Fix):**
+   - **สาเหตุ:** `cv2.imwrite(save_path, img)` บน Windows OS คืนค่า `False` ล้มเหลวเงียบๆ เมื่อพาธหรือชื่อโฟลเดอร์ของโปรเจกต์มีตัวอักษรภาษาไทย (`d:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\...`) ส่งผลให้ไฟล์ภาพต้นแบบไม่ถูกสร้างบนดิสก์จริง ➔ เมื่อเปิดหน้า GUI ระบบจึงสั่ง Auto-Clean ลบเรคคอร์ดใน `staff_embeddings` ทิ้งจนเหลือ **0 รูปภาพ**
+   - **การแก้ไขใน `scheduler_task.py`:** เปลี่ยนมาใช้ `cv2.imencode('.jpg', img)[1].tofile(save_path)` แบบ UTF-8 Binary Stream สอดคล้องกับมาตรฐานเดิมของระบบ
+   - **ผลลัพธ์:** ไฟล์ภาพแคชต้นแบบใน `data/student_templates/` ถูกสร้างลงดิสก์สำเร็จ 100% รูปภาพในหน้าลงทะเบียนนักเรียนแสดงผลสมบูรณ์และไม่โดน Auto-Clean ลบเป็น 0 รูปภาพอีกต่อไป
+
+---
+
 ## 📋 Version 5.02 Changelog (Task 2 Smart Auto-Recovery & Cache Sync)
 
 **Date:** 3 สิงหาคม 2026  
