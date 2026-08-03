@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.04 Changelog (Strict Personal Threshold Retroactive Match)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.04)
+
+1. **บังคับใช้ Personal Threshold 60% รายบุคคลในขั้นตอน Retroactive Match (Task 2):**
+   - **สาเหตุเดิม:** ใน `process_retroactive_match_headless()` บรรทัด 3146 ใช้ค่า Threshold รวมจาก Slider หน้าจอ (`0.50`) ส่งผลให้นักเรียนใหม่แม้จะตั้งค่า `personal_threshold = 0.60` แต่ภาพกิจกรรมที่มีความเหมือนต่ำกว่า 60% (เช่น 50.3% หรือ 54.9%) ยังคงหลุดเข้ามาในแกลเลอรี
+   - **การแก้ไขใน `app_gui.py`:** ปรับให้ดึงค่า `personal_threshold` เฉพาะตัวของแต่ละบุคคลจากฐานข้อมูล SQLite (`self.db.get_personal_threshold(staff_id)`) มาเปรียบเทียบใน Matrix Match เสมอ
+   - **การคลีนข้อมูลขยะล่วงหน้า:** รันสคริปต์ [test_v504_strict_threshold.py](scratch/test_v504_strict_threshold.py) กวาดลบเรคคอร์ดผลการแมตช์เดิมใน `detected_faces` ที่มีความเหมือนต่ำกว่า 0.60 สำหรับนักเรียนกลุ่มนี้ออกไป 244 รายการเรียบร้อยแล้ว
+   - **ผลลัพธ์:** การจับคู่ย้อนหลังของนักเรียนใหม่จะเข้มงวดที่ 60.0% ขึ้นไปเท่านั้น ภาพความเหมือน 50.3% หรือ 54.9% จะถูกกรองออกอย่างสมบูรณ์ 100%
+
+---
+
 ## 📋 Version 5.03 Changelog (Task 2 Windows Unicode Path Template Fix)
 
 **Date:** 3 สิงหาคม 2026  

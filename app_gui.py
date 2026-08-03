@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.03 (Task 2 Windows Unicode Path Template Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.04 (Strict Personal Threshold Retroactive Match)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.03",
+            text="FACE MATCHING\nSYSTEM v5.04",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3142,9 +3142,9 @@ class FaceSearchApp(ctk.CTk):
             self.scheduler_scanning = False
 
     def process_retroactive_match_headless(self, matched_faces_to_process):
-        """ทำ Retroactive Match เงียบๆ สำหรับหน้าใหม่ที่เพิ่งเพิ่ม (เทียบกับแคชทั้งหมด)"""
-        current_thresh = self.slider_threshold.get() if hasattr(self, 'slider_threshold') else 0.5
-        logger.info(f"[SCHEDULE] Running retroactive match for {len(matched_faces_to_process)} faces with threshold: {current_thresh:.2f}...")
+        """ทำ Retroactive Match เงียบๆ สำหรับหน้าใหม่ที่เพิ่งเพิ่ม (ใช้อัตรา Personal Threshold ของแต่ละคน)"""
+        default_thresh = self.slider_threshold.get() if hasattr(self, 'slider_threshold') else 0.5
+        logger.info(f"[SCHEDULE] Running retroactive match for {len(matched_faces_to_process)} faces with individual personal thresholds (default: {default_thresh:.2f})...")
         try:
             # ดึงแคชทั้งหมด
             with self.db.get_connection() as conn:
@@ -3158,6 +3158,11 @@ class FaceSearchApp(ctk.CTk):
                 target_emb = item["emb"]
                 target_norm = target_emb / (np.linalg.norm(target_emb) or 1.0)
                 
+                # ดึงค่า personal_threshold ของบุคคลนี้จาก DB (ถ้าไม่มีให้ใช้ default_thresh)
+                person_thresh = self.db.get_personal_threshold(staff_id) if hasattr(self.db, 'get_personal_threshold') else default_thresh
+                if person_thresh is None:
+                    person_thresh = default_thresh
+                
                 # เก็บเฉพาะค่า confidence สูงสุดของแต่ละ photo_id เพื่อไม่ให้ Insert ซ้ำ
                 photo_best_sim = {}
                 for row in cached_faces:
@@ -3167,7 +3172,7 @@ class FaceSearchApp(ctk.CTk):
                     c_norm = cached_emb / (np.linalg.norm(cached_emb) or 1.0)
                     
                     sim = float(np.dot(target_norm, c_norm))
-                    if sim >= current_thresh:
+                    if sim >= person_thresh:
                         if photo_id not in photo_best_sim or sim > photo_best_sim[photo_id]:
                             photo_best_sim[photo_id] = sim
                 
