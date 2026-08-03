@@ -996,16 +996,31 @@ class SchedulerTask:
         col_img1 = find_col(["ภาพใบหน้าตรงตอนเด็ก", "ภาพใบหน้าตรง ตอนเด็ก", "ภาพใบหน้าตรง", "รูปถ่าย"]) or (sample_keys[3] if len(sample_keys) > 3 else "ภาพใบหน้าตรง ตอนเด็ก")
         col_img2 = find_col(["ภาพใบหน้าตรงตอนวัยรุ่น", "ภาพใบหน้าตรง ตอนวัยรุ่น", "ภาพใบหน้าตรง2"]) or (sample_keys[4] if len(sample_keys) > 4 else "ภาพใบหน้าตรง ตอนวัยรุ่น")
 
-        # อ่านสถานะจาก json เพื่อดูว่าลิงก์รูปเปลี่ยนไหม
+        # 🌟 DB-Single Source of Truth: ดึงสถานะปัจจุบันของนักเรียนทุกคนที่มีใน SQLite DB มาสร้างเป็น old_data ตั้งต้น
+        old_data = {}
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT s.student_id, s.name, e.source_url 
+                    FROM staff_members s
+                    LEFT JOIN staff_embeddings e ON s.id = e.staff_id
+                    WHERE s.role = 'student' AND s.student_id IS NOT NULL AND s.student_id != ''
+                """)
+                for sid, sname, surl in cur.fetchall():
+                    if sid not in old_data:
+                        old_data[sid] = {"name": sname, "urls": []}
+                    if surl:
+                        clean_u = surl.replace("url:", "").strip()
+                        if clean_u and clean_u not in old_data[sid]["urls"]:
+                            old_data[sid]["urls"].append(clean_u)
+            logger.info(f"[SCHEDULE] 📊 โหลดสถานะตั้งต้นจาก SQLite DB สำเร็จ พบนักเรียนเดิม {len(old_data)} คน")
+        except Exception as db_err:
+            logger.warning(f"[SCHEDULE] Could not build old_data from DB: {db_err}")
+
+        # อ่านสถานะจาก json สำรอง (ถ้ามี)
         import json
         temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "student_sync_temp.json")
-        old_data = {}
-        if os.path.exists(temp_file):
-            try:
-                with open(temp_file, 'r', encoding='utf-8') as f:
-                    old_data = json.load(f)
-            except: pass
-                
         new_data = {}
         processed_students = 0
         
@@ -1039,7 +1054,8 @@ class SchedulerTask:
             else:
                 old_urls = set(old_data[s_id].get("urls", []))
                 new_urls = set(urls)
-                if old_urls != new_urls:
+                # ถ้าไม่มี URL รูปใน DB เลย หรือ URL ใน Sheet ไม่ตรงกับ DB ➔ ให้ Re-sync ใหม่
+                if not old_urls or old_urls != new_urls:
                     is_new_or_updated = True
 
             # 🌟 Auto-Recovery Check: ถ้า DB ถูกลบออกไปแล้ว หรือไม่มี embedding สำหรับนักเรียนคนนี้ ให้ถือว่าต้องทำ Re-sync เสมอ

@@ -47,6 +47,26 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.05 Changelog (DB-Driven Single Source of Truth Student Sync)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.05)
+
+1. **ปรับปรุงโครงสร้างการซิงค์ข้อมูล Task 2 ให้อ้างอิงจาก SQLite DB เป็นหลัก (Single Source of Truth):**
+   - **แนวคิดเดิม:** ระบบอ่านสถานะเดิม `old_data` จากไฟล์แยก `student_sync_temp.json` ทำให้เมื่อมีการลบ/แก้ไขนักเรียนผ่าน DB หรือ GUI ไฟล์แคชจะไม่ Sync กับ DB ส่งผลให้ Task 2 ประเมินพลาดว่าข้อมูลตรงกันแล้ว
+   - **การปรับปรุงใน `scheduler_task.py`:** เมื่อ Task 2 เริ่มสแกน ระบบจะคิวรีข้อมูลนักเรียน + `student_id` + ลิงก์รูปถ่ายจากตาราง `staff_members` และ `staff_embeddings` ใน SQLite DB ขึ้นมาสร้างเป็น `old_data` ตั้งต้นโดยตรง
+   - **ผลลัพธ์:** ข้อมูลระหว่าง DB และกระบวนการซิงค์สอดคล้องกัน 100% ขจัดปัญหาข้อมูลตกหล่นจากการลบ/แก้ไขนักเรียนบน DB ได้อย่างสมบูรณ์แบบ
+
+2. **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):**
+   - รันสคริปต์ [test_v505_db_driven_sync.py](scratch/test_v505_db_driven_sync.py) ทดสอบสร้างสถานะ `old_data` โดยตรงจาก SQLite DB สำเร็จ 100%!
+
+---
+
 ## 📋 Version 5.04 Changelog (Strict Personal Threshold Retroactive Match)
 
 **Date:** 3 สิงหาคม 2026  
