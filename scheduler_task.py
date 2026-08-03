@@ -1042,9 +1042,11 @@ class SchedulerTask:
                 if old_urls != new_urls:
                     is_new_or_updated = True
 
-            # 🌟 Auto-Recovery Check: ถ้า DB ยังไม่มี embedding สำหรับนักเรียนคนนี้ ให้ถือว่าต้องทำ Re-sync
+            # 🌟 Auto-Recovery Check: ถ้า DB ถูกลบออกไปแล้ว หรือไม่มี embedding สำหรับนักเรียนคนนี้ ให้ถือว่าต้องทำ Re-sync เสมอ
             staff_id_check = self.db.get_staff_id_by_student_id(s_id) if hasattr(self.db, 'get_staff_id_by_student_id') else None
-            if staff_id_check:
+            if not staff_id_check:
+                is_new_or_updated = True
+            else:
                 with self.db.get_connection() as conn:
                     cur = conn.cursor()
                     cur.execute("SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = ?", (staff_id_check,))

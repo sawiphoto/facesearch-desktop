@@ -47,6 +47,28 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.02 Changelog (Task 2 Smart Auto-Recovery & Cache Sync)
+
+**Date:** 3 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.02)
+
+1. **ปรับระบบตรวจสอบความสมบูรณ์อัจฉริยะ (Smart Auto-Recovery Check) ใน Task 2:**
+   - **อัปเดตเงื่อนไข:** ใน [scheduler_task.py](scheduler_task.py#L1045) ปรับให้เช็กความสมบูรณ์ใน SQLite DB ร่วมด้วยเสมอ หากพบว่ารหัสนักเรียน **ยังไม่เคยมีใน DB** (ถูกลบออกไป) หรือมีเรคคอร์ดใน DB แต่ **`emb_count == 0`** (สแกนรูปต้นแบบยังไม่ผ่าน) ➔ บังคับตั้งค่า `is_new_or_updated = True` ดึงกลับมาสแกนและลงทะเบียนใหม่ใน Task 2 ทันที
+
+2. **ลบแคชใน `student_sync_temp.json` อัตโนมัติเมื่อกดลบนักเรียนบน GUI:**
+   - ใน `delete_selected_student_by_id()` ของ [app_gui.py](app_gui.py#L1660) เมื่อแอดมินกดลบนักเรียนผ่านหน้าจอ ระบบจะตามไปลบประวัติของนักเรียนรายนั้นออกจาก `student_sync_temp.json` ด้วย
+   - รองรับการลบไฟล์ `student_sync_temp.json` ทิ้งด้วยตนเอง หากลบไฟล์ทิ้ง ระบบจะทำงานต่อได้ตามปกติโดยถือเป็น Full Re-Sync ใหม่ทั้งหมด 100%
+
+3. **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):**
+   - รันสคริปต์ [test_v502_autorecovery.py](scratch/test_v502_autorecovery.py) ทดสอบลบแคชและจำลองการซิงค์ใหม่แบบ Auto-Recovery ผ่าน 100%!
+
+---
+
 ## 📋 Version 5.01 Changelog (Task 2 Retry Guarding & 60% Personal Threshold)
 
 **Date:** 3 สิงหาคม 2026  

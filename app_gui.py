@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.01 (Task 2 Retry Guarding & 60% Personal Threshold)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.02 (Task 2 Smart Auto-Recovery & Cache Sync)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.01",
+            text="FACE MATCHING\nSYSTEM v5.02",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1659,6 +1659,23 @@ class FaceSearchApp(ctk.CTk):
                 # 1. ลบจาก SQLite Local Database
                 self.db.delete_staff_member(student_id)
                 logger.info(f"[DATABASE] Removed student '{student_name}' and related embedding records from SQLite.")
+
+                # ล้างประวัติใน student_sync_temp.json เพื่อให้ Task 2 ซิงค์ใหม่หากมีชื่อใน Sheet
+                try:
+                    from face_analyzer import get_project_root
+                    temp_file = os.path.join(get_project_root(), "data", "student_sync_temp.json")
+                    if os.path.exists(temp_file):
+                        with open(temp_file, 'r', encoding='utf-8') as f:
+                            t_data = json.load(f)
+                        # ค้นหา student_id (รหัสนักเรียน) และลบออก
+                        keys_to_del = [k for k, v in t_data.items() if v.get('name') == student_name]
+                        for k in keys_to_del:
+                            t_data.pop(k, None)
+                        with open(temp_file, 'w', encoding='utf-8') as f:
+                            json.dump(t_data, f, ensure_ascii=False, indent=2)
+                        logger.info(f"[CACHE] Removed '{student_name}' from student_sync_temp.json")
+                except Exception as c_err:
+                    logger.warning(f"[CACHE] Could not clean temp json: {c_err}")
 
                 # 2. เชื่อมต่อ Google Sheets และอัปเดต Sheets + Excel + Drive JSON
                 sheet_id = self.entry_sheets_id.get().strip()
