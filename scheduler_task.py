@@ -1078,7 +1078,8 @@ class SchedulerTask:
                                     best_face = faces[0]
                                     
                                     # บันทึกไฟล์ภาพแคชต้นแบบลงดิสก์
-                                    template_dir = os.path.join(self.project_root, "data", "student_templates")
+                                    from face_analyzer import get_project_root
+                                    template_dir = os.path.join(get_project_root(), "data", "student_templates")
                                     os.makedirs(template_dir, exist_ok=True)
                                     file_id = self.sync_manager.extract_file_id_from_url(url) or f"{s_id}_{len(pending_embeddings)}"
                                     save_path = os.path.join(template_dir, f"{s_id}_{file_id}.jpg")
