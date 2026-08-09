@@ -47,6 +47,60 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.10 Changelog (Task 1 Folder-Level Skip Optimization)
+
+**Date:** 9 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.10)
+
+1. **ปรับปรุงประสิทธิภาพ Task 1 โดยการข้ามโฟลเดอร์ย่อยที่สแกนแล้วระดับ Folder Level (Folder-Level Fast Skip):**
+   - **คำถาม / ปัญหาเดิม:** ระบบเดิมใน Task 1 ดึงโฟลเดอร์หลักประจำปีจาก `config/year_folders.json` ➔ วนหาโฟลเดอร์ย่อย ➔ **วนส่ง Google Drive API ดึงรายชื่อไฟล์ภาพทุกรูปภายในโฟลเดอร์ย่อย** มาวนลูปเทียบกับ `scanned_ids` ใน SQLite DB เพื่อตรวจสอบว่าต้องสแกนใหม่หรือไม่ ส่งผลให้เกิด HTTP Request จำนวนมากและเสียเวลาสแกนหลายนาทีแม้โฟลเดอร์ย่อยจะสแกนเสร็จหมดแล้ว
+   - **ข้อมูลการจัดเก็บประวัติโฟลเดอร์:** ระบบมีการบันทึกประวัติโฟลเดอร์ย่อยที่สแกนเสร็จแล้วลงในไฟล์ `data/matched_folders.json` ในรูปแบบ Key-Value (`{ "folder_id": "folder_name" }`)
+   - **การแก้ไขใน `scheduler_task.py` (`_task_1_scan_new_photos_fast`):**
+     - โหลดข้อมูล `completed_folder_ids` จาก `self.app_gui.get_matched_folders()` ก่อนเริ่มวนลูป
+     - เพิ่มเงื่อนไขตรวจสอบ `if f_id in completed_folder_ids: continue` ในลูปโฟลเดอร์ย่อย
+     - ข้าม (Skip) โฟลเดอร์ที่เคยสแกนเสร็จสมบูรณ์แล้วทันทีโดย **ไม่ต้องส่ง API Request ไป Query ขอรายการภาพย่อยจาก Google Drive**
+   - **โค้ดส่วนสำคัญที่แก้ไข (`scheduler_task.py`):**
+     ```python
+     # ดึงประวัติโฟลเดอร์ที่สแกนเสร็จสิ้นแล้วจาก matched_folders.json เพื่อ Fast Skip ระดับ Folder
+     completed_folder_ids = set()
+     if hasattr(self.app_gui, 'get_matched_folders'):
+         completed_folder_ids = set(self.app_gui.get_matched_folders().keys())
+
+     for subdir in subfolders:
+         if self.stop_requested: break
+         f_id = subdir['id']
+         f_name = subdir['name']
+         
+         # Fast Skip: ถ้าโฟลเดอร์ย่อยนี้ถูกบันทึกว่าสแกนสมบูรณ์แล้ว ให้ข้ามทันทีโดยไม่ต้องส่ง API query รูปข้างใน (v5.10)
+         if f_id in completed_folder_ids:
+             continue
+     ```
+   - **ผลลัพธ์:** การทำงานของ Task 1 ในรอบถัด ๆ ไปรวดเร็วขึ้นมหาศาล (ลดเวลาการคิวรี Drive API จากหลายนาทีเหลือเพียงไม่กี่วินาที)
+
+---
+
+## 📋 Version 5.06 Changelog (Dashboard Distinct Photo Count Fix)
+
+**Date:** 5 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.06)
+
+1. **ปรับปรุง Logic คำนวณสถิติจำนวนรูปภาพบน Dashboard ทั้งฝั่งครูและนักเรียน (Dashboard Distinct Photo Count):**
+   - **สาเหตุ:** เดิมใช้ `COUNT(df.photo_id)` ซึ่งนับตามจำนวน BBox/ตำแหน่งใบหน้าทั้งหมดที่สแกนเจอ ส่งผลให้คนที่มีหลายใบหน้าใน 1 ภาพกิจกรรม (เช่น ประธาน) แสดงสถิติจำนวนรูปภาพบน Dashboard ถึง 617 รายการ ในขณะที่รูปภาพกิจกรรมจริงใน Gallery มีเพียง 220 รูปภาพที่ไม่ซ้ำกัน
+   - **การแก้ไขใน `app_gui.py` (`refresh_dashboard_stats`):** ปรับคำสั่ง SQL ทั้งส่วนสถิติคุณครูและสถิตินักเรียนให้ใช้ **`COUNT(DISTINCT df.photo_id)`**
+   - **ผลลัพธ์:** สถิติจำนวนรูปภาพประจำตัวบน Dashboard แสดงตามจำนวนไฟล์รูปภาพที่ไม่ซ้ำกันจริง 100% สอดคล้องกับตัวเลขในหน้า Gallery
+
+---
+
 ## 📋 Version 5.05 Changelog (DB-Driven Single Source of Truth Student Sync)
 
 **Date:** 3 สิงหาคม 2026  

@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.05 (DB-Driven Single Source of Truth Student Sync)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.10 (Task 1 Folder-Level Skip Optimization)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.05",
+            text="FACE MATCHING\nSYSTEM v5.10",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1117,7 +1117,7 @@ class FaceSearchApp(ctk.CTk):
             
             # 1. โหลดข้อมูลคุณครู
             cursor.execute(f"""
-                SELECT sm.name, COUNT(df.photo_id) as photo_count
+                SELECT sm.name, COUNT(DISTINCT df.photo_id) as photo_count
                 FROM staff_members sm
                 LEFT JOIN detected_faces df ON sm.id = df.staff_id
                 WHERE sm.role = 'teacher' OR sm.role IS NULL OR sm.role = ''
@@ -1129,7 +1129,7 @@ class FaceSearchApp(ctk.CTk):
             
             # 2. โหลดข้อมูลนักเรียน
             cursor.execute(f"""
-                SELECT sm.name, COUNT(df.photo_id) as photo_count
+                SELECT sm.name, COUNT(DISTINCT df.photo_id) as photo_count
                 FROM staff_members sm
                 LEFT JOIN detected_faces df ON sm.id = df.staff_id
                 WHERE sm.role = 'student'

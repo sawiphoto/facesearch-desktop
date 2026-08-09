@@ -747,8 +747,10 @@ class SchedulerTask:
         template_embeddings = np.array(template_embeddings, dtype=np.float32)
         
         import concurrent.futures
-        import queue
-        import cv2
+        # ดึงประวัติโฟลเดอร์ที่สแกนเสร็จสิ้นแล้วจาก matched_folders.json เพื่อ Fast Skip ระดับ Folder
+        completed_folder_ids = set()
+        if hasattr(self.app_gui, 'get_matched_folders'):
+            completed_folder_ids = set(self.app_gui.get_matched_folders().keys())
 
         for year_name, year_id in target_years:
             if self.stop_requested: break
@@ -765,6 +767,10 @@ class SchedulerTask:
                 f_id = subdir['id']
                 f_name = subdir['name']
                 
+                # Fast Skip: ถ้าโฟลเดอร์ย่อยนี้ถูกบันทึกว่าสแกนสมบูรณ์แล้ว ให้ข้ามทันทีโดยไม่ต้องส่ง API query รูปข้างใน (v5.10)
+                if f_id in completed_folder_ids:
+                    continue
+                
                 try:
                     q_imgs = f"'{f_id}' in parents and (mimeType contains 'image/') and trashed = false"
                     img_res = self.sync_manager.drive_service.files().list(
@@ -773,6 +779,10 @@ class SchedulerTask:
                     imgs = img_res.get("files", [])
                     
                     if not imgs:
+                        # หากเป็นโฟลเดอร์เปล่า บันทึกไว้เป็น matched_folder เพื่อไม่ต้องเช็กซ้ำ
+                        if hasattr(self.app_gui, 'record_matched_folder'):
+                            self.app_gui.record_matched_folder(f_id, f_name)
+                            completed_folder_ids.add(f_id)
                         continue
                         
                     unscanned = [img for img in imgs if img['id'] not in scanned_ids]
@@ -783,9 +793,10 @@ class SchedulerTask:
                             "files_to_scan": unscanned
                         })
                     else:
-                        # ถ้าภาพทุกภาพในโฟลเดอร์มีสแกนใน DB ครบแล้ว ให้บันทึกสถานะโฟลเดอร์เป็นสีเขียวทันที (v4.14)
+                        # ถ้าภาพทุกภาพในโฟลเดอร์มีสแกนใน DB ครบแล้ว ให้บันทึกสถานะโฟลเดอร์เป็นสีเขียวทันที (v4.14 / v5.10)
                         if hasattr(self.app_gui, 'record_matched_folder'):
                             self.app_gui.record_matched_folder(f_id, f_name)
+                            completed_folder_ids.add(f_id)
                 except Exception as e:
                     logger.error(f"[SCHEDULE] Error checking folder {f_name}: {e}")
 
