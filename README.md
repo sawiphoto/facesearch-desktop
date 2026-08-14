@@ -47,6 +47,23 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.11 Changelog (Task 1 Global cv2 Import Fix)
+
+**Date:** 14 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.6 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.11)
+
+1. **แก้ไขปัญหา Scope Error `name 'cv2' is not defined` ใน Task 1 (`scheduler_task.py`):**
+   - **สาเหตุ:** มีการประกาศ `import cv2` เฉพาะเจาะจงภายในบล็อกลูปโฟลเดอร์ของเมธอด `_task_1_scan_new_photos_fast` แต่ละโฟลเดอร์ ส่งผลให้เกิดปัญหาระดับ Variable Scope เมื่อเข้าสู่ลูปย่อยดาวน์โหลดและสแกนรูปภาพรายไฟล์ (`NameError: name 'cv2' is not defined`)
+   - **การแก้ไขใน `scheduler_task.py`:** เพิ่มการ `import cv2` และ `import numpy as np` ขึ้นไปที่ระดับ Global Imports ส่วนบนสุดของไฟล์
+   - **ผลลัพธ์:** Task 1 สามารถรันการสแกนรูปภาพและถอนเวกเตอร์ใบหน้าอัตโนมัติได้อย่างสมบูรณ์แบบ ไร้ข้อผิดพลาด `cv2 is not defined` 100%
+
+---
+
 ## 📋 Version 5.10 Changelog (Task 1 Folder-Level Skip Optimization)
 
 **Date:** 9 สิงหาคม 2026  
