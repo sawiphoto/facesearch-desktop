@@ -518,6 +518,79 @@ class DatabaseManager:
                 conn.rollback()
                 return False
 
+    def save_scanned_photos_batch(self, batch_items):
+        """
+        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วแบบกลุ่ม (Batch) ใน Transaction เดียว (v5.20)
+        batch_items: list of dict [
+            {
+                "photo_id": ...,
+                "drive_file_id": ...,
+                "event_name": ...,
+                "drive_link": ...,
+                "matches": [...],
+                "photo_date": ...,
+                "faces": [...]
+            }
+        ]
+        """
+        if not batch_items:
+            return True
+            
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                for item in batch_items:
+                    pid = item["photo_id"]
+                    fid = item["drive_file_id"]
+                    event = item["event_name"]
+                    link = item["drive_link"]
+                    pdate = item.get("photo_date", "")
+                    matches = item.get("matches", [])
+                    faces = item.get("faces", [])
+                    
+                    # 1. บันทึก scanned_photos
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
+                        (pid, fid, event, link, pdate)
+                    )
+                    
+                    # 2. บันทึก detected_faces
+                    for staff_id, confidence in matches:
+                        cursor.execute(
+                            "INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)",
+                            (pid, staff_id, float(confidence))
+                        )
+                        
+                    # 3. บันทึก scanned_photo_faces (Embedding cache)
+                    if not faces:
+                        cursor.execute(
+                            """
+                            INSERT INTO scanned_photo_faces (photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2, embedding)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (pid, -1, 0.0, 0.0, 0.0, 0.0, b"")
+                        )
+                    else:
+                        for idx, f in enumerate(faces):
+                            bbox = f.bbox
+                            x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                            emb_bytes = f.embedding.astype(np.float32).tobytes()
+                            cursor.execute(
+                                """
+                                INSERT INTO scanned_photo_faces (photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2, embedding)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (pid, idx, x1, y1, x2, y2, emb_bytes)
+                            )
+                            
+                conn.commit()
+                logger.info(f"⚡ [BATCH DB] Successfully committed batch of {len(batch_items)} photos to SQLite.")
+                return True
+            except sqlite3.Error as e:
+                logger.error(f"Error saving batch photos to SQLite: {e}")
+                conn.rollback()
+                return False
+
     def mark_skipped_photo(self, photo_id, drive_file_id, event_name, reason="SKIPPED_UNREADABLE"):
         """บันทึกประวัติไฟล์รูปภาพที่ไม่สามารถอ่านได้/เสียหาย/ไม่ใช่ไฟล์รูปภาพลง SQLite เพื่อป้องกันการติดลูปสแกนซ้ำ"""
         with self.get_connection() as conn:

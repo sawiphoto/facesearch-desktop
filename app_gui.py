@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.11 (Task 1 Global cv2 Import Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.20 (Continuous Pipeline & Batch DB Commit)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.11",
+            text="FACE MATCHING\nSYSTEM v5.20",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3340,134 +3340,178 @@ class FaceSearchApp(ctk.CTk):
                 self.after(0, self.reset_scan_ui)
                 return
 
-            # 5. ลุยตรวจจับใบหน้าทีละภาพ
+            # 5. ลุยตรวจจับใบหน้าแบบ Continuous Prefetch Pipeline (v5.20)
             thresh_val = self.slider_threshold.get()
             success_scan_count = 0
             
-            for idx, img_info in enumerate(images_to_scan):
+            # โครงสร้างคิว Buffer สำหรับดาวน์โหลดภาพต่อเนื่องล่วงหน้า (Producer-Consumer)
+            download_queue = queue.Queue(maxsize=3)
+            stop_download_event = threading.Event()
+            
+            def background_image_downloader():
+                """Worker Thread โหลดภาพจาก Drive ต่อเนื่องยาวไปล่วงหน้า"""
+                for img_item in images_to_scan:
+                    if stop_download_event.is_set() or not self.is_scanning:
+                        break
+                    f_id = img_item["file_id"]
+                    f_name = img_item["file_name"]
+                    
+                    existing_pid = self.db.get_photo_id_by_drive_id(f_id)
+                    # ถ้าเป็น Fast Rescan ที่มีแคชแล้ว ไม่ต้องโหลดไบต์รูปภาพจาก Drive
+                    if use_re_scan and existing_pid and self.db.has_cached_faces(existing_pid):
+                        download_queue.put({
+                            "img_info": img_item,
+                            "img_bytes": None,
+                            "img_bgr": None,
+                            "dl_time": 0.0,
+                            "is_cached": True,
+                            "existing_photo_id": existing_pid
+                        })
+                        continue
+                        
+                    # ดาวน์โหลดไบต์รูปภาพจริง
+                    img_bytes, dl_time, _ = self.sync_manager.download_image_bytes_with_stats(f_id, f_name)
+                    img_bgr = None
+                    if img_bytes:
+                        try:
+                            nparr = np.frombuffer(img_bytes, np.uint8)
+                            img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        except Exception:
+                            img_bgr = None
+                            
+                    download_queue.put({
+                        "img_info": img_item,
+                        "img_bytes": img_bytes,
+                        "img_bgr": img_bgr,
+                        "dl_time": dl_time,
+                        "is_cached": False,
+                        "existing_photo_id": existing_pid
+                    })
+                # ใส่ Sentinel เพื่อแจ้ง Consumer ว่าโหลดครบทุกรูปแล้ว
+                download_queue.put(None)
+                
+            dl_thread = threading.Thread(target=background_image_downloader, daemon=True)
+            dl_thread.start()
+            
+            # Buffer สำหรับสะสมข้อมูลเขียนลง SQLite แบบ Batch ทุกๆ 10 รูป (v5.20)
+            db_batch_buffer = []
+            
+            for idx in range(len(images_to_scan)):
                 # ตรวจสอบปุ่ม Pause สลับลูปรอกรณีหยุดพักชั่วคราว
                 while self.is_paused and self.is_scanning:
                     time.sleep(0.2)
                     
                 if not self.is_scanning:
                     logger.warning("Scan process cancelled by user.")
+                    stop_download_event.set()
                     break
+                    
+                # ดึงภาพจากคิวดาวน์โหลดที่พร้อมใช้งานทันที
+                queue_item = download_queue.get()
+                if queue_item is None:
+                    break
+                    
+                img_info = queue_item["img_info"]
+                img_bytes = queue_item["img_bytes"]
+                img = queue_item["img_bgr"]
+                dl_time = queue_item["dl_time"]
+                is_cached = queue_item["is_cached"]
+                existing_photo_id = queue_item["existing_photo_id"]
                 
-                # แสดงความก้าวหน้า
+                # แสดงความก้าวหน้าบน UI
                 prog_val = (idx / len(images_to_scan))
                 self.progress_bar.set(prog_val)
                 self.lbl_progress_text.configure(text=f"กำลังสแกนรูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']}")
-
                 logger.info(f"[{idx+1}/{len(images_to_scan)}] Processing image '{img_info['file_name']}' from event '{img_info['event']}'")
                 
-                existing_photo_id = self.db.get_photo_id_by_drive_id(img_info["file_id"])
-
-                # ตรวจสอบว่าสามารถรัน Fast Re-scan ผ่านแคชได้หรือไม่
-                is_fast_rescan = False
-                if use_re_scan:
-                    if existing_photo_id and self.db.has_cached_faces(existing_photo_id):
-                        is_fast_rescan = True
-                        logger.info(f"⚡ [FAST RESCAN] Using cached face embeddings for {img_info['file_name']} (Photo ID: {existing_photo_id})")
+                # -------------------------------------------------------------
+                # กรณีที่ 1: FAST RESCAN (มีแคชเดิมอยู่แล้ว)
+                # -------------------------------------------------------------
+                if is_cached:
+                    logger.info(f"⚡ [FAST RESCAN] Using cached face embeddings for {img_info['file_name']} (Photo ID: {existing_photo_id})")
+                    faces = self.db.get_photo_face_embeddings(existing_photo_id)
+                    matches_in_photo = []
+                    current_thresh = self.slider_threshold.get()
+                    summary_list = []
+                    
+                    if len(faces) > 0:
+                        detected_embeddings = np.array([f.embedding for f in faces])
+                        match_results = self.analyzer.match_faces_matrix(
+                            detected_embeddings,
+                            templates["embeddings"],
+                            templates["names"],
+                            templates["staff_ids"],
+                            threshold=current_thresh,
+                            template_thresholds=templates.get("personal_thresholds")
+                        )
                         
-                        # โหลดใบหน้าจากแคช
-                        faces = self.db.get_photo_face_embeddings(existing_photo_id)
-                        
-                        matches_in_photo = []
-                        current_thresh = self.slider_threshold.get()
-                        summary_list = []
-                        
-                        if len(faces) > 0:
-                            detected_embeddings = np.array([f.embedding for f in faces])
-                            match_results = self.analyzer.match_faces_matrix(
-                                detected_embeddings,
-                                templates["embeddings"],
-                                templates["names"],
-                                templates["staff_ids"],
-                                threshold=current_thresh,
-                                template_thresholds=templates.get("personal_thresholds")
-                            )
-                            
-                            for i, f in enumerate(faces):
-                                m_res = match_results[i]
-                                if m_res:
-                                    matches_in_photo.append((m_res["staff_id"], m_res["confidence"]))
-                                    logger.info(f"🎯 Match (Cached): {m_res['name']} ({m_res['confidence']*100:.1f}%) in {img_info['file_name']}")
-                                    summary_list.append((m_res["name"], m_res["confidence"], True))
-                                else:
-                                    best_sim = 0.0
-                                    best_name = "Unknown"
-                                    if len(templates["embeddings"]) > 0:
-                                        f_norm = f.embedding / (np.linalg.norm(f.embedding) or 1.0)
-                                        t_norms = templates["embeddings"] / np.linalg.norm(templates["embeddings"], axis=1, keepdims=True)
-                                        sim_scores = np.dot(t_norms, f_norm)
-                                        best_idx = np.argmax(sim_scores)
-                                        best_sim = float(sim_scores[best_idx])
-                                        best_name = templates["names"][best_idx]
-                                    summary_list.append((best_name, best_sim, False))
-                        
-                        # อัปเดต GUI Summary Log (เฉพาะส่วนข้อความสรุป)
-                        def update_summary_only(items=summary_list):
-                            self.txt_match_summary.configure(state="normal")
-                            self.txt_match_summary.delete("1.0", "end")
-                            if not items:
-                                self.txt_match_summary.insert("end", "[ ไม่พบใบหน้าในรูป (แคช) ]\n", "red")
+                        for i, f in enumerate(faces):
+                            m_res = match_results[i]
+                            if m_res:
+                                matches_in_photo.append((m_res["staff_id"], m_res["confidence"]))
+                                logger.info(f"🎯 Match (Cached): {m_res['name']} ({m_res['confidence']*100:.1f}%) in {img_info['file_name']}")
+                                summary_list.append((m_res["name"], m_res["confidence"], True))
                             else:
-                                for name, score, is_match in items:
-                                    pct = int(score * 100)
-                                    if is_match:
-                                        self.txt_match_summary.insert("end", f"✓ {name} ({pct}%)\n", "green")
-                                    else:
-                                        self.txt_match_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
-                            self.txt_match_summary.configure(state="normal")
-                        
-                        self.after(0, update_summary_only)
-                        
-                        # ปรับปรุงผลลัพธ์ลง SQLite (ลบแมตช์เดิมตามเงื่อนไขที่เลือก และเขียนแมตช์ใหม่ลงไป โดยไม่ลบแคช)
-                        if self.match_mode.get() != "all":
-                            self.db.delete_photo_matches_selective(existing_photo_id, templates["staff_ids"])
+                                best_sim = 0.0
+                                best_name = "Unknown"
+                                if len(templates["embeddings"]) > 0:
+                                    f_norm = f.embedding / (np.linalg.norm(f.embedding) or 1.0)
+                                    t_norms = templates["embeddings"] / np.linalg.norm(templates["embeddings"], axis=1, keepdims=True)
+                                    sim_scores = np.dot(t_norms, f_norm)
+                                    best_idx = np.argmax(sim_scores)
+                                    best_sim = float(sim_scores[best_idx])
+                                    best_name = templates["names"][best_idx]
+                                summary_list.append((best_name, best_sim, False))
+                    
+                    def update_summary_only(items=summary_list):
+                        self.txt_match_summary.configure(state="normal")
+                        self.txt_match_summary.delete("1.0", "end")
+                        if not items:
+                            self.txt_match_summary.insert("end", "[ ไม่พบใบหน้าในรูป (แคช) ]\n", "red")
                         else:
-                            self.db.delete_photo_matches(existing_photo_id)
-                        self.db.save_detected_faces(existing_photo_id, matches_in_photo)
-                        success_scan_count += 1
-                        continue
-                
-                # หากแอดมินติ๊กสแกนซ้ำ แต่ไม่มีข้อมูลแคช ให้ทำการล้างประวัติใน SQLite ก่อนเพื่อรับการวิเคราะห์ใหม่ (Full Re-scan)
-                if use_re_scan:
-                    self.db.delete_photo_scan_record(img_info["file_id"])
-
-                # ดาวน์โหลดไบต์รูปภาพพร้อมบันทึกสถิติ
-                img_bytes, dl_time, img_size = self.sync_manager.download_image_bytes_with_stats(img_info["file_id"], img_info["file_name"])
-                if img_bytes is None:
-                    logger.error(f"Cannot download image {img_info['file_name']}. Skipping.")
+                            for name, score, is_match in items:
+                                pct = int(score * 100)
+                                if is_match:
+                                    self.txt_match_summary.insert("end", f"✓ {name} ({pct}%)\n", "green")
+                                else:
+                                    self.txt_match_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
+                        self.txt_match_summary.configure(state="normal")
+                    
+                    self.after(0, update_summary_only)
+                    
+                    if self.match_mode.get() != "all":
+                        self.db.delete_photo_matches_selective(existing_photo_id, templates["staff_ids"])
+                    else:
+                        self.db.delete_photo_matches(existing_photo_id)
+                    self.db.save_detected_faces(existing_photo_id, matches_in_photo)
+                    success_scan_count += 1
                     continue
 
-                # แปลงเป็นรูปภาพ OpenCV (รองรับเฉพาะไฟล์รูปภาพปกติ เช่น JPG, PNG, WEBP)
-                nparr = np.frombuffer(img_bytes, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                # -------------------------------------------------------------
+                # กรณีที่ 2: FULL SCAN (ดาวน์โหลดจาก Queue + สแกน AI + แสดง Preview)
+                # -------------------------------------------------------------
+                if use_re_scan:
+                    self.db.delete_photo_scan_record(img_info["file_id"])
 
                 if img is None:
                     logger.error(f"Cannot decode image {img_info['file_name']}. Skipping.")
                     continue
 
-                # รันสแกนหาใบหน้าทั้งหมด (ปรับย่อขนาดรูปภาพอัตโนมัติ v1.9.6 สำหรับรูปความละเอียดสูง 42MP)
-                import time
+                # รัน InsightFace บน GPU
                 t_ai_start = time.time()
                 faces = self.analyzer.get_faces_optimized(img)
                 t_ai_elapsed = time.time() - t_ai_start
                 logger.info(f"[AI SCAN] สแกนใบหน้าไฟล์ {img_info['file_name']} สำเร็จ พบ {len(faces)} ใบหน้า ใช้เวลาสแกน {t_ai_elapsed:.2f}s (เวลาดาวน์โหลด Drive: {dl_time:.1f}s)")
 
                 matches_in_photo = []
-                
-                # ดึงค่า Threshold สด ณ วินาทีนี้ (Real-time Threshold!)
                 current_thresh = self.slider_threshold.get()
                 
-                # ดึงพจนานุกรมภาพพรีวิวด้วย PIL เพื่อรองรับตัวอักษรภาษาไทย Tahoma
+                # วาดภาพพรีวิวด้วย PIL รองรับอักขระไทย
                 from PIL import ImageDraw, ImageFont
                 preview_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 preview_pil = Image.fromarray(preview_rgb)
                 draw = ImageDraw.Draw(preview_pil)
                 
-                # พยายามโหลดฟอนต์ Tahoma (ฟอนต์ระบบ Windows มาตรฐาน) เพื่อรองรับอักขระไทย
                 font = None
                 font_paths = ["tahoma.ttf", "cordia.ttf", "arial.ttf"]
                 for fp in font_paths:
@@ -3480,11 +3524,9 @@ class FaceSearchApp(ctk.CTk):
                 if font is None:
                     font = ImageFont.load_default()
 
+                summary_list = []
                 if len(faces) > 0:
-                    # คัดลอกเวกเตอร์ใบหน้าที่พบ
                     detected_embeddings = np.array([f.embedding for f in faces])
-                    
-                    # ค้นหาในเมทริกซ์ใบหน้าต้นแบบครู
                     match_results = self.analyzer.match_faces_matrix(
                         detected_embeddings,
                         templates["embeddings"],
@@ -3494,24 +3536,18 @@ class FaceSearchApp(ctk.CTk):
                         template_thresholds=templates.get("personal_thresholds")
                     )
                     
-                    # กรองและประมวลผลวาดกรอบผลลัพธ์
-                    summary_list = [] # เก็บ tuple (name, confidence, is_matched) เพื่อพ่นขึ้นกล่องข้อความขวา
                     for i, f in enumerate(faces):
                         bbox = f.bbox
                         x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                        
                         m_res = match_results[i]
                         if m_res:
                             matches_in_photo.append((m_res["staff_id"], m_res["confidence"]))
                             logger.info(f"🎯 Match: {m_res['name']} ({m_res['confidence']*100:.1f}%) in {img_info['file_name']}")
                             summary_list.append((m_res["name"], m_res["confidence"], True))
-                            
-                            # วาดกรอบสี่เหลี่ยมสีเขียว (ผ่านเกณฑ์) ลงบน PIL Image
                             draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
                             text_label = f"{m_res['name']} ({m_res['confidence']*100:.0f}%)"
                             draw.text((x1, max(0, y1 - font.getbbox(text_label)[3] - 5)), text_label, fill=(0, 255, 0), font=font)
                         else:
-                            # ต่ำกว่าเกณฑ์ -> ค้นหาคนที่ใกล้เคียงสุดเพื่อรายงานคะแนนในวงเล็บและตีกรอบสีแดง
                             best_sim = 0.0
                             best_name = "Unknown"
                             if len(templates["embeddings"]) > 0:
@@ -3521,14 +3557,12 @@ class FaceSearchApp(ctk.CTk):
                                 best_idx = np.argmax(sim_scores)
                                 best_sim = float(sim_scores[best_idx])
                                 best_name = templates["names"][best_idx]
-                                
                             summary_list.append((best_name, best_sim, False))
-                                
                             draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
                             text_label = f"Unknown ({best_sim*100:.1f}%)"
                             draw.text((x1, max(0, y1 - font.getbbox(text_label)[3] - 5)), text_label, fill=(255, 0, 0), font=font)
-                            
-                # ปรับรูปพรีวิวย่อขนาดเพื่อแสดงใน GUI
+
+                # ปรับรูปพรีวิวย่อขนาดเพื่อแสดงผลบน GUI แบบสดๆ
                 h_orig, w_orig = preview_pil.height, preview_pil.width
                 h_new = 240
                 w_new = int(w_orig * (h_new / h_orig))
@@ -3539,7 +3573,6 @@ class FaceSearchApp(ctk.CTk):
                 preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
                 ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
                 
-                # ส่งวัตถุพรีวิวและประวัติสรุปรายชื่อแบบเรียลไทม์ขึ้น GUI
                 def update_preview_and_summary(img_obj=ctk_preview, items=summary_list):
                     self.lbl_realtime_preview.configure(image=img_obj, text="")
                     self.txt_match_summary.configure(state="normal")
@@ -3557,26 +3590,35 @@ class FaceSearchApp(ctk.CTk):
 
                 self.after(0, update_preview_and_summary)
 
-                # 6. สร้าง หรือใช้ รหัส ID เดิมสำหรับรูปภาพนี้
                 photo_id = existing_photo_id
                 if not photo_id:
-                    photo_serial = self.get_next_photo_serial()
+                    photo_serial = self.get_next_photo_serial() + len(db_batch_buffer)
                     photo_id = f"P{photo_serial:05d}"
-                
-                # 7. บันทึกข้อมูลลง SQLite (ส่ง photo_date ไปด้วย)
-                self.db.save_scanned_photo(
-                    photo_id=photo_id,
-                    drive_file_id=img_info["file_id"],
-                    event_name=img_info["event"],
-                    drive_link=img_info["drive_link"],
-                    matches=matches_in_photo,
-                    photo_date=img_info.get("date", "")
-                )
-                
-                # บันทึกข้อมูลใบหน้าลงแคชสำหรับภาพสแกนใหม่ (Full Scan)
-                self.db.save_photo_face_embeddings(photo_id, faces)
+
+                # รวบรวมข้อมูลลง Batch Buffer
+                db_batch_buffer.append({
+                    "photo_id": photo_id,
+                    "drive_file_id": img_info["file_id"],
+                    "event_name": img_info["event"],
+                    "drive_link": img_info.get("drive_link", f"https://drive.google.com/file/d/{img_info['file_id']}/view"),
+                    "matches": matches_in_photo,
+                    "photo_date": img_info.get("date", ""),
+                    "faces": faces
+                })
                 
                 success_scan_count += 1
+
+                # ⚡ บันทึกข้อมูลลง SQLite แบบ Batch ทุกๆ 10 รูป (v5.20)
+                if len(db_batch_buffer) >= 10:
+                    self.db.save_scanned_photos_batch(db_batch_buffer)
+                    db_batch_buffer.clear()
+            
+            # บันทึกข้อมูลส่วนที่เหลือใน Buffer (หากไม่ครบ 10 รูป)
+            if db_batch_buffer:
+                self.db.save_scanned_photos_batch(db_batch_buffer)
+                db_batch_buffer.clear()
+
+            stop_download_event.set()
             
             # 8. สแกนจบหรือกดยกเลิก -> อัปเดตไฟล์ JSON บน Drive
             if success_scan_count > 0:
