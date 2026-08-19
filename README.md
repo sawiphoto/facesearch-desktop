@@ -47,6 +47,79 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.31 Changelog (Senior-Friendly UI Scaling 1.5x & High-Contrast Typography)
+
+**Date:** 19 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบและการแก้ไข (Issues & Solutions):
+- **ปัญหาเดิม (Problem Encountered):** ผู้ใช้งานผู้สูงอายุ/สายตาไม่ดี ประสบปัญหาหน้าจอ UI หลายส่วนมีขนาดตัวอักษรเล็กเกินไป (เช่น Console Debug logs ขนาด 9pt, ปุ่มกากบาทลบขนาด 26px, ฟอนต์ตาราง Treeview ขนาด 10pt, ปุ่มกดขนาด 20–24px) ทำให้มองเห็นได้ยากและกดใช้งานลำบาก
+- **โจทย์ความท้าทาย (Constraint):** ต้องขยายขนาด UI ให้ใหญ่ขึ้นประมาณ 1.5 เท่าเพื่อให้อ่านง่ายและคลิกได้ชัดเจน แต่ต้องรักษาความสมดุล ไม่ดันเลย์เอาต์จนล้นขอบจอ ไม่ตกขอบ และไม่ทำให้หน้าจอเบี้ยวหรือซ้อนทับกัน
+
+---
+
+### 🚀 รายละเอียดการปรับปรุงโค้ดและฟังก์ชันสำคัญ (Key Code & Functions Modified):
+
+1. **การขยายสัดส่วนหน้าต่างหลัก (Main Window & Grid Geometry):**
+   - **`app_gui.py` (`__init__`)**:
+     - ปรับขนาดหน้าต่างเริ่มต้นจาก `1100x700` ➔ `1400x880` และ `minsize` จาก `(1000, 650)` ➔ `(1250, 760)`
+     - กำหนด Title bar เป็น `ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30 (Senior-Friendly UI & Task 3 Auto-Sync)`
+
+2. **แถบเมนูด้านซ้าย (Sidebar Navigation Bar):**
+   - **`app_gui.py` (`create_sidebar`)**:
+     - ปรับความกว้าง Sidebar Frame จาก `width=220` ➔ `width=260`
+     - ปรับขนาดหัวข้อโลโก้จาก `size=20` ➔ `size=22 (bold)`
+     - ปรับปุ่มเมนูหลักทั้ง 8 ปุ่ม (`btn_dashboard`, `btn_registry`, `btn_student_registry`, `btn_scan`, `btn_database`, `btn_matched_gallery`, `btn_settings`, `btn_delete_req`) ให้มีความสูง `height=36` และฟอนต์ขนาด `size=14`
+     - ปรับปุ่ม Schedule Task ทั้ง 4 ปุ่ม (`btn_start_schedule`, `btn_start_task2`, `btn_start_task3`, `btn_stop_schedule`) ให้มีความสูง `height=38` และฟอนต์ขนาด `size=14 (bold)` พร้อมเพิ่มไอคอนกำกับชัดเจน
+
+3. **หน้าภาพรวมระบบ (Dashboard UI):**
+   - **`app_gui.py` (`setup_dashboard_ui` & `refresh_dashboard_stats`)**:
+     - ขยายหัวข้อหลักจาก `size=22` ➔ `size=26 (bold)`
+     - ขยายความสูงการ์ดสถิติ 4 ช่อง (`card_teachers`, `card_students`, `card_photos`, `card_matches`) จาก `height=130` ➔ `height=145`
+     - ขยายตัวเลขสถิติจาก `size=36` ➔ `size=42 (bold)` และคำบรรยายจาก `size=13` ➔ `size=14 (bold)`
+     - ขยายฟอนต์ในรายการแสดงรายชื่อครูและนักเรียนใน `draw_rows()` จาก `size=11` ➔ `size=13 (bold)`
+     - ปรับปุ่มสลับการเรียงลำดับ `btn_teacher_sort` และ `btn_student_sort` เป็น `width=65, height=28, font=12 (bold)`
+
+4. **หน้าลงทะเบียนครูและนักเรียน (Registry UI & List Items):**
+   - **`app_gui.py` (`setup_registry_ui`, `setup_student_registry_ui`, `load_staff_list`, `load_student_list`)**:
+     - ขยายหัวข้อหน้าเป็น `size=26 (bold)` และหัวข้อย่อยเป็น `size=16 (bold)`
+     - ปรับช่องกรอกข้อมูลค้นหาและชื่อ-นามสกุล/รหัสนักเรียนเป็น `height=36, font=14`
+     - ปรับปุ่มค้นหา ล้างค้นหา และปุ่มเพิ่มชื่อเป็น `height=36, font=14 (bold)`
+     - ปรับปุ่มนำเข้ายกโฟลเดอร์/ชีทเป็น `height=38, font=14 (bold)`
+     - ขยายพื้นที่แสดงตารางภาพใบหน้าต้นแบบ (`thumbs_frame`, `student_thumbs_frame`) จาก `height=180` ➔ `height=200` และพื้นที่สโครลจาก `140` ➔ `155`
+     - ปรับปุ่มรายการชื่อในรายการด้านซ้ายเป็น `height=34, font=14` และปุ่มลบกากบาท ❌ แบบเร่งด่วนจาก `width=26, height=26` ➔ `width=30, height=30, font=12 (bold)`
+
+5. **หน้าสแกนภาพกิจกรรม (Scan Console):**
+   - **`app_gui.py` (`setup_scan_ui`)**:
+     - ปรับช่องกรอก ID โฟลเดอร์, Google Sheets ID, JSON Folder ID เป็น `height=36, font=14`
+     - ปรับปุ่มเลือกโฟลเดอร์/ชีท/เปิดชีทเป็น `height=36, font=13 (bold)`
+     - ปรับขนาดฟอนต์ Checkbox GPU/Re-scan/Fast Rescan และ Radio Button เป้าหมายการค้นหาเป็น `size=14`
+     - ปรับปุ่มเริ่มสแกน `btn_start_scan` และปุ่มพัก `btn_pause_scan` เป็น `height=44, font=15 (bold)`
+     - ปรับความสูง `progress_bar` จากค่าเริ่มต้น ➔ `height=18` และข้อความสถานะ `lbl_progress_text` เป็น `size=14`
+
+6. **หน้าฐานข้อมูล SQLite (Database Viewer):**
+   - **`app_gui.py` (`setup_database_ui`)**:
+     - ปรับตาราง Treeview Style: เพิ่มความสูงของแถว (`rowheight`) จาก `25px` ➔ `32px`, ฟอนต์ข้อมูลในตารางจาก `10pt` ➔ `12pt (Segoe UI)`, และหัวตารางจาก `10pt` ➔ `13pt bold`
+     - ปรับ `option_db_table` เป็น `height=36, font=14`
+     - ปรับปุ่มควบคุมด้านบนทั้งหมด (รีเฟรช, รีเซ็ต, บันทึก Threshold, เปิดโฟลเดอร์, ส่งออก CSV) เป็น `height=36, font=13 (bold)`
+     - ปรับปุ่ม Pagination (หน้าแรก, ก่อนหน้า, ถัดไป, หน้าสุดท้าย) เป็น `height=36, font=13 (bold)` และป้ายข้อมูลหน้าเป็น `font=14 (bold)`
+
+7. **หน้าแกลเลอรีภาพและหน้าคำขอลบ (Matched Gallery & Delete Requests):**
+   - **`app_gui.py` (`setup_matched_gallery_ui` & `setup_delete_req_ui`)**:
+     - ปรับ Dropdown เมนูและปุ่มควบคุมทั้งหมดเป็น `height=36, font=14`
+     - ปรับปุ่ม Pagination คำขอลบ `btn_prev_delete_req` / `btn_next_delete_req` เป็น `width=42, height=36, font=14 (bold)`
+
+8. **หน้าต่าง Global Console Debug Logs:**
+   - **`app_gui.py` (`create_global_console`)**:
+     - ปรับฟอนต์กล่องข้อความล็อก `self.console_text` จาก `Consolas 9pt` ➔ `Consolas 12pt` ให้อ่านบันทึกสถานะได้ชัดเจน
+     - ปรับกล่องสรุปผลการจับคู่แบบเรียลไทม์ `self.txt_match_summary` จาก `Consolas 9pt` ➔ `Consolas 12pt`
+     - ปรับปุ่มหัว Console (คัดลอกส่วนที่เลือก, คัดลอกทั้งหมด, ล้าง Log) จาก `height=20, font=10` ➔ `height=28, font=12 (bold)`
+
+---
+
 ## 📋 Version 5.30 Changelog (Task 3 Teacher Auto-Sync & Retroactive Face Matching)
 
 **Date:** 19 สิงหาคม 2026  

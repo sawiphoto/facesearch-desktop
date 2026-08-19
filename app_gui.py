@@ -672,9 +672,9 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30 (Task 3 Teacher Auto-Sync & Retroactive Face Matching)")
-        self.geometry("1100x700")
-        self.minsize(1000, 650)
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30 (Senior-Friendly UI & Task 3 Auto-Sync)")
+        self.geometry("1400x880")
+        self.minsize(1250, 760)
 
         # --- ส่วนประกอบฐานข้อมูลและหลังบ้าน ---
         self.db = DatabaseManager()
@@ -743,7 +743,7 @@ class FaceSearchApp(ctk.CTk):
     # --- ส่วนเมนูด้านซ้าย (Sidebar) ---
     def create_sidebar(self):
         # พื้นหลัง Sidebar สี Navy ครามเข้ม (Span 2 แถวเพื่อครอบคลุมไปถึง Console ด้านล่าง)
-        self.sidebar_frame = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color="#101B2B")
+        self.sidebar_frame = ctk.CTkFrame(self, width=260, corner_radius=0, fg_color="#101B2B")
         self.sidebar_frame.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.sidebar_frame.grid_propagate(False)
 
@@ -751,103 +751,108 @@ class FaceSearchApp(ctk.CTk):
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
             text="FACE MATCHING\nSYSTEM v5.30",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=25)
+        self.logo_label.grid(row=0, column=0, padx=15, pady=25)
+
+        # ฟอนต์ขนาด 1.5 เท่า สำหรับเมนู
+        menu_font = ctk.CTkFont(size=14, weight="normal")
+        schedule_font = ctk.CTkFont(size=14, weight="bold")
 
         # ปุ่มเมนูต่างๆ
         self.btn_dashboard = ctk.CTkButton(
-            self.sidebar_frame, text="Dashboard",
+            self.sidebar_frame, text="📊 Dashboard", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("dashboard")
         )
-        self.btn_dashboard.grid(row=1, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_dashboard.grid(row=1, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_registry = ctk.CTkButton(
-            self.sidebar_frame, text="ลงทะเบียนครู",
+            self.sidebar_frame, text="👨‍🏫 ลงทะเบียนครู", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("registry")
         )
-        self.btn_registry.grid(row=2, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_registry.grid(row=2, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_student_registry = ctk.CTkButton(
-            self.sidebar_frame, text="ลงทะเบียนนักเรียน",
+            self.sidebar_frame, text="🎒 ลงทะเบียนนักเรียน", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("student_registry")
         )
-        self.btn_student_registry.grid(row=3, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_student_registry.grid(row=3, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_scan = ctk.CTkButton(
-            self.sidebar_frame, text="สแกนรูปภาพกิจกรรม",
+            self.sidebar_frame, text="🔍 สแกนรูปภาพกิจกรรม", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("scan")
         )
-        self.btn_scan.grid(row=4, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_scan.grid(row=4, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_database = ctk.CTkButton(
-            self.sidebar_frame, text="ดูฐานข้อมูล SQLite",
+            self.sidebar_frame, text="🗄️ ดูฐานข้อมูล SQLite", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("database")
         )
-        self.btn_database.grid(row=5, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_database.grid(row=5, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_matched_gallery = ctk.CTkButton(
-            self.sidebar_frame, text="🖼️ ภาพกิจกรรมที่แมตช์แล้ว",
+            self.sidebar_frame, text="🖼️ ภาพกิจกรรมที่แมตช์แล้ว", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("matched_gallery")
         )
-        self.btn_matched_gallery.grid(row=6, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_matched_gallery.grid(row=6, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_settings = ctk.CTkButton(
-            self.sidebar_frame, text="ตั้งค่าระบบ",
+            self.sidebar_frame, text="⚙️ ตั้งค่าระบบ", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("settings")
         )
-        self.btn_settings.grid(row=7, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_delete_req = ctk.CTkButton(
-            self.sidebar_frame, text="คำขอลบภาพ (Requests)",
+            self.sidebar_frame, text="🗑️ คำขอลบภาพ (Requests)", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("delete_req")
         )
-        self.btn_delete_req.grid(row=8, column=0, padx=15, pady=8, sticky="ew")
+        self.btn_delete_req.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
+
         self.btn_start_schedule = ctk.CTkButton(
-            self.sidebar_frame, text="▶️ 1. เริ่มสแกนรูปภาพที่เพิ่มมาใหม่",
+            self.sidebar_frame, text="▶️ 1. สแกนภาพเพิ่มมาใหม่", height=38, font=schedule_font,
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=9, column=0, padx=15, pady=(15, 4), sticky="ew")
+        self.btn_start_schedule.grid(row=9, column=0, padx=12, pady=(12, 4), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
-            self.sidebar_frame, text="▶️ 2. Sync New Student",
+            self.sidebar_frame, text="▶️ 2. Sync New Student", height=38, font=schedule_font,
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=10, column=0, padx=15, pady=4, sticky="ew")
+        self.btn_start_task2.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_start_task3 = ctk.CTkButton(
-            self.sidebar_frame, text="▶️ 3. Sync New Teacher",
+            self.sidebar_frame, text="▶️ 3. Sync New Teacher", height=38, font=schedule_font,
             fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
             anchor="w", command=lambda: self.scheduler.run_task_3_manual()
         )
-        self.btn_start_task3.grid(row=11, column=0, padx=15, pady=4, sticky="ew")
+        self.btn_start_task3.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
-            self.sidebar_frame, text="🛑 Stop Schedule Task",
+            self.sidebar_frame, text="🛑 Stop Schedule Task", height=38, font=schedule_font,
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=12, column=0, padx=15, pady=(4, 15), sticky="ew")
+        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
             self.sidebar_frame,
             text="Admin Console\n© 2026 School Face Finder",
-            font=ctk.CTkFont(size=10),
+            font=ctk.CTkFont(size=11),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=13, column=0, pady=20, sticky="s")
+        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
         self.sidebar_frame.grid_rowconfigure(13, weight=1)
 
     def select_menu(self, menu_name):
@@ -948,7 +953,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อ
         lbl_title = ctk.CTkLabel(
             self.frame_dashboard, text="ภาพรวมของระบบ (Dashboard)", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 20))
 
@@ -958,59 +963,59 @@ class FaceSearchApp(ctk.CTk):
         self.stats_container.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         # การ์ด 1: จำนวนครู
-        self.card_teachers = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=130)
-        self.card_teachers.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.card_teachers = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=145)
+        self.card_teachers.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
         self.card_teachers.grid_propagate(False)
-        self.lbl_stat_teachers = ctk.CTkLabel(self.card_teachers, text="0", font=ctk.CTkFont(size=36, weight="bold"), text_color="#5CACEE")
+        self.lbl_stat_teachers = ctk.CTkLabel(self.card_teachers, text="0", font=ctk.CTkFont(size=42, weight="bold"), text_color="#5CACEE")
         self.lbl_stat_teachers.pack(expand=True, pady=(15, 0))
-        ctk.CTkLabel(self.card_teachers, text="ครูที่ลงทะเบียน (คน)", font=ctk.CTkFont(size=13), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
+        ctk.CTkLabel(self.card_teachers, text="ครูที่ลงทะเบียน (คน)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
 
         # การ์ด 2: จำนวนนักเรียน
-        self.card_students = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=130)
-        self.card_students.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        self.card_students = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=145)
+        self.card_students.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
         self.card_students.grid_propagate(False)
-        self.lbl_stat_students = ctk.CTkLabel(self.card_students, text="0", font=ctk.CTkFont(size=36, weight="bold"), text_color="#5CACEE")
+        self.lbl_stat_students = ctk.CTkLabel(self.card_students, text="0", font=ctk.CTkFont(size=42, weight="bold"), text_color="#5CACEE")
         self.lbl_stat_students.pack(expand=True, pady=(15, 0))
-        ctk.CTkLabel(self.card_students, text="นักเรียนที่ลงทะเบียน (คน)", font=ctk.CTkFont(size=13), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
+        ctk.CTkLabel(self.card_students, text="นักเรียนที่ลงทะเบียน (คน)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
 
         # การ์ด 3: จำนวนภาพกิจกรรมที่สแกนแล้ว
-        self.card_photos = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=130)
-        self.card_photos.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
+        self.card_photos = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=145)
+        self.card_photos.grid(row=0, column=2, padx=8, pady=8, sticky="nsew")
         self.card_photos.grid_propagate(False)
-        self.lbl_stat_photos = ctk.CTkLabel(self.card_photos, text="0", font=ctk.CTkFont(size=36, weight="bold"), text_color="#5CACEE")
+        self.lbl_stat_photos = ctk.CTkLabel(self.card_photos, text="0", font=ctk.CTkFont(size=42, weight="bold"), text_color="#5CACEE")
         self.lbl_stat_photos.pack(expand=True, pady=(15, 0))
-        ctk.CTkLabel(self.card_photos, text="ภาพกิจกรรมที่สแกน (รูป)", font=ctk.CTkFont(size=13), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
+        ctk.CTkLabel(self.card_photos, text="ภาพกิจกรรมที่สแกน (รูป)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
 
         # การ์ด 4: จำนวนใบหน้าที่ตรวจพบ
-        self.card_matches = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=130)
-        self.card_matches.grid(row=0, column=3, padx=10, pady=10, sticky="nsew")
+        self.card_matches = ctk.CTkFrame(self.stats_container, fg_color="#1C2D42", height=145)
+        self.card_matches.grid(row=0, column=3, padx=8, pady=8, sticky="nsew")
         self.card_matches.grid_propagate(False)
-        self.lbl_stat_matches = ctk.CTkLabel(self.card_matches, text="0", font=ctk.CTkFont(size=36, weight="bold"), text_color="#5CACEE")
+        self.lbl_stat_matches = ctk.CTkLabel(self.card_matches, text="0", font=ctk.CTkFont(size=42, weight="bold"), text_color="#5CACEE")
         self.lbl_stat_matches.pack(expand=True, pady=(15, 0))
-        ctk.CTkLabel(self.card_matches, text="การตรวจพบ (ครั้ง)", font=ctk.CTkFont(size=13), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
+        ctk.CTkLabel(self.card_matches, text="การตรวจพบ (ครั้ง)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(expand=True, pady=(0, 15))
 
         # 2.1 กล่องตรวจสอบโมเดลและไลบรารี (ฝั่งซ้ายของแถว 2)
         self.status_box = ctk.CTkFrame(self.frame_dashboard, fg_color="#101B2B")
         self.status_box.grid(row=2, column=0, padx=(0, 10), pady=10, sticky="nsew")
         
-        lbl_status_title = ctk.CTkLabel(self.status_box, text="สถานะไลบรารีและโมเดล AI", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD")
+        lbl_status_title = ctk.CTkLabel(self.status_box, text="สถานะไลบรารีและโมเดล AI", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD")
         lbl_status_title.pack(anchor="w", padx=20, pady=(15, 5))
 
-        self.lbl_model_status = ctk.CTkLabel(self.status_box, text="กำลังตรวจสอบโมเดล...", text_color="#A2B5CD", font=ctk.CTkFont(size=12))
+        self.lbl_model_status = ctk.CTkLabel(self.status_box, text="กำลังตรวจสอบโมเดล...", text_color="#A2B5CD", font=ctk.CTkFont(size=14))
         self.lbl_model_status.pack(anchor="w", padx=20, pady=5)
         
-        self.lbl_db_status = ctk.CTkLabel(self.status_box, text="ตรวจสอบฐานข้อมูล: เชื่อมต่อแล้ว (SQLite)", text_color="#A2B5CD", font=ctk.CTkFont(size=12))
+        self.lbl_db_status = ctk.CTkLabel(self.status_box, text="ตรวจสอบฐานข้อมูล: เชื่อมต่อแล้ว (SQLite)", text_color="#A2B5CD", font=ctk.CTkFont(size=14))
         self.lbl_db_status.pack(anchor="w", padx=20, pady=(5, 10))
 
         # ส่วนซิงค์ข้อมูล Google Sheets แบบ Manual
-        lbl_sync_title = ctk.CTkLabel(self.status_box, text="การซิงค์ข้อมูลคลาวด์", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD")
+        lbl_sync_title = ctk.CTkLabel(self.status_box, text="การซิงค์ข้อมูลคลาวด์", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD")
         lbl_sync_title.pack(anchor="w", padx=20, pady=(10, 5))
         
         self.btn_manual_sync = ctk.CTkButton(
             self.status_box, 
             text="📤 ซิงค์ข้อมูลขึ้น Google Sheets", 
             fg_color="#27AE60", hover_color="#229954", text_color="white",
-            font=ctk.CTkFont(weight="bold"),
+            height=38, font=ctk.CTkFont(size=14, weight="bold"),
             command=self.run_manual_sync
         )
         self.btn_manual_sync.pack(anchor="w", padx=20, pady=(5, 15))
@@ -1025,7 +1030,7 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_teacher_title = ctk.CTkLabel(
             teacher_title_frame, 
             text="สถิติคุณครู (จากมากไปน้อย 🔽)", 
-            font=ctk.CTkFont(size=12, weight="bold"), 
+            font=ctk.CTkFont(size=14, weight="bold"), 
             text_color="#2ECC71"
         )
         self.lbl_teacher_title.pack(side="left", anchor="w")
@@ -1033,8 +1038,8 @@ class FaceSearchApp(ctk.CTk):
         self.btn_teacher_sort = ctk.CTkButton(
             teacher_title_frame, 
             text="สลับ 🔼", 
-            width=50, height=22,
-            font=ctk.CTkFont(size=10, weight="bold"),
+            width=65, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.toggle_dashboard_sort
         )
@@ -1053,7 +1058,7 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_student_title = ctk.CTkLabel(
             student_title_frame, 
             text="สถิตินักเรียน (จากมากไปน้อย 🔽)", 
-            font=ctk.CTkFont(size=12, weight="bold"), 
+            font=ctk.CTkFont(size=14, weight="bold"), 
             text_color="#F39C12"
         )
         self.lbl_student_title.pack(side="left", anchor="w")
@@ -1061,8 +1066,8 @@ class FaceSearchApp(ctk.CTk):
         self.btn_student_sort = ctk.CTkButton(
             student_title_frame, 
             text="สลับ 🔼", 
-            width=50, height=22,
-            font=ctk.CTkFont(size=10, weight="bold"),
+            width=65, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.toggle_dashboard_sort
         )
@@ -1147,7 +1152,7 @@ class FaceSearchApp(ctk.CTk):
             student_rows = cursor.fetchall()
             conn.close()
             
-            # ฟังก์ชันวาดแถวข้อมูลสถิติ
+            # ฟังก์ชันวาดแถวข้อมูลสถิติ (ขนาด 1.5 เท่า ฟอนต์ 13pt)
             def draw_rows(rows, scroll_frame):
                 all_counts = [r[1] for r in rows]
                 max_count = max(all_counts) if all_counts else 0
@@ -1169,13 +1174,13 @@ class FaceSearchApp(ctk.CTk):
                     row_frame.pack(fill="x", pady=2)
                     
                     rank_str = f"{idx+1}."
-                    lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=20, anchor="w", font=ctk.CTkFont(size=11, weight="bold"), text_color=color_hex)
+                    lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=28, anchor="w", font=ctk.CTkFont(size=13, weight="bold"), text_color=color_hex)
                     lbl_rank.pack(side="left")
                     
-                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=11, weight="bold" if ratio > 0.5 else "normal"))
+                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=13, weight="bold" if ratio > 0.5 else "normal"))
                     lbl_name.pack(side="left", fill="x", expand=True)
                     
-                    lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=45, anchor="e", text_color=color_hex, font=ctk.CTkFont(size=11))
+                    lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=60, anchor="e", text_color=color_hex, font=ctk.CTkFont(size=13, weight="bold"))
                     lbl_count.pack(side="right")
                     
                     def _on_mousewheel(event, sf=scroll_frame):
@@ -1249,7 +1254,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อหน้า
         lbl_title = ctk.CTkLabel(
             self.frame_registry, text="ลงทะเบียนใบหน้าคุณครู", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
@@ -1259,21 +1264,21 @@ class FaceSearchApp(ctk.CTk):
         self.list_frame.grid_rowconfigure(2, weight=1)
         self.list_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self.list_frame, text="รายชื่อคุณครูที่บันทึกแล้ว", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=10, sticky="w")
+        ctk.CTkLabel(self.list_frame, text="รายชื่อคุณครูที่บันทึกแล้ว", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=12, sticky="w")
         
         # ช่องค้นหาคุณครู
         search_frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
-        search_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
+        search_frame.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
         search_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_staff_search = ctk.CTkEntry(search_frame, placeholder_text="🔍 ค้นหาชื่อคุณครู...")
+        self.entry_staff_search = ctk.CTkEntry(search_frame, placeholder_text="🔍 ค้นหาชื่อคุณครู...", height=36, font=ctk.CTkFont(size=14))
         self.entry_staff_search.grid(row=0, column=0, sticky="ew")
         self.entry_staff_search.bind("<KeyRelease>", lambda event: self.filter_staff_list())
         
-        btn_clear_staff_search = ctk.CTkButton(search_frame, text="✕", width=28, height=28, fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_staff_search)
+        btn_clear_staff_search = ctk.CTkButton(search_frame, text="✕", width=34, height=36, font=ctk.CTkFont(size=14, weight="bold"), fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_staff_search)
         btn_clear_staff_search.grid(row=0, column=1, padx=(5, 0))
         
-        # Listbox แสดงรายชื่อ (ใช้ CTkTextbox จำลองการเป็น List หรือสร้าง Scrollable Frame)
+        # Listbox แสดงรายชื่อ
         self.staff_list_scrollable = ctk.CTkScrollableFrame(self.list_frame, fg_color="transparent")
         self.staff_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
@@ -1289,63 +1294,64 @@ class FaceSearchApp(ctk.CTk):
         self.form_frame.grid_columnconfigure(0, weight=1)
 
         # เพิ่มครูคนใหม่
-        ctk.CTkLabel(self.form_frame, text="1. เพิ่มรายชื่อครูใหม่", font=ctk.CTkFont(size=14, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
+        ctk.CTkLabel(self.form_frame, text="1. เพิ่มรายชื่อครูใหม่", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
         
         add_input_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
         add_input_frame.pack(fill="x", padx=20, pady=5)
         
-        self.entry_staff_name = ctk.CTkEntry(add_input_frame, placeholder_text="กรอกชื่อคุณครู (เช่น ครูสมชาย ใจดี)")
+        self.entry_staff_name = ctk.CTkEntry(add_input_frame, placeholder_text="กรอกชื่อคุณครู (เช่น ครูสมชาย ใจดี)", height=36, font=ctk.CTkFont(size=14))
         self.entry_staff_name.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
-        btn_add_staff = ctk.CTkButton(add_input_frame, text="เพิ่มชื่อ", width=80, command=self.add_staff_name)
+        btn_add_staff = ctk.CTkButton(add_input_frame, text="เพิ่มชื่อ", width=95, height=36, font=ctk.CTkFont(size=14, weight="bold"), command=self.add_staff_name)
         btn_add_staff.pack(side="right")
 
         # ปุ่มนำเข้ายกโฟลเดอร์อัตโนมัติ
         btn_batch_import = ctk.CTkButton(
             self.form_frame, text="📁 นำเข้าคุณครูยกโฟลเดอร์อัตโนมัติ (Batch Import)", 
-            fg_color="#1F3A60", hover_color="#20334F", command=self.batch_import_teachers
+            fg_color="#1F3A60", hover_color="#20334F", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.batch_import_teachers
         )
-        btn_batch_import.pack(fill="x", padx=20, pady=(2, 10))
+        btn_batch_import.pack(fill="x", padx=20, pady=(4, 12))
 
         # จัดการภาพใบหน้าคุณครูที่เลือก
-        ctk.CTkLabel(self.form_frame, text="2. จัดการภาพใบหน้าต้นแบบ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
+        ctk.CTkLabel(self.form_frame, text="2. จัดการภาพใบหน้าต้นแบบ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(15, 5))
         
-        self.lbl_selected_info = ctk.CTkLabel(self.form_frame, text="กรุณาเลือกคุณครูจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ", text_color="#A2B5CD")
+        self.lbl_selected_info = ctk.CTkLabel(self.form_frame, text="กรุณาเลือกคุณครูจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ", font=ctk.CTkFont(size=14), text_color="#A2B5CD")
         self.lbl_selected_info.pack(anchor="w", padx=20, pady=5)
 
         # ปุ่มอัปโหลดรูปต้นแบบเพิ่ม
         self.btn_upload_photo = ctk.CTkButton(
             self.form_frame, text="อัปโหลดรูปใบหน้าต้นแบบเพิ่ม (จากคอมพิวเตอร์)", 
-            state="disabled", fg_color="#1F3A60", hover_color="#20334F", command=self.upload_staff_photos
+            state="disabled", fg_color="#1F3A60", hover_color="#20334F", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.upload_staff_photos
         )
         self.btn_upload_photo.pack(fill="x", padx=20, pady=10)
 
         # แสดงจำนวนรูปที่ลงทะเบียน
-        self.lbl_photo_count_detail = ctk.CTkLabel(self.form_frame, text="", text_color="white")
+        self.lbl_photo_count_detail = ctk.CTkLabel(self.form_frame, text="", font=ctk.CTkFont(size=14), text_color="white")
         self.lbl_photo_count_detail.pack(anchor="w", padx=20, pady=5)
 
-        # พื้นที่แสดงรูปภาพใบหน้าครูต้นแบบ (เป็น Grid ใน Scrollable Frame แบบแนวนอน)
-        # พื้นที่แสดงรูปภาพใบหน้าครูต้นแบบ (เป็นตาราง Grid ใน Scrollable Frame แนวตั้ง)
-        self.thumbs_frame = ctk.CTkFrame(self.form_frame, fg_color="#101B2B", height=180)
+        # พื้นที่แสดงรูปภาพใบหน้าครูต้นแบบ
+        self.thumbs_frame = ctk.CTkFrame(self.form_frame, fg_color="#101B2B", height=200)
         self.thumbs_frame.pack(fill="x", expand=False, padx=20, pady=(5, 10))
         self.thumbs_frame.pack_propagate(False)
         
-        ctk.CTkLabel(self.thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(5, 0))
+        ctk.CTkLabel(self.thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(6, 2))
         
-        self.thumbs_scrollable = ctk.CTkScrollableFrame(self.thumbs_frame, orientation="vertical", fg_color="transparent", height=140)
+        self.thumbs_scrollable = ctk.CTkScrollableFrame(self.thumbs_frame, orientation="vertical", fg_color="transparent", height=155)
         self.thumbs_scrollable.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
         # ปุ่มลบรูปที่เลือก
         self.btn_delete_photo = ctk.CTkButton(
-            self.form_frame, text="❌ ลบรูปภาพที่เลือก", 
+            self.form_frame, text="❌ ลบรูปภาพที่เลือก", height=36, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_photo
         )
         self.btn_delete_photo.pack(fill="x", padx=20, pady=(5, 10))
 
         # ลบชื่อครูที่เลือก
-        ctk.CTkLabel(self.form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
+        ctk.CTkLabel(self.form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
         self.btn_delete_staff = ctk.CTkButton(
-            self.form_frame, text="ลบรายชื่อคุณครู (ลบข้อมูลและภาพทั้งหมด)", 
+            self.form_frame, text="ลบรายชื่อคุณครู (ลบข้อมูลและภาพทั้งหมด)", height=38, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_staff
         )
         self.btn_delete_staff.pack(fill="x", padx=20, pady=10)
@@ -1359,7 +1365,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อหน้า
         lbl_title = ctk.CTkLabel(
             self.frame_student_registry, text="ลงทะเบียนใบหน้านักเรียน",
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
@@ -1369,21 +1375,21 @@ class FaceSearchApp(ctk.CTk):
         self.student_list_frame.grid_rowconfigure(2, weight=1)
         self.student_list_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self.student_list_frame, text="รายชื่อนักเรียนที่บันทึกแล้ว", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=10, sticky="w")
+        ctk.CTkLabel(self.student_list_frame, text="รายชื่อนักเรียนที่บันทึกแล้ว", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=12, sticky="w")
 
         # ช่องค้นหานักเรียน
         student_search_frame = ctk.CTkFrame(self.student_list_frame, fg_color="transparent")
-        student_search_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
+        student_search_frame.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
         student_search_frame.grid_columnconfigure(0, weight=1)
 
-        self.entry_student_search = ctk.CTkEntry(student_search_frame, placeholder_text="🔍 ค้นหารหัส หรือชื่อนักเรียน...")
+        self.entry_student_search = ctk.CTkEntry(student_search_frame, placeholder_text="🔍 ค้นหารหัส หรือชื่อนักเรียน...", height=36, font=ctk.CTkFont(size=14))
         self.entry_student_search.grid(row=0, column=0, sticky="ew")
         self.entry_student_search.bind("<KeyRelease>", lambda event: self.filter_student_list())
 
-        btn_clear_student_search = ctk.CTkButton(student_search_frame, text="✕", width=28, height=28, fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_student_search)
+        btn_clear_student_search = ctk.CTkButton(student_search_frame, text="✕", width=34, height=36, font=ctk.CTkFont(size=14, weight="bold"), fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_student_search)
         btn_clear_student_search.grid(row=0, column=1, padx=(5, 0))
 
-        # Listbox แสดงรายชื่อ (ใช้ CTkTextbox จำลองการเป็น List หรือสร้าง Scrollable Frame)
+        # Listbox แสดงรายชื่อ
         self.student_list_scrollable = ctk.CTkScrollableFrame(self.student_list_frame, fg_color="transparent")
         self.student_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
@@ -1399,72 +1405,74 @@ class FaceSearchApp(ctk.CTk):
         self.student_form_frame.grid_columnconfigure(0, weight=1)
 
         # เพิ่มนักเรียนคนใหม่
-        ctk.CTkLabel(self.student_form_frame, text="1. เพิ่มรายชื่อนักเรียนใหม่", font=ctk.CTkFont(size=14, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
+        ctk.CTkLabel(self.student_form_frame, text="1. เพิ่มรายชื่อนักเรียนใหม่", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
 
         # ฟิลด์รหัสประจำตัว
         id_input_frame = ctk.CTkFrame(self.student_form_frame, fg_color="transparent")
         id_input_frame.pack(fill="x", padx=20, pady=5)
 
-        ctk.CTkLabel(id_input_frame, text="รหัสประจำตัว:", text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
-        self.entry_student_id = ctk.CTkEntry(id_input_frame, placeholder_text="เช่น 66001")
+        ctk.CTkLabel(id_input_frame, text="รหัสประจำตัว:", font=ctk.CTkFont(size=14), text_color="#A2B5CD", width=120, anchor="w").pack(side="left")
+        self.entry_student_id = ctk.CTkEntry(id_input_frame, placeholder_text="เช่น 66001", height=36, font=ctk.CTkFont(size=14))
         self.entry_student_id.pack(side="left", fill="x", expand=True, padx=(5, 10))
 
         # ฟิลด์ชื่อ-นามสกุล
         name_input_frame = ctk.CTkFrame(self.student_form_frame, fg_color="transparent")
         name_input_frame.pack(fill="x", padx=20, pady=5)
 
-        ctk.CTkLabel(name_input_frame, text="ชื่อ-นามสกุล:", text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
-        self.entry_student_name = ctk.CTkEntry(name_input_frame, placeholder_text="กรอกชื่อนักเรียน (เช่น นายรักเรียน มัธยม1)")
+        ctk.CTkLabel(name_input_frame, text="ชื่อ-นามสกุล:", font=ctk.CTkFont(size=14), text_color="#A2B5CD", width=120, anchor="w").pack(side="left")
+        self.entry_student_name = ctk.CTkEntry(name_input_frame, placeholder_text="กรอกชื่อนักเรียน (เช่น นายรักเรียน มัธยม1)", height=36, font=ctk.CTkFont(size=14))
         self.entry_student_name.pack(side="left", fill="x", expand=True, padx=(5, 10))
 
-        btn_add_student = ctk.CTkButton(name_input_frame, text="เพิ่มชื่อ", width=80, command=self.add_student_name)
+        btn_add_student = ctk.CTkButton(name_input_frame, text="เพิ่มชื่อ", width=95, height=36, font=ctk.CTkFont(size=14, weight="bold"), command=self.add_student_name)
         btn_add_student.pack(side="right")
 
         # ปุ่มนำเข้าจาก Google Sheets
         btn_import_from_sheets = ctk.CTkButton(
             self.student_form_frame, text="📊 นำเข้านักเรียนจาก Google Sheets (Batch Import)",
-            fg_color="#27AE60", hover_color="#229954", command=self.open_sheets_import_dialog
+            fg_color="#27AE60", hover_color="#229954", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.open_sheets_import_dialog
         )
-        btn_import_from_sheets.pack(fill="x", padx=20, pady=(2, 5))
+        btn_import_from_sheets.pack(fill="x", padx=20, pady=(4, 8))
 
         # จัดการภาพใบหน้านักเรียนที่เลือก
-        ctk.CTkLabel(self.student_form_frame, text="2. จัดการภาพใบหน้าต้นแบบ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
+        ctk.CTkLabel(self.student_form_frame, text="2. จัดการภาพใบหน้าต้นแบบ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(15, 5))
 
-        self.lbl_student_selected_info = ctk.CTkLabel(self.student_form_frame, text="กรุณาเลือกนักเรียนจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ", text_color="#A2B5CD")
+        self.lbl_student_selected_info = ctk.CTkLabel(self.student_form_frame, text="กรุณาเลือกนักเรียนจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ", font=ctk.CTkFont(size=14), text_color="#A2B5CD")
         self.lbl_student_selected_info.pack(anchor="w", padx=20, pady=5)
 
-        # ปุ่มอัปโหลดรูปต้นแบทเพิ่ม
+        # ปุ่มอัปโหลดรูปต้นแบบเพิ่ม
         self.btn_upload_student_photo = ctk.CTkButton(
             self.student_form_frame, text="อัปโหลดรูปใบหน้าต้นแบบเพิ่ม (จากคอมพิวเตอร์)",
-            state="disabled", fg_color="#1F3A60", hover_color="#20334F", command=self.upload_student_photos
+            state="disabled", fg_color="#1F3A60", hover_color="#20334F", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.upload_student_photos
         )
         self.btn_upload_student_photo.pack(fill="x", padx=20, pady=10)
 
         # แสดงจำนวนรูปที่ลงทะเบียน
-        self.lbl_student_photo_count_detail = ctk.CTkLabel(self.student_form_frame, text="", text_color="white")
+        self.lbl_student_photo_count_detail = ctk.CTkLabel(self.student_form_frame, text="", font=ctk.CTkFont(size=14), text_color="white")
         self.lbl_student_photo_count_detail.pack(anchor="w", padx=20, pady=5)
 
         # ปุ่มลบรูปที่เลือก (ย้ายมาก่อน thumbs_frame เพื่อให้แสดงได้เสมอ)
         self.btn_delete_student_photo = ctk.CTkButton(
-            self.student_form_frame, text="❌ ลบรูปภาพที่เลือก",
+            self.student_form_frame, text="❌ ลบรูปภาพที่เลือก", height=36, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_student_photo
         )
         self.btn_delete_student_photo.pack(fill="x", padx=20, pady=(5, 10))
 
-        # พื้นที่แสดงรูปภาพใบหน้านักเรียนต้นแบบ (เป็นตาราง Grid ใน Scrollable Frame แนวตั้ง)
-        self.student_thumbs_frame = ctk.CTkFrame(self.student_form_frame, fg_color="#101B2B", height=180)
+        # พื้นที่แสดงรูปภาพใบหน้านักเรียนต้นแบบ
+        self.student_thumbs_frame = ctk.CTkFrame(self.student_form_frame, fg_color="#101B2B", height=200)
         self.student_thumbs_frame.pack(fill="x", expand=False, padx=20, pady=(5, 10))
         self.student_thumbs_frame.pack_propagate(False)
 
-        ctk.CTkLabel(self.student_thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(5, 0))
+        ctk.CTkLabel(self.student_thumbs_frame, text="ภาพใบหน้าที่เรียนรู้แล้ว (ตารางภาพ):", font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD").pack(anchor="w", padx=10, pady=(6, 2))
 
-        self.student_thumbs_scrollable = ctk.CTkScrollableFrame(self.student_thumbs_frame, orientation="vertical", fg_color="transparent", height=140)
+        self.student_thumbs_scrollable = ctk.CTkScrollableFrame(self.student_thumbs_frame, orientation="vertical", fg_color="transparent", height=155)
         self.student_thumbs_scrollable.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
         # ลบชื่อนักเรียนที่เลือก
-        ctk.CTkLabel(self.student_form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
+        ctk.CTkLabel(self.student_form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
         self.btn_delete_student = ctk.CTkButton(
-            self.student_form_frame, text="ลบรายชื่อนักเรียน (ลบข้อมูลและภาพทั้งหมด)",
+            self.student_form_frame, text="ลบรายชื่อนักเรียน (ลบข้อมูลและภาพทั้งหมด)", height=38, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_student
         )
         self.btn_delete_student.pack(fill="x", padx=20, pady=10)
@@ -1497,7 +1505,7 @@ class FaceSearchApp(ctk.CTk):
             
             if rendered_count >= 100:
                 # Add a label indicating there are more results
-                lbl_more = ctk.CTkLabel(self.student_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=11, slant="italic"))
+                lbl_more = ctk.CTkLabel(self.student_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=13, slant="italic"))
                 lbl_more.pack(pady=5)
                 break
             
@@ -1511,6 +1519,8 @@ class FaceSearchApp(ctk.CTk):
                 row_frame,
                 text=f"{s['name']} [{s['student_id']}] ({s['photo_count']} รูปภาพ)",
                 anchor="w",
+                height=34,
+                font=ctk.CTkFont(size=14),
                 fg_color="transparent",
                 text_color="#A2B5CD",
                 hover_color="#1F3A60",
@@ -1523,11 +1533,11 @@ class FaceSearchApp(ctk.CTk):
             btn_delete_x = ctk.CTkButton(
                 row_frame,
                 text="❌",
-                width=26, height=26,
+                width=30, height=30,
                 fg_color="transparent",
                 hover_color="#E74C3C",
                 text_color="#E74C3C",
-                font=ctk.CTkFont(size=10, weight="bold"),
+                font=ctk.CTkFont(size=12, weight="bold"),
                 command=lambda sid=s['id'], sname=s['name']: self.delete_selected_student_by_id(sid, sname)
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
@@ -2208,7 +2218,7 @@ class FaceSearchApp(ctk.CTk):
                 continue
             
             if rendered_count >= 100:
-                lbl_more = ctk.CTkLabel(self.staff_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=11, slant="italic"))
+                lbl_more = ctk.CTkLabel(self.staff_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=13, slant="italic"))
                 lbl_more.pack(pady=5)
                 break
                 
@@ -2222,6 +2232,8 @@ class FaceSearchApp(ctk.CTk):
                 row_frame, 
                 text=f"{s['name']} ({s['photo_count']} รูปภาพ)", 
                 anchor="w",
+                height=34,
+                font=ctk.CTkFont(size=14),
                 fg_color="transparent",
                 text_color="#A2B5CD",
                 hover_color="#1F3A60",
@@ -2234,11 +2246,11 @@ class FaceSearchApp(ctk.CTk):
             btn_delete_x = ctk.CTkButton(
                 row_frame, 
                 text="❌", 
-                width=26, height=26,
+                width=30, height=30,
                 fg_color="transparent",
                 hover_color="#E74C3C",
                 text_color="#E74C3C",
-                font=ctk.CTkFont(size=10, weight="bold"),
+                font=ctk.CTkFont(size=12, weight="bold"),
                 command=lambda sid=s['id'], sname=s['name']: self.delete_selected_staff_by_id(sid, sname)
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
@@ -2466,7 +2478,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อ
         lbl_title = ctk.CTkLabel(
             self.frame_scan, text="สแกนและค้นหาใบหน้าในภาพกิจกรรม", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 20))
 
@@ -2476,47 +2488,47 @@ class FaceSearchApp(ctk.CTk):
         self.scan_settings_frame.grid_columnconfigure((0, 1), weight=1)
 
         # ลิงก์โฟลเดอร์ Google Drive และชีท พร้อมปุ่มค้นหาดึงจาก API
-        ctk.CTkLabel(self.scan_settings_frame, text="ID โถลเดอร์ภาพกิจกรรม (Google Drive):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(self.scan_settings_frame, text="ID โฟลเดอร์ภาพกิจกรรม (Google Drive):", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
         
         folder_input_frame = ctk.CTkFrame(self.scan_settings_frame, fg_color="transparent")
         folder_input_frame.grid(row=1, column=0, padx=15, pady=2, sticky="ew")
         folder_input_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_drive_folder_id = ctk.CTkEntry(folder_input_frame, placeholder_text="ตัวอย่าง: 1a2b3c4d5e6f7g8h9i0j...")
+        self.entry_drive_folder_id = ctk.CTkEntry(folder_input_frame, placeholder_text="ตัวอย่าง: 1a2b3c4d5e6f7g8h9i0j...", height=36, font=ctk.CTkFont(size=14))
         self.entry_drive_folder_id.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        btn_pick_folder = ctk.CTkButton(folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=95, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("folder"))
+        btn_pick_folder = ctk.CTkButton(folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=120, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("folder"))
         btn_pick_folder.pack(side="right")
 
-        ctk.CTkLabel(self.scan_settings_frame, text="ID ของ Google Sheets (ฐานข้อมูลดัชนี):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").grid(row=0, column=1, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(self.scan_settings_frame, text="ID ของ Google Sheets (ฐานข้อมูลดัชนี):", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").grid(row=0, column=1, padx=15, pady=(15, 2), sticky="w")
         
         sheet_input_frame = ctk.CTkFrame(self.scan_settings_frame, fg_color="transparent")
         sheet_input_frame.grid(row=1, column=1, padx=15, pady=2, sticky="ew")
         sheet_input_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_sheets_id = ctk.CTkEntry(sheet_input_frame, placeholder_text="ตัวอย่าง: 1AbCdEfGhIjKlMnOpQrStUvWxYz...")
+        self.entry_sheets_id = ctk.CTkEntry(sheet_input_frame, placeholder_text="ตัวอย่าง: 1AbCdEfGhIjKlMnOpQrStUvWxYz...", height=36, font=ctk.CTkFont(size=14))
         self.entry_sheets_id.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        btn_pick_sheet = ctk.CTkButton(sheet_input_frame, text="🔍 เลือก Sheets", width=95, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("sheet"))
+        btn_pick_sheet = ctk.CTkButton(sheet_input_frame, text="🔍 เลือก Sheets", width=115, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("sheet"))
         btn_pick_sheet.pack(side="right", padx=(0, 5))
         
-        btn_open_sheet = ctk.CTkButton(sheet_input_frame, text="🌐 เปิด Sheets", width=95, fg_color="#107C41", hover_color="#0A5C30", command=self.open_sheets_in_browser)
+        btn_open_sheet = ctk.CTkButton(sheet_input_frame, text="🌐 เปิด Sheets", width=115, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#107C41", hover_color="#0A5C30", command=self.open_sheets_in_browser)
         btn_open_sheet.pack(side="right")
 
         # แถวใหม่สำหรับโฟลเดอร์เก็บ JSON
-        ctk.CTkLabel(self.scan_settings_frame, text="ID โฟลเดอร์เก็บไฟล์ JSON ดัชนี (Google Drive):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").grid(row=2, column=0, columnspan=2, padx=15, pady=(8, 2), sticky="w")
+        ctk.CTkLabel(self.scan_settings_frame, text="ID โฟลเดอร์เก็บไฟล์ JSON ดัชนี (Google Drive):", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").grid(row=2, column=0, columnspan=2, padx=15, pady=(8, 2), sticky="w")
         
         json_folder_input_frame = ctk.CTkFrame(self.scan_settings_frame, fg_color="transparent")
         json_folder_input_frame.grid(row=3, column=0, columnspan=2, padx=15, pady=2, sticky="ew")
         json_folder_input_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_json_folder_id = ctk.CTkEntry(json_folder_input_frame, placeholder_text="ระบุ ID โฟลเดอร์หลักที่แชร์ไฟล์ person_index.json และ photo_index.json")
+        self.entry_json_folder_id = ctk.CTkEntry(json_folder_input_frame, placeholder_text="ระบุ ID โฟลเดอร์หลักที่แชร์ไฟล์ person_index.json และ photo_index.json", height=36, font=ctk.CTkFont(size=14))
         self.entry_json_folder_id.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        btn_pick_json_folder = ctk.CTkButton(json_folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=95, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("json_folder"))
+        btn_pick_json_folder = ctk.CTkButton(json_folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=120, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("json_folder"))
         btn_pick_json_folder.pack(side="right", padx=(0, 5))
         
-        btn_open_json_folder = ctk.CTkButton(json_folder_input_frame, text="🌐 โฟลเดอร์เก็บไฟล์ jason", width=160, fg_color="#E67E22", hover_color="#D35400", text_color="white", command=self.open_json_folder_in_browser)
+        btn_open_json_folder = ctk.CTkButton(json_folder_input_frame, text="🌐 โฟลเดอร์เก็บไฟล์ JSON", width=190, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#E67E22", hover_color="#D35400", text_color="white", command=self.open_json_folder_in_browser)
         btn_open_json_folder.pack(side="right")
 
         # ปรับค่า Threshold และ CPU/GPU (เลื่อนไป row 4)
@@ -2528,7 +2540,7 @@ class FaceSearchApp(ctk.CTk):
         # สไลเดอร์ Threshold
         thresh_frame = ctk.CTkFrame(option_panel, fg_color="transparent")
         thresh_frame.grid(row=0, column=0, sticky="w")
-        self.lbl_threshold = ctk.CTkLabel(thresh_frame, text="ค่า Threshold ความคล้ายใบหน้า: 0.65", text_color="#A2B5CD")
+        self.lbl_threshold = ctk.CTkLabel(thresh_frame, text="ค่า Threshold ความคล้ายใบหน้า: 0.65", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD")
         self.lbl_threshold.pack(anchor="w")
         self.slider_threshold = ctk.CTkSlider(thresh_frame, from_=0.1, to=0.9, number_of_steps=80, command=self.update_thresh_label)
         self.slider_threshold.set(0.65)
@@ -2538,18 +2550,18 @@ class FaceSearchApp(ctk.CTk):
         device_frame = ctk.CTkFrame(option_panel, fg_color="transparent")
         device_frame.grid(row=0, column=1, sticky="e")
         
-        self.chk_use_gpu = ctk.CTkCheckBox(device_frame, text="เปิดใช้งานการสแกนด้วย GPU (CUDA)", text_color="#A2B5CD")
+        self.chk_use_gpu = ctk.CTkCheckBox(device_frame, text="เปิดใช้งานการสแกนด้วย GPU (CUDA)", font=ctk.CTkFont(size=14), text_color="#A2B5CD")
         self.chk_use_gpu.pack(anchor="e", pady=(5, 2))
 
         self.chk_re_scan = ctk.CTkCheckBox(
-            device_frame, text="เปิดฟังก์ชั่นให้แสกนรูปภาพเดิมซ้ำ (Re-scan)",
-            text_color="#A2B5CD", command=self.toggle_rescan_options
+            device_frame, text="เปิดฟังก์ชั่นให้สแกนรูปภาพเดิมซ้ำ (Re-scan)",
+            font=ctk.CTkFont(size=14), text_color="#A2B5CD", command=self.toggle_rescan_options
         )
         self.chk_re_scan.pack(anchor="e", pady=(2, 2))
 
         self.chk_fast_rescan = ctk.CTkCheckBox(
             device_frame, text="⚡ Fast Rescan (นำเวกเตอร์เดิมใน DB มาจับคู่ซ้ำทันที)",
-            text_color="#A2B5CD", state="disabled"
+            font=ctk.CTkFont(size=14), text_color="#A2B5CD", state="disabled"
         )
         self.chk_fast_rescan.pack(anchor="e", pady=(2, 5))
 
@@ -2558,40 +2570,40 @@ class FaceSearchApp(ctk.CTk):
         self.match_target_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0), padx=5)
         self.match_target_box.grid_columnconfigure((0, 1, 2), weight=1)
         
-        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(5, 2))
+        ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(8, 4))
         
         self.match_mode = ctk.StringVar(value="all")
         
         # คอลัมน์ 0: ครู + นักเรียน ทั้งหมด
-        self.rad_all = ctk.CTkRadioButton(self.match_target_box, text="ครู + นักเรียน ทั้งหมด", variable=self.match_mode, value="all", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_all.grid(row=1, column=0, sticky="w", padx=25, pady=3)
+        self.rad_all = ctk.CTkRadioButton(self.match_target_box, text="ครู + นักเรียน ทั้งหมด", font=ctk.CTkFont(size=14), variable=self.match_mode, value="all", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_all.grid(row=1, column=0, sticky="w", padx=25, pady=4)
         
         # คอลัมน์ 1: กลุ่มคุณครู
-        self.rad_teachers = ctk.CTkRadioButton(self.match_target_box, text="คุณครูทั้งหมด", variable=self.match_mode, value="teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_teachers.grid(row=1, column=1, sticky="w", padx=25, pady=3)
+        self.rad_teachers = ctk.CTkRadioButton(self.match_target_box, text="คุณครูทั้งหมด", font=ctk.CTkFont(size=14), variable=self.match_mode, value="teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_teachers.grid(row=1, column=1, sticky="w", padx=25, pady=4)
         
-        self.rad_sel_teachers = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะคุณครูบางคน", variable=self.match_mode, value="selected_teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_sel_teachers.grid(row=2, column=1, sticky="w", padx=25, pady=3)
+        self.rad_sel_teachers = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะคุณครูบางคน", font=ctk.CTkFont(size=14), variable=self.match_mode, value="selected_teachers", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_sel_teachers.grid(row=2, column=1, sticky="w", padx=25, pady=4)
         
         self.btn_select_teachers = ctk.CTkButton(
             self.match_target_box, text="เลือกรายชื่อคุณครู (0 คน)...", 
             fg_color="#1F3A60", hover_color="#20334F", text_color="white",
-            height=24, font=ctk.CTkFont(size=11), state="disabled",
+            height=30, font=ctk.CTkFont(size=13), state="disabled",
             command=self.show_teachers_selection_popup
         )
         self.btn_select_teachers.grid(row=3, column=1, sticky="w", padx=50, pady=(2, 8))
         
         # คอลัมน์ 2: กลุ่มนักเรียน
-        self.rad_students = ctk.CTkRadioButton(self.match_target_box, text="นักเรียนทั้งหมด", variable=self.match_mode, value="students", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_students.grid(row=1, column=2, sticky="w", padx=25, pady=3)
+        self.rad_students = ctk.CTkRadioButton(self.match_target_box, text="นักเรียนทั้งหมด", font=ctk.CTkFont(size=14), variable=self.match_mode, value="students", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_students.grid(row=1, column=2, sticky="w", padx=25, pady=4)
         
-        self.rad_sel_students = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะนักเรียนบางคน", variable=self.match_mode, value="selected_students", command=self.update_match_mode_ui, text_color="#A2B5CD")
-        self.rad_sel_students.grid(row=2, column=2, sticky="w", padx=25, pady=3)
+        self.rad_sel_students = ctk.CTkRadioButton(self.match_target_box, text="เลือกเฉพาะนักเรียนบางคน", font=ctk.CTkFont(size=14), variable=self.match_mode, value="selected_students", command=self.update_match_mode_ui, text_color="#A2B5CD")
+        self.rad_sel_students.grid(row=2, column=2, sticky="w", padx=25, pady=4)
         
         self.btn_select_students = ctk.CTkButton(
             self.match_target_box, text="เลือกรายชื่อนักเรียน (0 คน)...", 
             fg_color="#1F3A60", hover_color="#20334F", text_color="white",
-            height=24, font=ctk.CTkFont(size=11), state="disabled",
+            height=30, font=ctk.CTkFont(size=13), state="disabled",
             command=self.show_students_selection_popup
         )
         self.btn_select_students.grid(row=3, column=2, sticky="w", padx=50, pady=(2, 8))
@@ -2604,7 +2616,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_start_scan = ctk.CTkButton(
             self.action_panel, text="3. เริ่มดาวน์โหลดและสแกนใบหน้า", 
             fg_color="#2ECC71", hover_color="#27AE60", text_color="black",
-            font=ctk.CTkFont(size=14, weight="bold"), height=40,
+            font=ctk.CTkFont(size=15, weight="bold"), height=44,
             command=self.toggle_scanning
         )
         self.btn_start_scan.grid(row=0, column=0, sticky="ew", pady=(0, 10))
@@ -2612,18 +2624,18 @@ class FaceSearchApp(ctk.CTk):
         self.btn_pause_scan = ctk.CTkButton(
             self.action_panel, text="⏸️ พักการสแกน (Pause)", 
             fg_color="#F39C12", hover_color="#D68910", text_color="white",
-            font=ctk.CTkFont(size=14, weight="bold"), height=40,
+            font=ctk.CTkFont(size=15, weight="bold"), height=44,
             command=self.toggle_pause_scanning,
             state="disabled"
         )
         self.btn_pause_scan.grid(row=1, column=0, sticky="ew", pady=(0, 10))
 
-        self.progress_bar = ctk.CTkProgressBar(self.action_panel)
+        self.progress_bar = ctk.CTkProgressBar(self.action_panel, height=18)
         self.progress_bar.set(0.0)
         self.progress_bar.grid(row=2, column=0, sticky="ew")
         self.progress_bar.grid_remove() # ซ่อนไว้ก่อนเริ่ม
 
-        self.lbl_progress_text = ctk.CTkLabel(self.action_panel, text="พร้อมสแกน", text_color="#A2B5CD")
+        self.lbl_progress_text = ctk.CTkLabel(self.action_panel, text="พร้อมสแกน", font=ctk.CTkFont(size=14), text_color="#A2B5CD")
         self.lbl_progress_text.grid(row=3, column=0, pady=2)
         self.lbl_progress_text.grid_remove()
 
@@ -3694,7 +3706,7 @@ class FaceSearchApp(ctk.CTk):
         
         lbl_title = ctk.CTkLabel(
             self.frame_settings, text="ตั้งค่าระบบการเข้าถึง", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 20))
 
@@ -3703,14 +3715,15 @@ class FaceSearchApp(ctk.CTk):
         cred_frame.grid(row=1, column=0, sticky="ew", pady=10, padx=2)
         cred_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(cred_frame, text="ที่อยู่ไฟล์คีย์สิทธิ์ Google (Service Account JSON):", font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(cred_frame, text="ที่อยู่ไฟล์คีย์สิทธิ์ Google (Service Account JSON):", font=ctk.CTkFont(size=15, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
         
-        self.entry_cred_path = ctk.CTkEntry(cred_frame, placeholder_text="ตัวอย่าง: config/service_account.json")
+        self.entry_cred_path = ctk.CTkEntry(cred_frame, placeholder_text="ตัวอย่าง: config/service_account.json", height=36, font=ctk.CTkFont(size=14))
         self.entry_cred_path.grid(row=1, column=0, padx=15, pady=5, sticky="ew")
         
         # ปุ่มเลือกไฟล์จากคอมพิวเตอร์
         btn_select_cred = ctk.CTkButton(
             cred_frame, text="เลือกไฟล์คีย์สิทธิ์ JSON จากเครื่อง...", fg_color="#1F3A60", hover_color="#20334F",
+            height=38, font=ctk.CTkFont(size=14, weight="bold"),
             command=self.select_cred_file
         )
         btn_select_cred.grid(row=2, column=0, padx=15, pady=(5, 15), sticky="w")
@@ -3720,11 +3733,11 @@ class FaceSearchApp(ctk.CTk):
         db_settings_frame.grid(row=2, column=0, sticky="ew", pady=10, padx=2)
         db_settings_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(db_settings_frame, text="จัดการฐานข้อมูลสแกน:", font=ctk.CTkFont(size=13, weight="bold"), text_color="#E74C3C").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(db_settings_frame, text="จัดการฐานข้อมูลสแกน:", font=ctk.CTkFont(size=15, weight="bold"), text_color="#E74C3C").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
         
         btn_clear_history = ctk.CTkButton(
             db_settings_frame, text="ล้างประวัติภาพสแกนกิจกรรมกิจกรรมทั้งหมด (ไม่ลบรายชื่อครูต้นแบบ)", 
-            fg_color="#C0392B", hover_color="#962D22",
+            fg_color="#C0392B", hover_color="#962D22", height=38, font=ctk.CTkFont(size=14, weight="bold"),
             command=self.clear_scan_history
         )
         btn_clear_history.grid(row=1, column=0, padx=15, pady=(5, 15), sticky="w")
@@ -3843,7 +3856,7 @@ class FaceSearchApp(ctk.CTk):
         # โซนแสดงผล Console Logs (ล่างสุดของฝั่งขวา) - แบ่ง 2 คอลัมน์ ซ้าย (Log Text) และ ขวา (Preview Image)
         # ปลด height=185 คงที่ออก เพื่อให้ขยายขอบเต็มพื้นที่ครึ่งล่างตาม Row Weight 1:1 อย่างเป็นธรรมชาติ
         self.console_frame = ctk.CTkFrame(self, fg_color="#101B2B")
-        self.console_frame.grid(row=1, column=1, padx=25, pady=(0, 25), sticky="nsew")
+        self.console_frame.grid(row=1, column=1, padx=20, pady=(0, 20), sticky="nsew")
         self.console_frame.grid_rowconfigure(0, weight=1)
         self.console_frame.grid_columnconfigure(0, weight=1) # ฝั่งซ้าย (Log)
         self.console_frame.grid_columnconfigure(1, weight=1) # ฝั่งขวา (Preview)
@@ -3856,38 +3869,38 @@ class FaceSearchApp(ctk.CTk):
 
         # แถบหัว Log และปุ่มควบคุม
         log_header = ctk.CTkFrame(left_frame, fg_color="transparent")
-        log_header.grid(row=0, column=0, pady=(0, 2), sticky="ew")
+        log_header.grid(row=0, column=0, pady=(0, 4), sticky="ew")
         log_header.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             log_header, text="Console Debug logs (แสดงสถานะ):", 
-            font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD"
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD"
         ).grid(row=0, column=0, sticky="w")
 
         btn_copy_log = ctk.CTkButton(
-            log_header, text="📋 คัดลอกส่วนที่เลือก", width=110, height=20, 
-            font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
+            log_header, text="📋 คัดลอกที่เลือก", width=125, height=28, 
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.copy_console_selection
         )
         btn_copy_log.grid(row=0, column=1, padx=(0, 5), sticky="e")
 
         btn_copy_all = ctk.CTkButton(
-            log_header, text="📋 คัดลอกทั้งหมด", width=100, height=20, 
-            font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
+            log_header, text="📋 คัดลอกทั้งหมด", width=120, height=28, 
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.copy_all_console_log
         )
         btn_copy_all.grid(row=0, column=2, padx=(0, 5), sticky="e")
 
         btn_clear_log = ctk.CTkButton(
-            log_header, text="🧹 ล้าง Log", width=75, height=20, 
-            font=ctk.CTkFont(size=10), fg_color="#1F3A60", hover_color="#20334F",
+            log_header, text="🧹 ล้าง Log", width=90, height=28, 
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.clear_console_log
         )
         btn_clear_log.grid(row=0, column=3, sticky="e")
 
-        # กล่อง Textbox แสดง Log สีขาวพื้นฐานบนพื้นดำสไตล์ Terminal
+        # กล่อง Textbox แสดง Log สีขาวพื้นฐานบนพื้นดำสไตล์ Terminal (ฟอนต์ขนาด 12pt อ่านง่าย)
         self.console_text = ctk.CTkTextbox(
-            left_frame, font=ctk.CTkFont(family="Consolas", size=9), 
+            left_frame, font=ctk.CTkFont(family="Consolas", size=12), 
             fg_color="#0A111A", text_color="#ECEFF1"
         )
         self.console_text.grid(row=1, column=0, sticky="nsew")
@@ -3926,19 +3939,19 @@ class FaceSearchApp(ctk.CTk):
         preview_header.grid(row=0, column=0, columnspan=2, padx=10, pady=(5, 2), sticky="ew")
         ctk.CTkLabel(
             preview_header, text="Real-time Face Matching Preview & Summary:", 
-            font=ctk.CTkFont(size=11, weight="bold"), text_color="#2ECC71"
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71"
         ).pack(anchor="w")
 
         # ป้ายสำหรับวาดแปะภาพพรีวิวผลงานการตรวจจับ (ด้านซ้ายของ right_frame)
         self.lbl_realtime_preview = ctk.CTkLabel(
             right_frame, text="[ แสดงภาพเปรียบเทียบการจับคู่ใบหน้าแบบ Real-time ]",
-            font=ctk.CTkFont(size=10), text_color="#A2B5CD", fg_color="transparent"
+            font=ctk.CTkFont(size=13), text_color="#A2B5CD", fg_color="transparent"
         )
         self.lbl_realtime_preview.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
         # กล่องสำหรับพ่นรายชื่อครูและผลการแมตช์แบบสีเขียว/แดง (ด้านขวาของ right_frame)
         self.txt_match_summary = ctk.CTkTextbox(
-            right_frame, font=ctk.CTkFont(family="Consolas", size=9),
+            right_frame, font=ctk.CTkFont(family="Consolas", size=12),
             fg_color="#0D1622", text_color="#ECEFF1"
         )
         self.txt_match_summary.grid(row=1, column=1, padx=(5, 10), pady=(0, 10), sticky="nsew")
@@ -3962,7 +3975,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อ
         lbl_title = ctk.CTkLabel(
             self.frame_database, text="ดูข้อมูลในฐานข้อมูล SQLite", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 15))
 
@@ -3970,7 +3983,7 @@ class FaceSearchApp(ctk.CTk):
         control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         control_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10), padx=2)
         
-        ctk.CTkLabel(control_frame, text="เลือกตารางข้อมูล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=15)
+        ctk.CTkLabel(control_frame, text="เลือกตารางข้อมูล:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=15)
         
         self.option_db_table = ctk.CTkOptionMenu(
             control_frame, 
@@ -3986,81 +3999,83 @@ class FaceSearchApp(ctk.CTk):
                 "📋 ตารางทั้งหมด: scanned_photo_faces",
                 "📋 ตารางทั้งหมด: staff_embeddings"
             ],
+            height=36,
+            font=ctk.CTkFont(size=14),
             command=lambda v: self.load_db_table_data(v, page=1)
         )
         self.option_db_table.pack(side="left", padx=5, pady=15)
 
         # ปุ่มรีเฟรช
-        btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=80, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get(), page=1))
+        btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=95, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get(), page=1))
         btn_refresh.pack(side="left", padx=10, pady=15)
 
         # ปุ่มรีเซ็ตผลการจับคู่ของบุคคล
         self.btn_reset_matching = ctk.CTkButton(
-            control_frame, text="🗑️ รีเซ็ตประวัติจับคู่", width=140, 
+            control_frame, text="🗑️ รีเซ็ตประวัติจับคู่", width=155, height=36,
             fg_color="#C0392B", hover_color="#962D22", text_color="white",
-            font=ctk.CTkFont(weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self.reset_selected_person_matches
         )
         self.btn_reset_matching.pack(side="left", padx=10, pady=15)
 
         # ส่วนตั้งค่าและแก้ไข Personal Threshold ของบุคคล
-        self.lbl_personal_thresh = ctk.CTkLabel(control_frame, text="Threshold บุคคล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#AEEA00")
+        self.lbl_personal_thresh = ctk.CTkLabel(control_frame, text="Threshold บุคคล:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#AEEA00")
         self.lbl_personal_thresh.pack(side="left", padx=(10, 2), pady=15)
 
-        self.entry_personal_thresh = ctk.CTkEntry(control_frame, width=65, placeholder_text="0.50", font=ctk.CTkFont(size=12, weight="bold"), justify="center")
+        self.entry_personal_thresh = ctk.CTkEntry(control_frame, width=75, height=36, placeholder_text="0.50", font=ctk.CTkFont(size=14, weight="bold"), justify="center")
         self.entry_personal_thresh.insert(0, "0.50")
         self.entry_personal_thresh.pack(side="left", padx=2, pady=15)
 
         self.btn_save_personal_thresh = ctk.CTkButton(
-            control_frame, text="💾 บันทึก Threshold", width=125,
+            control_frame, text="💾 บันทึก Threshold", width=140, height=36,
             fg_color="#1F3A60", hover_color="#20334F", text_color="#00E5FF",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self.save_selected_person_threshold
         )
         self.btn_save_personal_thresh.pack(side="left", padx=5, pady=15)
 
         # ปุ่มเปิดโฟลเดอร์ DB
-        btn_open_folder = ctk.CTkButton(control_frame, text="📂 เปิดโฟลเดอร์ฐานข้อมูล", width=140, fg_color="#1F3A60", hover_color="#20334F", command=self.open_db_folder)
+        btn_open_folder = ctk.CTkButton(control_frame, text="📂 เปิดโฟลเดอร์ DB", width=150, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=self.open_db_folder)
         btn_open_folder.pack(side="right", padx=15, pady=15)
 
         # ปุ่มส่งออก CSV
-        btn_export = ctk.CTkButton(control_frame, text="📊 ส่งออก CSV", width=100, fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=self.export_current_table)
+        btn_export = ctk.CTkButton(control_frame, text="📊 ส่งออก CSV", width=115, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=self.export_current_table)
         btn_export.pack(side="right", padx=5, pady=15)
 
         # โซนควบคุมที่สอง: ซิงค์ข้อมูล JSON และรูปภาพ ขึ้น Google Drive (v2.5/v2.8)
         sync_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         sync_control_frame.grid(row=2, column=0, sticky="ew", pady=(0, 15), padx=2)
         
-        ctk.CTkLabel(sync_control_frame, text="ซิงค์ดัชนีและรูปภาพไป Google Drive:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
+        ctk.CTkLabel(sync_control_frame, text="ซิงค์ดัชนีและรูปภาพไป Google Drive:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
         
         self.btn_sync_photos = ctk.CTkButton(
-            sync_control_frame, text="0. 🖼️ ซิงค์รูปภาพถ่ายทั้งหมดไป Google Drive", width=230, 
+            sync_control_frame, text="0. 🖼️ ซิงค์รูปภาพทั้งหมดไป Drive", width=240, height=36,
             fg_color="#27AE60", hover_color="#219552", text_color="white",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self.run_manual_photos_sync
         )
         self.btn_sync_photos.pack(side="left", padx=5, pady=10)
 
         self.btn_sync_json_all = ctk.CTkButton(
-            sync_control_frame, text="1. ซิงค์ทั้งครูและนักเรียน", width=150, 
+            sync_control_frame, text="1. ซิงค์ทั้งครูและนักเรียน", width=165, height=36,
             fg_color="#8E44AD", hover_color="#7D3C98", text_color="white",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=lambda: self.run_manual_json_sync("all")
         )
         self.btn_sync_json_all.pack(side="left", padx=5, pady=10)
         
         self.btn_sync_json_teachers = ctk.CTkButton(
-            sync_control_frame, text="2. ซิงค์เฉพาะครู", width=110, 
+            sync_control_frame, text="2. ซิงค์เฉพาะครู", width=125, height=36,
             fg_color="#2980B9", hover_color="#2471A3", text_color="white",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=lambda: self.run_manual_json_sync("teachers")
         )
         self.btn_sync_json_teachers.pack(side="left", padx=5, pady=10)
         
         self.btn_sync_json_students = ctk.CTkButton(
-            sync_control_frame, text="3. ซิงค์เฉพาะนักเรียน", width=130, 
+            sync_control_frame, text="3. ซิงค์เฉพาะนักเรียน", width=145, height=36,
             fg_color="#D35400", hover_color="#BA4A00", text_color="white",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=lambda: self.run_manual_json_sync("students")
         )
         self.btn_sync_json_students.pack(side="left", padx=5, pady=10)
@@ -4069,19 +4084,22 @@ class FaceSearchApp(ctk.CTk):
         search_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         search_control_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15), padx=2)
         
-        ctk.CTkLabel(search_control_frame, text="🔍 ค้นหาข้อมูล:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
+        ctk.CTkLabel(search_control_frame, text="🔍 ค้นหาข้อมูล:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=15, pady=10)
         
         self.entry_db_search = ctk.CTkEntry(
             search_control_frame, 
             placeholder_text="พิมพ์คำค้นหา (Drive File ID, ลิงก์ Drive, Photo ID, ชื่อ, กิจกรรม, รหัสนักเรียน...)", 
+            height=36,
+            font=ctk.CTkFont(size=14),
             width=480
         )
         self.entry_db_search.pack(side="left", padx=5, pady=10, fill="x", expand=True)
         self.entry_db_search.bind("<KeyRelease>", lambda e: self.load_db_table_data())
 
         btn_clear_search = ctk.CTkButton(
-            search_control_frame, text="❌ ล้างการค้นหา", width=110,
+            search_control_frame, text="❌ ล้างการค้นหา", width=130, height=36,
             fg_color="#34495E", hover_color="#2C3E50", text_color="white",
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self.clear_db_search
         )
         btn_clear_search.pack(side="right", padx=15, pady=10)
@@ -4092,19 +4110,20 @@ class FaceSearchApp(ctk.CTk):
         table_container.grid_rowconfigure(0, weight=1)
         table_container.grid_columnconfigure(0, weight=1)
 
-        # สไตล์ตาราง Treeview
+        # สไตล์ตาราง Treeview (ขยายความสูงแถวเป็น 32px และฟอนต์ 12pt)
         self.style = ttk.Style()
         self.style.theme_use("default")
         self.style.configure(
             "Treeview",
             background="#1C2D42",
             foreground="white",
-            rowheight=25,
+            rowheight=32,
+            font=("Segoe UI", 12),
             fieldbackground="#1C2D42",
             bordercolor="#101B2B",
             borderwidth=0
         )
-        self.style.configure("Treeview.Heading", background="#101B2B", foreground="#6CA6CD", font=("Segoe UI", 10, "bold"))
+        self.style.configure("Treeview.Heading", background="#101B2B", foreground="#6CA6CD", font=("Segoe UI", 13, "bold"))
         self.style.map("Treeview", background=[("selected", "#1F3A60")])
 
         # สร้าง Treeview
@@ -4112,7 +4131,7 @@ class FaceSearchApp(ctk.CTk):
         self.db_tree.grid(row=0, column=0, sticky="nsew", padx=(15, 0), pady=(0, 15))
         
         # ป้ายแนะนำการดับเบิ้ลคลิก (v2.6)
-        self.lbl_db_hint = ctk.CTkLabel(table_container, text="💡 ดับเบิ้ลคลิกที่แถวข้อมูล (ตาราง scanned_photos, detected_faces ผลการจับคู่ ฯลฯ) เพื่อเปิดลิงก์รูปภาพบน Google Drive ในเบราว์เซอร์", font=ctk.CTkFont(size=11, slant="italic"), text_color="#F39C12")
+        self.lbl_db_hint = ctk.CTkLabel(table_container, text="💡 ดับเบิ้ลคลิกที่แถวข้อมูล (ตาราง scanned_photos, detected_faces ผลการจับคู่ ฯลฯ) เพื่อเปิดลิงก์รูปภาพบน Google Drive ในเบราว์เซอร์", font=ctk.CTkFont(size=13, slant="italic"), text_color="#F39C12")
         self.lbl_db_hint.grid(row=1, column=0, columnspan=2, pady=(0, 5), sticky="e", padx=15)
 
         self.db_tree.bind("<Double-1>", self.on_db_tree_double_click)
@@ -4127,19 +4146,19 @@ class FaceSearchApp(ctk.CTk):
         pagination_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         pagination_frame.grid(row=5, column=0, sticky="ew", pady=(5, 15), padx=2)
 
-        self.btn_db_first_page = ctk.CTkButton(pagination_frame, text="⏮️ หน้าแรก", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(1))
+        self.btn_db_first_page = ctk.CTkButton(pagination_frame, text="⏮️ หน้าแรก", width=105, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(1))
         self.btn_db_first_page.pack(side="left", padx=5, pady=8)
 
-        self.btn_db_prev_page = ctk.CTkButton(pagination_frame, text="◀️ ก่อนหน้า", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page - 1))
+        self.btn_db_prev_page = ctk.CTkButton(pagination_frame, text="◀️ ก่อนหน้า", width=105, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page - 1))
         self.btn_db_prev_page.pack(side="left", padx=5, pady=8)
 
-        self.lbl_db_page_info = ctk.CTkLabel(pagination_frame, text="หน้า 1 / 1 (พบทั้งหมด 0 รายการ)", font=ctk.CTkFont(size=12, weight="bold"), text_color="#6CA6CD")
+        self.lbl_db_page_info = ctk.CTkLabel(pagination_frame, text="หน้า 1 / 1 (พบทั้งหมด 0 รายการ)", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD")
         self.lbl_db_page_info.pack(side="left", padx=20, pady=8, expand=True)
 
-        self.btn_db_next_page = ctk.CTkButton(pagination_frame, text="ถัดไป ▶️", width=90, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page + 1))
+        self.btn_db_next_page = ctk.CTkButton(pagination_frame, text="ถัดไป ▶️", width=105, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(self.db_current_page + 1))
         self.btn_db_next_page.pack(side="right", padx=5, pady=8)
 
-        self.btn_db_last_page = ctk.CTkButton(pagination_frame, text="หน้าสุดท้าย ⏭️", width=95, fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(999999))
+        self.btn_db_last_page = ctk.CTkButton(pagination_frame, text="หน้าสุดท้าย ⏭️", width=115, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.change_db_page(999999))
         self.btn_db_last_page.pack(side="right", padx=5, pady=8)
 
     def change_db_page(self, target_page):
@@ -4798,31 +4817,33 @@ class FaceSearchApp(ctk.CTk):
         ctrl_frame = ctk.CTkFrame(self.frame_matched_gallery, fg_color="#1A2636")
         ctrl_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ctk.CTkLabel(ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
+        ctk.CTkLabel(ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
         self.combo_matched_role = ctk.CTkOptionMenu(
-            ctrl_frame, values=["คุณครู", "นักเรียน"], width=110,
+            ctrl_frame, values=["คุณครู", "นักเรียน"], width=130, height=36,
+            font=ctk.CTkFont(size=14),
             command=self.on_matched_role_change
         )
         self.combo_matched_role.pack(side="left", padx=5, pady=10)
 
-        ctk.CTkLabel(ctrl_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
+        ctk.CTkLabel(ctrl_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
         self.combo_matched_person = ctk.CTkOptionMenu(
-            ctrl_frame, values=["-- กรุณาเลือก --"], width=280,
+            ctrl_frame, values=["-- กรุณาเลือก --"], width=320, height=36,
+            font=ctk.CTkFont(size=14),
             command=self.on_matched_person_change
         )
         self.combo_matched_person.pack(side="left", padx=5, pady=10)
 
-        self.entry_matched_search = ctk.CTkEntry(ctrl_frame, placeholder_text="🔍 กรองชื่อ...", width=140)
+        self.entry_matched_search = ctk.CTkEntry(ctrl_frame, placeholder_text="🔍 กรองชื่อ...", width=180, height=36, font=ctk.CTkFont(size=14))
         self.entry_matched_search.pack(side="left", padx=10, pady=10)
         self.entry_matched_search.bind("<KeyRelease>", lambda event: self.filter_matched_person_dropdown())
 
         btn_refresh_gallery = ctk.CTkButton(
-            ctrl_frame, text="🔄 รีเฟรช", width=80, fg_color="#34495E", hover_color="#2C3E50",
+            ctrl_frame, text="🔄 รีเฟรช", width=95, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
             command=lambda: self.on_matched_person_change(self.combo_matched_person.get())
         )
         btn_refresh_gallery.pack(side="left", padx=5, pady=10)
 
-        self.lbl_matched_summary = ctk.CTkLabel(ctrl_frame, text="พบ 0 รูปภาพ", font=ctk.CTkFont(size=12, weight="bold"), text_color="#2ECC71")
+        self.lbl_matched_summary = ctk.CTkLabel(ctrl_frame, text="พบ 0 รูปภาพ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71")
         self.lbl_matched_summary.pack(side="right", padx=15, pady=10)
 
         # 2. พื้นที่แสดงรูปภาพแบบ Scrollable Frame (รองรับเมาส์ Scroll & Drag)
@@ -5709,7 +5730,7 @@ class FaceSearchApp(ctk.CTk):
         # หัวข้อหลัก
         lbl_title = ctk.CTkLabel(
             self.frame_delete_req, text="ระบบจัดการคำขอลบรูปภาพกิจกรรม", 
-            font=ctk.CTkFont(size=22, weight="bold"), text_color="white"
+            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
         lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
 
@@ -5720,23 +5741,26 @@ class FaceSearchApp(ctk.CTk):
 
         ctk.CTkLabel(
             gdrive_file_frame, text="ไฟล์ JSON คำขอลบบน Google Drive:", 
-            font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD"
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD"
         ).grid(row=0, column=0, padx=(0, 10), sticky="w")
 
         self.entry_delete_req_file_id = ctk.CTkEntry(
-            gdrive_file_frame, placeholder_text="ระบุ ID ไฟล์ delete_request.json บน Google Drive ของท่าน"
+            gdrive_file_frame, placeholder_text="ระบุ ID ไฟล์ delete_request.json บน Google Drive ของท่าน",
+            height=36, font=ctk.CTkFont(size=14)
         )
         self.entry_delete_req_file_id.grid(row=0, column=1, sticky="ew", padx=(0, 10))
 
         btn_pick_file = ctk.CTkButton(
-            gdrive_file_frame, text="🔍 เลือกไฟล์ JSON", width=120,
+            gdrive_file_frame, text="🔍 เลือกไฟล์ JSON", width=140, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=lambda: self.open_google_picker("delete_req_json")
         )
         btn_pick_file.grid(row=0, column=2, padx=(0, 5), sticky="e")
 
         btn_open_file = ctk.CTkButton(
-            gdrive_file_frame, text="🌐 เปิดดูไฟล์", width=100,
+            gdrive_file_frame, text="🌐 เปิดดูไฟล์", width=120, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#E67E22", hover_color="#D35400", text_color="white",
             command=self.open_delete_req_file_in_browser
         )
@@ -5747,14 +5771,16 @@ class FaceSearchApp(ctk.CTk):
         action_bar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
 
         btn_refresh = ctk.CTkButton(
-            action_bar, text="🔄 รีเฟรชตารางคำขอ", 
+            action_bar, text="🔄 รีเฟรชตารางคำขอ", height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.load_delete_requests_table
         )
         btn_refresh.pack(side="left", padx=(0, 10))
 
         self.btn_approve_delete = ctk.CTkButton(
-            action_bar, text="🗑️ อนุมัติการลบรูปภาพที่เลือก", 
+            action_bar, text="🗑️ อนุมัติการลบรูปภาพที่เลือก", height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#E74C3C", hover_color="#C0392B", text_color="white",
             command=self.approve_delete_requests
         )
@@ -5762,7 +5788,8 @@ class FaceSearchApp(ctk.CTk):
 
         # แถบสลับหน้า Pagination คำขอลบ
         self.btn_next_delete_req = ctk.CTkButton(
-            action_bar, text="▶️", width=36,
+            action_bar, text="▶️", width=42, height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.next_delete_req_page
         )
@@ -5770,12 +5797,13 @@ class FaceSearchApp(ctk.CTk):
 
         self.lbl_delete_req_page = ctk.CTkLabel(
             action_bar, text="หน้า 1/1",
-            font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD"
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD"
         )
         self.lbl_delete_req_page.pack(side="right", padx=10)
 
         self.btn_prev_delete_req = ctk.CTkButton(
-            action_bar, text="◀️", width=36,
+            action_bar, text="◀️", width=42, height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#1F3A60", hover_color="#20334F",
             command=self.prev_delete_req_page
         )
@@ -5789,7 +5817,7 @@ class FaceSearchApp(ctk.CTk):
         lbl_info = ctk.CTkLabel(
             self.scr_delete_requests, 
             text="[ กรุณาเลือกไฟล์ JSON หรือกดปุ่ม 🔄 รีเฟรชตารางคำขอ เพื่อดึงรายการจาก Google Drive ]",
-            font=ctk.CTkFont(size=12), text_color="#A2B5CD"
+            font=ctk.CTkFont(size=14), text_color="#A2B5CD"
         )
         lbl_info.pack(pady=40)
 
