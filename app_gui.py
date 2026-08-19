@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.20 (Continuous Pipeline & Batch DB Commit)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30 (Task 3 Teacher Auto-Sync & Retroactive Face Matching)")
         self.geometry("1100x700")
         self.minsize(1000, 650)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.20",
+            text="FACE MATCHING\nSYSTEM v5.30",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -817,21 +817,28 @@ class FaceSearchApp(ctk.CTk):
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=9, column=0, padx=15, pady=(15, 5), sticky="ew")
+        self.btn_start_schedule.grid(row=9, column=0, padx=15, pady=(15, 4), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 2. Sync New Student",
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=10, column=0, padx=15, pady=5, sticky="ew")
+        self.btn_start_task2.grid(row=10, column=0, padx=15, pady=4, sticky="ew")
+
+        self.btn_start_task3 = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ 3. Sync New Teacher",
+            fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
+            anchor="w", command=lambda: self.scheduler.run_task_3_manual()
+        )
+        self.btn_start_task3.grid(row=11, column=0, padx=15, pady=4, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task",
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=11, column=0, padx=15, pady=(5, 15), sticky="ew")
+        self.btn_stop_schedule.grid(row=12, column=0, padx=15, pady=(4, 15), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -840,8 +847,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=12, column=0, pady=20, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(12, weight=1)
+        self.credit_label.grid(row=13, column=0, pady=20, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(13, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -2326,21 +2333,18 @@ class FaceSearchApp(ctk.CTk):
                 except Exception as e:
                     logger.error(f"Error processing {os.path.basename(path)}: {e}")
 
-            logger.info(f"Registered {success_count} / {len(file_paths)} face templates for {self.selected_staff_name}")
+            if success_count > 0:
+                self.db.set_staff_backfill_status(self.selected_staff_id, 0)
+                logger.info(f"Registered {success_count} / {len(file_paths)} face templates for {self.selected_staff_name} (set is_backfilled=0)")
+            else:
+                logger.info(f"Registered {success_count} / {len(file_paths)} face templates for {self.selected_staff_name}")
             
             # รีเฟรชรายชื่อและรูปภาพย่อยในหน่วยความจำ
             self.after(0, self.load_staff_list)
             self.after(0, lambda: self.show_staff_thumbnails(self.selected_staff_id))
             self.after(0, lambda: messagebox.showinfo(
                 "ลงทะเบียนสำเร็จ", 
-                f"ลงทะเบียนใบหน้าของคุณครู {self.selected_staff_name} สำเร็จ {success_count} รูป"
-            ))
-            
-            # โหลดข้อมูลรายชื่อใหม่ใน Thread หลัก
-            self.after(0, self.load_staff_list)
-            self.after(0, lambda: messagebox.showinfo(
-                "ลงทะเบียนสำเร็จ", 
-                f"ลงทะเบียนใบหน้าของคุณครู {self.selected_staff_name} สำเร็จ {success_count} รูป"
+                f"ลงทะเบียนใบหน้าของคุณครู {self.selected_staff_name} สำเร็จ {success_count} รูป\n(พร้อมสำหรับการจับคู่ย้อนหลังอัตโนมัติใน Task 3)"
             ))
 
         threading.Thread(target=process_upload, daemon=True).start()

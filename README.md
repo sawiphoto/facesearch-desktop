@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v4.3
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -28,11 +28,11 @@ python main.py
 | File / Folder | Description |
 |---|---|
 | [main.py](main.py) | Entry point – สร้างไดเรกทอรีที่จำเป็นและเรียก GUI |
-| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – ปรับแต่งชื่อปุ่ม v4.0 (3 ปุ่มหลัก), เอาการ์ด Changelog บน Dashboard ออก |
-| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เพิ่มคอลัมน์ `is_backfilled`, เมธอด `mark_skipped_photo`, `get_scanned_event_names` และ `clear_staff_embeddings` |
+| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – ปรับแต่งชื่อปุ่ม v5.30 (เพิ่มปุ่ม Task 3), เมนูและการแสดงผล |
+| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เมธอด `get_unbackfilled_teachers`, `mark_teachers_backfilled` และ `register_staff_member` (is_backfilled=0) |
 | [face_analyzer.py](face_analyzer.py) | สร้างเวกเตอร์ใบหน้า 512-dim ด้วย InsightFace (antelopev2) พร้อม Matrix Matching เฉพาะบุคคล |
 | [gdrive_sync.py](gdrive_sync.py) | ซิงค์ข้อมูล Google Drive + JSON Index (บังคับใช้ Strict MIME Image Filter `image/` ทุกคำสั่ง) |
-| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษาแบบ Clean Log & Null Safety Pipeline |
+| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษา + Task 2 (นักเรียน) + Task 3 (คุณครู) |
 | [config/year_folders.json](config/year_folders.json) | ไฟล์ตั้งค่า ID โฟลเดอร์หลักประจำปีการศึกษา (2569, 2568, 2567, 2566, 2565) |
 | [requirements.txt](requirements.txt) | รายการ dependency ของโปรเจกต์ |
 
@@ -46,6 +46,44 @@ python main.py
 ---
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
+
+## 📋 Version 5.30 Changelog (Task 3 Teacher Auto-Sync & Retroactive Face Matching)
+
+**Date:** 19 สิงหาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ฟีเจอร์ใหม่ & การปรับปรุง (Version 5.30)
+
+1. **เพิ่มระบบ Task 3 ตรวจจับคุณครูเพิ่มใหม่ & จับคู่ย้อนหลังอัตโนมัติ (Task 3 Teacher Bulk Sync & Retroactive Matching):**
+   - **คำถาม / ปัญหาเดิม:** ระบบเดิมมีเฉพาะ **Task 1** (สแกนรูปภาพกิจกรรมใหม่) และ **Task 2** (ซิงค์เฉพาะนักเรียนใหม่และทำ Retroactive Match กับประวัติภาพกิจกรรมทั้งหมด) ยังไม่มีโหมดการทำงานนี้สำหรับคุณครู ทำให้เมื่อมีการลงทะเบียนครูใหม่หรืออัปเดตรูปภาพโปรไฟล์ครู ต้องทำการสแกนใหม่ทั้งหมดหรือขาดระบบตรวจจับการจับคู่ย้อนหลังอัตโนมัติ
+   - **แนวคิดการออกแบบ Task 3 (เลียนแบบ Task 2):**
+     - ข้อมูลครูอ้างอิงจากฐานข้อมูล SQLite (`staff_members`) เป็นหลัก (Single Source of Truth)
+     - ตรวจสอบรายชื่อคุณครูที่มีสถานะ `is_backfilled = 0` (ครูที่เพิ่มเข้ามาใหม่ หรือมีการอัปโหลดรูปภาพโปรไฟล์ใหม่)
+     - ดึงเวกเตอร์ใบหน้า (Embedding 512 มิติ) ของคุณครูมาทำ Cosine Similarity Matrix Matching เทียบกับประวัติเวกเตอร์ใบหน้าทั้งหมดในภาพกิจกรรมที่บันทึกไว้ใน `scanned_photo_faces` ด้วยค่า Personal Threshold ของคุณครูแต่ละท่าน
+     - บันทึกผลการจับคู่ลงตาราง `detected_faces` และอัปเดตสถานะเป็น `is_backfilled = 1`
+     - ซิงค์ผลการค้นหาขึ้น Google Sheets และไฟล์ JSON ดัชนี (`person_index.json`, `photo_index.json`) บน Google Drive อัตโนมัติ
+   - **ฟังก์ชันสำคัญที่ได้รับการพัฒนาและปรับปรุง:**
+     - ใน `db_manager.py`:
+       - `register_staff_member(name)`: ปรับให้กำหนด `role = 'teacher'` และตั้งค่าเริ่มต้น `is_backfilled = 0` เมื่อเพิ่มครูใหม่
+       - `get_unbackfilled_teachers()`: ดึงรายชื่อครูที่มีสถานะ `is_backfilled = 0` และมีเวกเตอร์ใบหน้าในระบบ
+       - `mark_teachers_backfilled(staff_ids)`: อัปเดตสถานะ `is_backfilled = 1` ให้ครูที่ผ่านการจับคู่ย้อนหลังเรียบร้อยแล้ว
+       - `init_db()`: เพิ่มคอลัมน์ `source_url TEXT` ในตาราง `staff_embeddings` พร้อมระบบ Migration อัตโนมัติ
+     - ใน `scheduler_task.py`:
+       - `_task_3_sync_new_teachers_bulk()`: ลอจิกการทำงานหลักของ Task 3
+       - `run_task_3_manual()` & `_run_task_3_only()`: รองรับการสั่งรัน Task 3 เฉพาะกิจใน Background Thread
+       - `run_scheduled_tasks()`: ผสาน Task 3 เข้าสู่วงรอบการทำงานอัตโนมัติ (Task 1 ➔ Task 2 ➔ Task 3)
+     - ใน `app_gui.py`:
+       - อัปเดตเวอร์ชันโปรแกรมเป็น `v5.30 (Task 3 Teacher Auto-Sync & Retroactive Face Matching)`
+       - เพิ่มปุ่มสั่งการ **`▶️ 3. Sync New Teacher`** (สีเขียว Teal `#16A085`) ในแถบ Sidebar เมนูด้านซ้าย
+       - `upload_staff_photos()`: ปรับให้เรียก `self.db.set_staff_backfill_status(staff_id, 0)` เมื่ออัปโหลดรูปครูสำเร็จ เพื่อเตรียมข้อมูลให้ Task 3 ทำการจับคู่ย้อนหลังอัตโนมัติ
+
+2. **การสอบทานด้วย Runtime Verification Script (`/learn` Rule 4):**
+   - รันสคริปต์ [test_v530_teacher_task3.py](scratch/test_v530_teacher_task3.py) ทดสอบระบบการค้นหาครูที่ `is_backfilled = 0`, การจับคู่ Cosine Similarity Matching ย้อนหลังกับรูปกิจกรรม และการอัปเดตสถานะ `is_backfilled = 1` ผลการทดสอบผ่าน 100%!
+
+---
 
 ## 📋 Version 5.20 Changelog (Continuous Download Pipeline & Batch DB Commit)
 

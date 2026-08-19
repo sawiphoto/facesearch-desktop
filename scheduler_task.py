@@ -76,6 +76,33 @@ class SchedulerTask:
             self.is_running = False
             self.stop_requested = False
 
+    def run_task_3_manual(self):
+        if self.is_running:
+            logger.info("[SCHEDULE] Tasks are already running.")
+            return
+        threading.Thread(target=self._run_task_3_only, daemon=True).start()
+
+    def _run_task_3_only(self):
+        self.is_running = True
+        self.stop_requested = False
+        try:
+            logger.info("="*50)
+            logger.info("[SCHEDULE] เริ่มทำงาน Task 3 เฉพาะกิจ (v5.30 - Sync New Teachers & Retroactive Matching)")
+            if not self.sync_manager.connected:
+                self.sync_manager.connect()
+            self._ensure_analyzer()
+            self._task_3_sync_new_teachers_bulk()
+            from datetime import datetime, timedelta, timezone
+            bkk_tz = timezone(timedelta(hours=7))
+            bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"[SCHEDULE] Task 3 เสร็จสมบูรณ์ ({bkk_time} BKK)")
+            logger.info("="*50)
+        except Exception as e:
+            logger.error(f"[SCHEDULE Error] {e}", exc_info=True)
+        finally:
+            self.is_running = False
+            self.stop_requested = False
+
     def run_scheduled_tasks(self):
         if self.is_running:
             return
@@ -84,7 +111,7 @@ class SchedulerTask:
         self.stop_requested = False
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v4.0 - High Speed)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v5.30 - High Speed & Multi-Task)")
             logger.info("="*50)
             
             # Ensure Google API is connected
@@ -104,6 +131,10 @@ class SchedulerTask:
             if not self.stop_requested:
                 # Task 2: Sync New Students (Bulk)
                 self._task_2_sync_new_students_bulk()
+
+            if not self.stop_requested:
+                # Task 3: Sync New Teachers (Bulk)
+                self._task_3_sync_new_teachers_bulk()
             else:
                 logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
                 self._sync_all_json_to_drive()
@@ -1188,5 +1219,45 @@ class SchedulerTask:
             logger.info("[SCHEDULE] 🎉 การ Bulk Sync New Students เสร็จสมบูรณ์แล้ว!")
         else:
             logger.info("[SCHEDULE] ✅ ไม่มีนักเรียนใหม่หรือรูปอัปเดตที่ต้องทำ Backfill Matching ในรอบนี้")
+
+    def _task_3_sync_new_teachers_bulk(self):
+        """Task 3: ค้นหาคุณครูที่เพิ่มมาใหม่หรืออัปเดตรูปใหม่จาก SQLite DB (is_backfilled = 0) และนำค่า embedding ไป match กับ embedding ที่เก็บไว้ทั้งหมดใน scanned_photo_faces ทันที"""
+        logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 3: Sync New Teachers & Bulk Retroactive Matching")
+        
+        self._ensure_analyzer()
+        
+        # 1. ค้นหาครูที่ยังไม่ได้ทำการจับคู่ย้อนหลัง (is_backfilled = 0)
+        logger.info("[SCHEDULE] 🔍 [TASK 3] กำลังค้นหาคุณครูที่มีการเพิ่มใหม่หรืออัปเดตรูปภาพที่ต้องทำ Retroactive Matching...")
+        unbackfilled = self.db.get_unbackfilled_teachers()
+        
+        if unbackfilled:
+            teacher_names = [t["name"] for t in unbackfilled]
+            logger.info(f"[SCHEDULE] [TASK 3] พบคุณครู {len(unbackfilled)} ท่าน ที่ต้องการทำจับคู่ย้อนหลัง: {teacher_names}")
+            target_staff_ids = [t["staff_id"] for t in unbackfilled]
+            
+            with self.db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT staff_id, embedding FROM staff_embeddings")
+                all_embs = c.fetchall()
+                
+                matched_faces_to_process = []
+                for staff_id, emb_blob in all_embs:
+                    if staff_id in target_staff_ids and emb_blob:
+                        emb = np.frombuffer(emb_blob, dtype=np.float32)
+                        matched_faces_to_process.append({"staff_id": staff_id, "emb": emb})
+            
+            if matched_faces_to_process:
+                logger.info(f"[SCHEDULE] [TASK 3] กำลังทำ Retroactive Match สำหรับคุณครูกับเวกเตอร์กิจกรรมทั้งหมด ({len(matched_faces_to_process)} เวกเตอร์)...")
+                if hasattr(self.app_gui, 'process_retroactive_match_headless'):
+                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process)
+                else:
+                    logger.error("[SCHEDULE] Error: app_gui does not have process_retroactive_match_headless")
+            
+            # ทำเครื่องหมายว่าครูกลุ่มนี้ทำ Backfill สำเร็จแล้ว
+            self.db.mark_teachers_backfilled(target_staff_ids)
+            logger.info(f"[SCHEDULE] 🎉 [TASK 3] การ Bulk Sync New Teachers เสร็จสมบูรณ์แล้ว ({len(target_staff_ids)} คน)!")
+        else:
+            logger.info("[SCHEDULE] ✅ [TASK 3] ไม่มีคุณครูใหม่หรือรูปอัปเดตที่ต้องทำ Backfill Matching ในรอบนี้")
+
 
 

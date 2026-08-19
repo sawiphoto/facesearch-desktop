@@ -49,6 +49,7 @@ class DatabaseManager:
                 staff_id INTEGER NOT NULL,
                 image_path TEXT NOT NULL,
                 embedding BLOB NOT NULL,
+                source_url TEXT,
                 FOREIGN KEY (staff_id) REFERENCES staff_members (id) ON DELETE CASCADE
             )
             """)
@@ -154,6 +155,13 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not update is_backfilled for existing staff: {e}")
 
+            # Migration: เพิ่มคอลัมน์ source_url ใน staff_embeddings (v1.7.2)
+            try:
+                cursor.execute("ALTER TABLE staff_embeddings ADD COLUMN source_url TEXT")
+                logger.info("Executed database migration: added source_url to staff_embeddings.")
+            except Exception:
+                pass # คอลัมน์อาจจะมีอยู่แล้ว
+
             # สร้าง unique index สำหรับ student_id (เฉพาะนักเรียน)
             try:
                 cursor.execute("""
@@ -191,11 +199,11 @@ class DatabaseManager:
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
     def register_staff_member(self, name):
-        """เพิ่มชื่อครูและคืนค่า ID"""
+        """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute("INSERT INTO staff_members (name) VALUES (?)", (name,))
+                cursor.execute("INSERT INTO staff_members (name, role, is_backfilled) VALUES (?, 'teacher', 0)", (name,))
                 conn.commit()
                 logger.info(f"Registered new staff member: {name}")
                 return cursor.lastrowid
@@ -893,16 +901,33 @@ class DatabaseManager:
         return results
 
     def get_unbackfilled_students(self):
-        """ดึงรายการ staff_id ของนักเรียน/ครูที่เพิ่งเพิ่มใหม่ หรืออัปเดตรูปใหม่ (is_backfilled = 0)"""
+        """ดึงรายการ staff_id ของนักเรียนที่เพิ่งเพิ่มใหม่ หรืออัปเดตรูปใหม่ (is_backfilled = 0)"""
         results = []
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT id, name, role, student_id FROM staff_members WHERE is_backfilled = 0")
+                cursor.execute("SELECT id, name, role, student_id FROM staff_members WHERE is_backfilled = 0 AND role = 'student'")
                 for row in cursor.fetchall():
                     results.append({"staff_id": row[0], "name": row[1], "role": row[2], "student_id": row[3]})
             except sqlite3.Error as e:
                 logger.error(f"[DATABASE] Error getting unbackfilled students: {e}")
+        return results
+
+    def get_unbackfilled_teachers(self):
+        """ดึงรายการ staff_id ของคุณครูที่เพิ่งเพิ่มใหม่ หรืออัปเดตรูปใหม่ (is_backfilled = 0 และ role = 'teacher')"""
+        results = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT id, name, role, student_id 
+                    FROM staff_members 
+                    WHERE is_backfilled = 0 AND (role = 'teacher' OR role IS NULL OR role = '')
+                """)
+                for row in cursor.fetchall():
+                    results.append({"staff_id": row[0], "name": row[1], "role": row[2] if row[2] else "teacher", "student_id": row[3]})
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error getting unbackfilled teachers: {e}")
         return results
 
     def mark_students_backfilled(self, staff_ids):
@@ -918,6 +943,20 @@ class DatabaseManager:
                 logger.info(f"Marked {len(staff_ids)} students as backfilled.")
             except sqlite3.Error as e:
                 logger.error(f"[DATABASE] Error marking students backfilled: {e}")
+
+    def mark_teachers_backfilled(self, staff_ids):
+        """อัปเดตสถานะ is_backfilled = 1 หลังจากแมตช์ย้อนหลังของคุณครูสำเร็จ"""
+        if not staff_ids:
+            return
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                placeholders = ",".join("?" for _ in staff_ids)
+                cursor.execute(f"UPDATE staff_members SET is_backfilled = 1 WHERE id IN ({placeholders})", staff_ids)
+                conn.commit()
+                logger.info(f"Marked {len(staff_ids)} teachers as backfilled.")
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error marking teachers backfilled: {e}")
 
     def clear_staff_embeddings(self, staff_id):
         """ลบเวกเตอร์ใบหน้าทั้งหมดของ staff_id นี้ (เพื่อเตรียมรับรูปใหม่)"""
