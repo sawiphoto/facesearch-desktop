@@ -103,13 +103,13 @@ python main.py
 6. **หน้าฐานข้อมูล SQLite (Database Viewer):**
    - **`app_gui.py` (`setup_database_ui`)**:
      - ปรับตาราง Treeview Style: เพิ่มความสูงของแถว (`rowheight`) จาก `25px` ➔ `32px`, ฟอนต์ข้อมูลในตารางจาก `10pt` ➔ `12pt (Segoe UI)`, และหัวตารางจาก `10pt` ➔ `13pt bold`
-     - ปรับ `option_db_table` เป็น `height=36, font=14`
+     - ปรับ Dropdown เลือกตาราง `self.option_db_table` เป็น `width=360, height=38, font=14 (bold)` และเพิ่มพารามิเตอร์ `dropdown_font=ctk.CTkFont(size=14)` เพื่อให้รายการชื่อตารางทุกตารางในป๊อปอัปตอนกดคลิกเปิดขยายใหญ่อ่านง่าย พร้อมธีมสี High Contrast (`dropdown_fg_color="#101B2B"`, `dropdown_hover_color="#1F3A60"`)
      - ปรับปุ่มควบคุมด้านบนทั้งหมด (รีเฟรช, รีเซ็ต, บันทึก Threshold, เปิดโฟลเดอร์, ส่งออก CSV) เป็น `height=36, font=13 (bold)`
      - ปรับปุ่ม Pagination (หน้าแรก, ก่อนหน้า, ถัดไป, หน้าสุดท้าย) เป็น `height=36, font=13 (bold)` และป้ายข้อมูลหน้าเป็น `font=14 (bold)`
 
 7. **หน้าแกลเลอรีภาพและหน้าคำขอลบ (Matched Gallery & Delete Requests):**
    - **`app_gui.py` (`setup_matched_gallery_ui` & `setup_delete_req_ui`)**:
-     - ปรับ Dropdown เมนูและปุ่มควบคุมทั้งหมดเป็น `height=36, font=14`
+     - ปรับ Dropdown เมนูและปุ่มควบคุมทั้งหมดเป็น `height=36, font=14 (bold)` พร้อม `dropdown_font=ctk.CTkFont(size=14)`
      - ปรับปุ่ม Pagination คำขอลบ `btn_prev_delete_req` / `btn_next_delete_req` เป็น `width=42, height=36, font=14 (bold)`
 
 8. **หน้าต่าง Global Console Debug Logs:**

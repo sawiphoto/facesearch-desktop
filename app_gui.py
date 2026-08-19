@@ -3999,8 +3999,13 @@ class FaceSearchApp(ctk.CTk):
                 "📋 ตารางทั้งหมด: scanned_photo_faces",
                 "📋 ตารางทั้งหมด: staff_embeddings"
             ],
-            height=36,
-            font=ctk.CTkFont(size=14),
+            width=360,
+            height=38,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
             command=lambda v: self.load_db_table_data(v, page=1)
         )
         self.option_db_table.pack(side="left", padx=5, pady=15)
@@ -4820,7 +4825,11 @@ class FaceSearchApp(ctk.CTk):
         ctk.CTkLabel(ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
         self.combo_matched_role = ctk.CTkOptionMenu(
             ctrl_frame, values=["คุณครู", "นักเรียน"], width=130, height=36,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
             command=self.on_matched_role_change
         )
         self.combo_matched_role.pack(side="left", padx=5, pady=10)
@@ -4828,7 +4837,11 @@ class FaceSearchApp(ctk.CTk):
         ctk.CTkLabel(ctrl_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
         self.combo_matched_person = ctk.CTkOptionMenu(
             ctrl_frame, values=["-- กรุณาเลือก --"], width=320, height=36,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
             command=self.on_matched_person_change
         )
         self.combo_matched_person.pack(side="left", padx=5, pady=10)
