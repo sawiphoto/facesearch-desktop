@@ -47,6 +47,24 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.32 Changelog (Student Prefix Normalization & GUI Edit Feature)
+
+**Date:** 2 กันยายน 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบและการแก้ไข (Issues & Solutions):
+1. **ตัดคำนำหน้าชื่อนักเรียนในฐานข้อมูล (Student Prefix Normalization):**
+   - **ปัญหาเดิม:** พบข้อมูลนักเรียน 5 รายการถูกบันทึกโดยมีคำนำหน้า `"เด็กชาย..."` ในขณะที่นักเรียนอีก 69 คนถูกบันทึกเป็นชื่อ-นามสกุลปกติ ส่งผลให้รูปแบบชื่อในฐานข้อมูลและไฟล์ดัชนี JSON บน Google Drive ไม่เป็นมาตรฐานเดียวกัน
+   - **การแก้ไข:** ทำการ Clean ข้อมูลในฐานข้อมูล SQLite (`faces_db.db`) ปรับชื่อทั้ง 5 คนให้เหลือเฉพาะชื่อ-นามสกุล (เช่น `เด็กชายกรวิชญ์ ปิ่นทอง` -> `กรวิชญ์ ปิ่นทอง`) ส่งผลให้นักเรียนทุกคนเป็นมาตรฐานเดียวกัน 100%
+2. **เพิ่มปุ่มและระบบแก้ไขข้อมูลนักเรียนบน GUI (`app_gui.py` & `db_manager.py`):**
+   - **ฟีเจอร์ใหม่:** เพิ่มปุ่ม **"✏️ แก้ไขข้อมูลนักเรียน"** ในหน้าจัดการนักเรียน
+   - **การทำงาน:** เมื่อเลือกนักเรียนและกดแก้ไข ระบบจะเปิด Dialog Popup ให้แก้ไขชื่อ-นามสกุล และรหัสประจำตัวนักเรียน พร้อมตรวจสอบการซ้ำซ้อนของรหัสนักเรียนใน DB และทำการซิงค์อัปเดตไฟล์ JSON ดัชนีขึ้น Google Drive ให้อัตโนมัติทันที
+
+---
+
 ## 📋 Version 5.31 Changelog (Senior-Friendly UI Scaling 1.5x & High-Contrast Typography)
 
 **Date:** 19 สิงหาคม 2026  

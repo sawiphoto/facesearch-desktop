@@ -402,6 +402,27 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else None
 
+    def update_student_info(self, staff_id, new_name, new_student_id):
+        """อัปเดตชื่อและรหัสนักเรียน (v5.30)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # ตรวจสอบว่า student_id ซ้ำกับคนอื่นหรือไม่
+                if new_student_id:
+                    cursor.execute("SELECT id FROM staff_members WHERE student_id = ? AND id != ? AND role = 'student'", (str(new_student_id).strip(), staff_id))
+                    if cursor.fetchone():
+                        logger.warning(f"[DATABASE] Student ID {new_student_id} already exists for another student.")
+                        return False, "รหัสประจำตัวนักเรียนนี้ถูกใช้ไปแล้วโดยนักเรียนคนอื่น"
+                        
+                cursor.execute("UPDATE staff_members SET name = ?, student_id = ? WHERE id = ?", (new_name.strip(), str(new_student_id).strip() if new_student_id else None, staff_id))
+                conn.commit()
+                logger.info(f"[DATABASE] Updated student ID {staff_id} info: name='{new_name}', student_id='{new_student_id}'")
+                return True, "อัปเดตข้อมูลสำเร็จ"
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error updating student info for ID {staff_id}: {e}")
+                conn.rollback()
+                return False, f"เกิดข้อผิดพลาดในฐานข้อมูล: {e}"
+
     def delete_staff_member(self, staff_id):
         """ลบข้อมูลครูและลบความสัมพันธ์อื่น ๆ ทั้งหมด (Cascaded)"""
         with self.get_connection() as conn:

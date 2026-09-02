@@ -1469,13 +1469,24 @@ class FaceSearchApp(ctk.CTk):
         self.student_thumbs_scrollable = ctk.CTkScrollableFrame(self.student_thumbs_frame, orientation="vertical", fg_color="transparent", height=155)
         self.student_thumbs_scrollable.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
-        # ลบชื่อนักเรียนที่เลือก
+        # 3. การดำเนินการอื่น ๆ (แก้ไข และ ลบ)
         ctk.CTkLabel(self.student_form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
+        
+        student_actions_frame = ctk.CTkFrame(self.student_form_frame, fg_color="transparent")
+        student_actions_frame.pack(fill="x", padx=20, pady=5)
+        student_actions_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.btn_edit_student = ctk.CTkButton(
+            student_actions_frame, text="✏️ แก้ไขข้อมูลนักเรียน", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            state="disabled", fg_color="#F39C12", hover_color="#D68910", text_color="#101B2B", command=self.edit_selected_student
+        )
+        self.btn_edit_student.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
         self.btn_delete_student = ctk.CTkButton(
-            self.student_form_frame, text="ลบรายชื่อนักเรียน (ลบข้อมูลและภาพทั้งหมด)", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            student_actions_frame, text="❌ ลบรายชื่อนักเรียน", height=38, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_student
         )
-        self.btn_delete_student.pack(fill="x", padx=20, pady=10)
+        self.btn_delete_student.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     def load_student_list(self):
         # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
@@ -1486,6 +1497,8 @@ class FaceSearchApp(ctk.CTk):
         self.selected_student_id = None
         self.selected_student_name = None
         self.btn_upload_student_photo.configure(state="disabled")
+        if hasattr(self, 'btn_edit_student'):
+            self.btn_edit_student.configure(state="disabled")
         self.btn_delete_student.configure(state="disabled")
         self.lbl_student_selected_info.configure(text="กรุณาเลือกนักเรียนจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ")
         self.lbl_student_photo_count_detail.configure(text="")
@@ -1568,6 +1581,8 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_student_photo_count_detail.configure(text=f"รูปภาพที่ลงทะเบียนแล้วในระบบ: {photo_count} รูป")
 
         self.btn_upload_student_photo.configure(state="normal")
+        if hasattr(self, 'btn_edit_student'):
+            self.btn_edit_student.configure(state="normal")
         self.btn_delete_student.configure(state="normal")
         self.btn_delete_student_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
@@ -1653,7 +1668,96 @@ class FaceSearchApp(ctk.CTk):
                 f"ลงทะเบียนใบหน้าของนักเรียน {self.selected_student_name} สำเร็จ {success_count} รูป"
             ))
 
-        threading.Thread(target=process_upload, daemon=True).start()
+    def edit_selected_student(self):
+        """แก้ไขชื่อและรหัสประจำตัวนักเรียน (v5.30)"""
+        if self.selected_student_id is None:
+            return
+
+        student_id = self.selected_student_id
+        old_name = self.selected_student_name or ""
+        old_code = self.selected_student_code or ""
+
+        # สร้างหน้าต่าง Popup Dialog
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("แก้ไขข้อมูลนักเรียน")
+        dialog.geometry("450x260")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # จัดกึ่งกลางหน้าจอหลัก
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 225
+        y = self.winfo_y() + (self.winfo_height() // 2) - 130
+        dialog.geometry(f"+{x}+{y}")
+
+        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลนักเรียน", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
+
+        # รหัสประจำตัว
+        frame_id = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_id.pack(fill="x", padx=25, pady=5)
+        ctk.CTkLabel(frame_id, text="รหัสประจำตัว:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
+        entry_code = ctk.CTkEntry(frame_id, height=34, font=ctk.CTkFont(size=13))
+        entry_code.pack(side="left", fill="x", expand=True)
+        entry_code.insert(0, old_code)
+
+        # ชื่อ-นามสกุล
+        frame_name = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_name.pack(fill="x", padx=25, pady=5)
+        ctk.CTkLabel(frame_name, text="ชื่อ-นามสกุล:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
+        entry_name = ctk.CTkEntry(frame_name, height=34, font=ctk.CTkFont(size=13))
+        entry_name.pack(side="left", fill="x", expand=True)
+        entry_name.insert(0, old_name)
+
+        def save_edit():
+            new_name = entry_name.get().strip()
+            new_code = entry_code.get().strip()
+
+            if not new_name:
+                messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อ-นามสกุล", parent=dialog)
+                return
+
+            if not new_code:
+                messagebox.showwarning("คำเตือน", "กรุณากรอกรหัสประจำตัวนักเรียน", parent=dialog)
+                return
+
+            success, msg = self.db.update_student_info(student_id, new_name, new_code)
+            if success:
+                logger.info(f"[SYSTEM] Student ID {student_id} updated to '{new_name}' (Code: {new_code})")
+                dialog.destroy()
+                
+                # รีเฟรชข้อมูลในหน่วยความจำและหน้าจอ
+                self.selected_student_name = new_name
+                self.selected_student_code = new_code
+                self.load_student_list()
+                self.select_student_item(student_id, new_name, new_code, len(self.selected_student_thumb_paths or []))
+                
+                # ซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive อัตโนมัติ
+                def sync_drive():
+                    try:
+                        sync_data = self.db.get_all_sync_data()
+                        json_folder_id = self.get_json_folder_id()
+                        if json_folder_id:
+                            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="students")
+                            logger.info("[GDRIVE JSON] Updated JSON indexes after editing student.")
+                    except Exception as err:
+                        logger.error(f"[GDRIVE JSON] Error updating Drive JSON indexes after edit: {err}")
+
+                threading.Thread(target=sync_drive, daemon=True).start()
+                messagebox.showinfo("สำเร็จ", f"แก้ไขข้อมูลของ '{new_name}' สำเร็จเรียบร้อยแล้ว")
+            else:
+                messagebox.showerror("ข้อผิดพลาด", msg, parent=dialog)
+
+        # ปุ่มบันทึก / ยกเลิก
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=25, pady=(15, 10))
+        btn_frame.grid_columnconfigure((0, 1), weight=1)
+
+        btn_cancel = ctk.CTkButton(btn_frame, text="ยกเลิก", height=36, fg_color="#7F8C8D", hover_color="#95A5A6", command=dialog.destroy)
+        btn_cancel.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
+        btn_save = ctk.CTkButton(btn_frame, text="💾 บันทึกการแก้ไข", height=36, fg_color="#27AE60", hover_color="#229954", font=ctk.CTkFont(weight="bold"), command=save_edit)
+        btn_save.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     def delete_selected_student(self):
         if self.selected_student_id is None:
