@@ -498,16 +498,25 @@ class DatabaseManager:
 
     def update_personal_threshold(self, staff_id, threshold_value):
         """อัปเดตค่า Personal Threshold ของบุคคลในฐานข้อมูล"""
+        return self.update_personal_thresholds_batch([staff_id], threshold_value)
+
+    def update_personal_thresholds_batch(self, staff_ids, threshold_value):
+        """อัปเดตค่า Personal Threshold ของบุคคลหลายคนพร้อมกันใน 1 Transaction (v5.40)"""
+        if not staff_ids:
+            return False
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 val = float(threshold_value)
-                cursor.execute("UPDATE staff_members SET personal_threshold = ? WHERE id = ?", (val, staff_id))
+                cursor.executemany(
+                    "UPDATE staff_members SET personal_threshold = ? WHERE id = ?",
+                    [(val, sid) for sid in staff_ids]
+                )
                 conn.commit()
-                logger.info(f"Updated personal_threshold for staff_id {staff_id} to {val:.2f}")
+                logger.info(f"[DATABASE] Batch updated personal_threshold to {val:.2f} for {len(staff_ids)} members.")
                 return True
             except Exception as e:
-                logger.error(f"Error updating personal_threshold for staff_id {staff_id}: {e}")
+                logger.error(f"Error batch updating personal_threshold: {e}")
                 return False
 
     # --- ส่วนการจัดการภาพสแกนกิจกรรม (Photo Matching DB) ---

@@ -47,6 +47,26 @@ python main.py
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
 
+## 📋 Version 5.40 Changelog (Batch Multi-Select Threshold & Rescan Fix)
+
+**Date:** 19 กันยายน 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบและการแก้ไข (Issues & Solutions):
+1. **แก้จุดผิดพลาด Fast Rescan & Real-time Preview (`app_gui.py`):**
+   - **ปัญหาเดิม:** เมื่อผู้ใช้ติ๊ก Re-scan เพื่อสแกนภาพเดิมซ้ำ แต่ไม่ได้ติ๊ก Fast Rescan ระบบกลับไปเรียก Fast Rescan เวกเตอร์แคชอัตโนมัติ ส่งผลให้ไม่มีการดาวน์โหลดภาพจริงมาวิเคราะห์ใหม่ และภาพ Real-time Preview ขึ้นว่างเปล่า
+   - **การแก้ไข:** 
+     - ตรวจสอบสถานะ `self.chk_fast_rescan.get()` อย่างถูกต้อง พร้อมผูก Event `toggle_rescan_options` เพื่อเปิด/ปิด Checkbox Fast Rescan ให้สอดคล้องกัน
+     - ในกรณี Fast Rescan ได้เพิ่มการโหลดภาพ Thumbnail แคชในเครื่อง (`data/thumbnail_cache/`) มาวาดกรอบ Bounding Box แสดงผลบน Real-time Preview ทำให้หน้าจอแสดงภาพสดเสมอไม่ว่างเปล่า
+2. **เพิ่มระบบเลือกหลายรายการ (Multi-Select / Shift+Click / Ctrl+Click) สำหรับตั้งค่า Threshold บุคคล (`app_gui.py` & `db_manager.py`):**
+   - **ฟีเจอร์ใหม่:** เพิ่มคุณสมบัติ `selectmode="extended"` ให้กับตาราง Treeview ในหน้า SQLite Viewer
+   - **การทำงาน:** ผู้ใช้สามารถกด Shift+Click เลือกแถวเป็นกลุ่ม หรือ Ctrl+Click เลือกทีละหลายคน จากนั้นกรอกค่า Threshold แล้วกดปุ่ม **"💾 บันทึก Threshold"** ระบบจะนำค่าใหม่ไปอัปเดตให้กับทุกคนที่เลือกพร้อมกันใน 1 Transaction ผ่านฟังก์ชัน `update_personal_thresholds_batch`
+
+---
+
 ## 📋 Version 5.32 Changelog (Student Prefix Normalization & GUI Edit Feature)
 
 **Date:** 2 กันยายน 2026  

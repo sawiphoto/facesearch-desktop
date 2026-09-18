@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30 (Senior-Friendly UI & Task 3 Auto-Sync)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.40 (Batch Multi-Select Threshold & Rescan Fix)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -750,7 +750,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.30",
+            text="FACE MATCHING\nSYSTEM v5.40",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2748,6 +2748,14 @@ class FaceSearchApp(ctk.CTk):
     def update_thresh_label(self, val):
         self.lbl_threshold.configure(text=f"ค่า Threshold ความคล้ายใบหน้า: {val:.2f}")
 
+    def toggle_rescan_options(self):
+        """เปิด/ปิด การใช้งาน Fast Rescan ตามสถานะของปุ่ม Re-scan (v5.40)"""
+        if self.chk_re_scan.get():
+            self.chk_fast_rescan.configure(state="normal")
+        else:
+            self.chk_fast_rescan.deselect()
+            self.chk_fast_rescan.configure(state="disabled")
+
     def update_match_mode_ui(self):
         mode = self.match_mode.get()
         if mode == "selected_teachers":
@@ -3428,6 +3436,7 @@ class FaceSearchApp(ctk.CTk):
             # คัดกรองภาพเฉพาะที่ยังไม่เคยสแกน (หรือเอาทั้งหมดหากผู้ใช้ระบุให้สแกนซ้ำ)
             images_to_scan = []
             use_re_scan = self.chk_re_scan.get()
+            use_fast_rescan = self.chk_fast_rescan.get() if use_re_scan else False
             
             for img in drive_images:
                 if use_re_scan or not self.db.is_photo_scanned(img["file_id"]):
@@ -3460,7 +3469,7 @@ class FaceSearchApp(ctk.CTk):
                 self.after(0, self.reset_scan_ui)
                 return
 
-            # 5. ลุยตรวจจับใบหน้าแบบ Continuous Prefetch Pipeline (v5.20)
+            # 5. ลุยตรวจจับใบหน้าแบบ Continuous Prefetch Pipeline (v5.20 / v5.40)
             thresh_val = self.slider_threshold.get()
             success_scan_count = 0
             
@@ -3477,19 +3486,28 @@ class FaceSearchApp(ctk.CTk):
                     f_name = img_item["file_name"]
                     
                     existing_pid = self.db.get_photo_id_by_drive_id(f_id)
-                    # ถ้าเป็น Fast Rescan ที่มีแคชแล้ว ไม่ต้องโหลดไบต์รูปภาพจาก Drive
-                    if use_re_scan and existing_pid and self.db.has_cached_faces(existing_pid):
+                    # ถ้าผู้ใช้ติ๊ก Fast Rescan และมีแคชใบหน้าเดิมใน DB แล้ว -> ไม่ต้องดาวน์โหลดใหม่จาก Drive
+                    if use_re_scan and use_fast_rescan and existing_pid and self.db.has_cached_faces(existing_pid):
+                        # ดึงภาพ Thumbnail แคชในเครื่อง (ถ้ามี) มาส่งเข้าคิวเพื่อวาดบน Preview
+                        thumb_bgr = None
+                        try:
+                            thumb_path = os.path.join(os.path.dirname(__file__), "data", "thumbnail_cache", f"thumb_{f_id}.jpg")
+                            if os.path.exists(thumb_path):
+                                thumb_bgr = cv2.imdecode(np.fromfile(thumb_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        except Exception:
+                            thumb_bgr = None
+                            
                         download_queue.put({
                             "img_info": img_item,
                             "img_bytes": None,
-                            "img_bgr": None,
+                            "img_bgr": thumb_bgr,
                             "dl_time": 0.0,
                             "is_cached": True,
                             "existing_photo_id": existing_pid
                         })
                         continue
                         
-                    # ดาวน์โหลดไบต์รูปภาพจริง
+                    # ดาวน์โหลดไบต์รูปภาพจริง (กรณีปกติ หรือ Re-scan แบบเต็ม)
                     img_bytes, dl_time, _ = self.sync_manager.download_image_bytes_with_stats(f_id, f_name)
                     img_bgr = None
                     if img_bytes:
@@ -3583,7 +3601,55 @@ class FaceSearchApp(ctk.CTk):
                                     best_name = templates["names"][best_idx]
                                 summary_list.append((best_name, best_sim, False))
                     
-                    def update_summary_only(items=summary_list):
+                    # วาดภาพพรีวิวจาก Thumbnail แคช (ถ้ามี) บน GUI
+                    ctk_preview = None
+                    if img is not None:
+                        try:
+                            from PIL import ImageDraw, ImageFont
+                            preview_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                            preview_pil = Image.fromarray(preview_rgb)
+                            draw = ImageDraw.Draw(preview_pil)
+                            
+                            font = None
+                            for fp in ["tahoma.ttf", "cordia.ttf", "arial.ttf"]:
+                                try:
+                                    font_size = max(12, int(preview_pil.height * 0.04))
+                                    font = ImageFont.truetype(fp, font_size)
+                                    break
+                                except Exception:
+                                    continue
+                            if font is None:
+                                font = ImageFont.load_default()
+                                
+                            for i, f in enumerate(faces):
+                                bbox = f.bbox
+                                if bbox and len(bbox) >= 4:
+                                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                                    m_res = match_results[i] if i < len(match_results) else None
+                                    if m_res:
+                                        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+                                        text_label = f"{m_res['name']} ({m_res['confidence']*100:.0f}%)"
+                                        draw.text((x1, max(0, y1 - font.getbbox(text_label)[3] - 4)), text_label, fill=(0, 255, 0), font=font)
+                                    else:
+                                        draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
+                                        
+                            h_orig, w_orig = preview_pil.height, preview_pil.width
+                            h_new = 240
+                            w_new = int(w_orig * (h_new / h_orig))
+                            if w_new > 380:
+                                w_new = 380
+                                h_new = int(h_orig * (w_new / w_orig))
+                            preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
+                            ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
+                        except Exception as draw_err:
+                            logger.debug(f"Fast Rescan preview draw error: {draw_err}")
+                            ctk_preview = None
+
+                    def update_fast_rescan_ui(preview_obj=ctk_preview, items=summary_list):
+                        if preview_obj:
+                            self.lbl_realtime_preview.configure(image=preview_obj, text="")
+                        else:
+                            self.lbl_realtime_preview.configure(image="", text="⚡ [ Fast Rescan จากแคช ]")
                         self.txt_match_summary.configure(state="normal")
                         self.txt_match_summary.delete("1.0", "end")
                         if not items:
@@ -3597,7 +3663,7 @@ class FaceSearchApp(ctk.CTk):
                                     self.txt_match_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
                         self.txt_match_summary.configure(state="normal")
                     
-                    self.after(0, update_summary_only)
+                    self.after(0, update_fast_rescan_ui)
                     
                     if self.match_mode.get() != "all":
                         self.db.delete_photo_matches_selective(existing_photo_id, templates["staff_ids"])
@@ -4235,8 +4301,8 @@ class FaceSearchApp(ctk.CTk):
         self.style.configure("Treeview.Heading", background="#101B2B", foreground="#6CA6CD", font=("Segoe UI", 13, "bold"))
         self.style.map("Treeview", background=[("selected", "#1F3A60")])
 
-        # สร้าง Treeview
-        self.db_tree = ttk.Treeview(table_container, show="headings")
+        # สร้าง Treeview (รองรับ Shift+Click และ Ctrl+Click เพื่อเลือกหลายแถวพร้อมกัน v5.40)
+        self.db_tree = ttk.Treeview(table_container, show="headings", selectmode="extended")
         self.db_tree.grid(row=0, column=0, sticky="nsew", padx=(15, 0), pady=(0, 15))
         
         # ป้ายแนะนำการดับเบิ้ลคลิก (v2.6)
@@ -4837,24 +4903,17 @@ class FaceSearchApp(ctk.CTk):
             self.entry_personal_thresh.insert(0, f"{thresh:.2f}")
 
     def save_selected_person_threshold(self):
-        """บันทึกค่า Personal Threshold ของบุคคลที่เลือกจากตาราง"""
+        """บันทึกค่า Personal Threshold ของบุคคลที่เลือกจากตาราง (รองรับ Multi-Select / Shift+Click v5.40)"""
         selected_table_text = self.option_db_table.get()
         if "staff_members" not in selected_table_text:
             messagebox.showwarning("คำเตือน", "กรุณาเลือกตารางรายชื่อครู หรือ รายชื่อนักเรียน ก่อนใช้งานปุ่มนี้")
             return
             
-        selected_item = self.db_tree.selection()
-        if not selected_item:
-            messagebox.showwarning("คำเตือน", "กรุณาคลิกเลือกชื่อบุคคลจากตารางที่ต้องการบันทึก Threshold ก่อน")
+        selected_items = self.db_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("คำเตือน", "กรุณาคลิกเลือกชื่อบุคคลจากตารางที่ต้องการบันทึก Threshold ก่อน (เลือกหลายคนด้วย Shift+Click หรือ Ctrl+Click ได้)")
             return
             
-        values = self.db_tree.item(selected_item[0], "values")
-        if not values:
-            return
-            
-        staff_id = values[0]
-        name = values[1]
-        
         try:
             val_str = self.entry_personal_thresh.get().strip()
             new_thresh = float(val_str)
@@ -4864,14 +4923,29 @@ class FaceSearchApp(ctk.CTk):
         except ValueError:
             messagebox.showerror("ข้อผิดพลาด", "กรุณากรอกตัวเลขทศนิยมที่ถูกต้อง (เช่น 0.50)")
             return
-            
-        success = self.db.update_personal_threshold(staff_id, new_thresh)
+
+        staff_ids = []
+        names = []
+        for item_id in selected_items:
+            values = self.db_tree.item(item_id, "values")
+            if values:
+                staff_ids.append(values[0])
+                names.append(values[1])
+
+        if not staff_ids:
+            return
+
+        success = self.db.update_personal_thresholds_batch(staff_ids, new_thresh)
         if success:
-            messagebox.showinfo("บันทึกสำเร็จ", f"บันทึก Personal Threshold ของ '{name}' เป็น {new_thresh:.2f} เรียบร้อยแล้ว")
-            logger.info(f"[SETTINGS] Updated personal_threshold for {name} (ID: {staff_id}) to {new_thresh:.2f}")
+            if len(staff_ids) == 1:
+                msg_text = f"บันทึก Personal Threshold ของ '{names[0]}' เป็น {new_thresh:.2f} เรียบร้อยแล้ว"
+            else:
+                msg_text = f"บันทึก Personal Threshold เป็น {new_thresh:.2f} ให้กับ {len(staff_ids)} รายการที่เลือกเรียบร้อยแล้ว"
+            messagebox.showinfo("บันทึกสำเร็จ", msg_text)
+            logger.info(f"[SETTINGS] Updated personal_threshold to {new_thresh:.2f} for {len(staff_ids)} items.")
             self.load_db_table_data(selected_table_text)
         else:
-            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถบันทึกข้อมูล Threshold ของ '{name}' ได้")
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถบันทึกข้อมูล Threshold ได้")
 
     def run_manual_json_sync(self, mode):
         if not self.sync_manager.connected:
