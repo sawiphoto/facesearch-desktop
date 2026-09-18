@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.40 (Batch Multi-Select Threshold & Rescan Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.50 (Floating Real-time Preview Window)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -708,6 +708,9 @@ class FaceSearchApp(ctk.CTk):
         self.scan_thread = None
         self.is_scanning = False
         self.is_paused = False
+        self.floating_preview_win = None  # v5.50: หน้าต่างพรีวิวผลลอยตัว (Floating Window)
+        self.lbl_float_preview = None
+        self.txt_float_summary = None
         self.selected_staff_ids_for_scan = []  # รายชื่อ ID ครูที่เลือกสำหรับสแกนแบบเจาะจง (Selective Matching)
         self.selected_teacher_ids = []  # v1.7.4 รายชื่อ ID ครูที่เลือกสแกนเฉพาะเจาะจง
         self.selected_student_ids = []  # v1.7.4 รายชื่อ ID นักเรียนที่เลือกสแกนเฉพาะเจาะจง
@@ -750,7 +753,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.40",
+            text="FACE MATCHING\nSYSTEM v5.50",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2734,13 +2737,21 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_pause_scan.grid(row=1, column=0, sticky="ew", pady=(0, 10))
 
+        self.btn_open_float_preview_scan = ctk.CTkButton(
+            self.action_panel, text="🔍 เปิดหน้าต่างพรีวิวแบบลอย (Floating Preview)", 
+            fg_color="#1F3A60", hover_color="#20334F", text_color="white",
+            font=ctk.CTkFont(size=14, weight="bold"), height=36,
+            command=self.open_floating_preview_window
+        )
+        self.btn_open_float_preview_scan.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+
         self.progress_bar = ctk.CTkProgressBar(self.action_panel, height=18)
         self.progress_bar.set(0.0)
-        self.progress_bar.grid(row=2, column=0, sticky="ew")
+        self.progress_bar.grid(row=3, column=0, sticky="ew")
         self.progress_bar.grid_remove() # ซ่อนไว้ก่อนเริ่ม
 
         self.lbl_progress_text = ctk.CTkLabel(self.action_panel, text="พร้อมสแกน", font=ctk.CTkFont(size=14), text_color="#A2B5CD")
-        self.lbl_progress_text.grid(row=3, column=0, pady=2)
+        self.lbl_progress_text.grid(row=4, column=0, pady=2)
         self.lbl_progress_text.grid_remove()
 
         # โซนแสดงผล Console Logs ย้ายไปก้นจอหลักถาวรแล้ว ไม่ต้องกริตเฟรมซ้ำซ้อนที่นี่
@@ -2834,6 +2845,112 @@ class FaceSearchApp(ctk.CTk):
         btn_save = ctk.CTkButton(popup, text="บันทึกรายชื่อที่เลือก", fg_color="#2ECC71", hover_color="#27AE60", text_color="black", command=save_and_close)
         btn_save.pack(pady=(0, 15))
 
+    def open_floating_preview_window(self):
+        """เปิดหน้าต่างพรีวิวแบบลอย (Floating Window) ขนาด 1/4 ของ Full HD (960x540) v5.50"""
+        # ถ้าหน้าต่างเปิดอยู่แล้ว ให้ยกขึ้นมาข้างหน้า (focus)
+        if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+            try:
+                if self.floating_preview_win.winfo_exists():
+                    self.floating_preview_win.lift()
+                    self.floating_preview_win.focus_force()
+                    return
+            except Exception:
+                self.floating_preview_win = None
+
+        self.floating_preview_win = ctk.CTkToplevel(self)
+        self.floating_preview_win.title("🔍 Real-time Face Matching Preview & Summary (Floating Window)")
+        self.floating_preview_win.geometry("960x540")
+        self.floating_preview_win.minsize(800, 450)
+        self.floating_preview_win.protocol("WM_DELETE_WINDOW", self.close_floating_preview)
+
+        # Main container
+        main_float_frame = ctk.CTkFrame(self.floating_preview_win, fg_color="#0A111A", corner_radius=0)
+        main_float_frame.pack(fill="both", expand=True)
+        main_float_frame.grid_rowconfigure(1, weight=1)
+        main_float_frame.grid_columnconfigure(0, weight=3) # Left Panel: Image (กว้างกว่า)
+        main_float_frame.grid_columnconfigure(1, weight=2) # Right Panel: Match List
+
+        # Top Bar in Floating Window
+        top_bar = ctk.CTkFrame(main_float_frame, fg_color="#101B2B", height=42, corner_radius=0)
+        top_bar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=0)
+        
+        lbl_top_title = ctk.CTkLabel(
+            top_bar, text="⚡ Real-time Face Matching Live Preview (1/4 FHD Window)",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71"
+        )
+        lbl_top_title.pack(side="left", padx=15, pady=8)
+
+        btn_close_float = ctk.CTkButton(
+            top_bar, text="✖ ปิดหน้าต่างนี้", width=95, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#C0392B", hover_color="#962D22",
+            command=self.close_floating_preview
+        )
+        btn_close_float.pack(side="right", padx=15, pady=8)
+
+        # Left Panel: Live Image Preview
+        left_preview_frame = ctk.CTkFrame(main_float_frame, fg_color="#050B14", corner_radius=6)
+        left_preview_frame.grid(row=1, column=0, padx=(10, 5), pady=10, sticky="nsew")
+        left_preview_frame.grid_rowconfigure(0, weight=1)
+        left_preview_frame.grid_columnconfigure(0, weight=1)
+
+        self.lbl_float_preview = ctk.CTkLabel(
+            left_preview_frame, text="[ รอรับภาพการสแกนใบหน้า Real-time... ]",
+            font=ctk.CTkFont(size=14), text_color="#A2B5CD", fg_color="transparent"
+        )
+        self.lbl_float_preview.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+        # Right Panel: Match Summary List
+        right_summary_frame = ctk.CTkFrame(main_float_frame, fg_color="#101B2B", corner_radius=6)
+        right_summary_frame.grid(row=1, column=1, padx=(5, 10), pady=10, sticky="nsew")
+        right_summary_frame.grid_rowconfigure(1, weight=1)
+        right_summary_frame.grid_columnconfigure(0, weight=1)
+
+        lbl_summary_title = ctk.CTkLabel(
+            right_summary_frame, text="📋 รายชื่อที่ตรวจพบและผลการแมตช์:",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD"
+        )
+        lbl_summary_title.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 5))
+
+        self.txt_float_summary = ctk.CTkTextbox(
+            right_summary_frame, font=ctk.CTkFont(family="Consolas", size=13),
+            fg_color="#0D1622", text_color="#ECEFF1"
+        )
+        self.txt_float_summary.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.txt_float_summary.configure(state="normal")
+        self.txt_float_summary.bind("<Key>", lambda e: "break")
+        self.txt_float_summary.tag_config("green", foreground="#66BB6A")
+        self.txt_float_summary.tag_config("red", foreground="#FF5252")
+
+        # ซิงค์เนื้อหาเดิมจากหน้าจอหลัก (ถ้ามี)
+        try:
+            if hasattr(self, 'txt_match_summary') and self.txt_match_summary is not None:
+                current_main_summary = self.txt_match_summary.get("1.0", "end").strip()
+                if current_main_summary:
+                    self.txt_float_summary.configure(state="normal")
+                    self.txt_float_summary.delete("1.0", "end")
+                    for line in current_main_summary.split("\n"):
+                        if line.startswith("✓"):
+                            self.txt_float_summary.insert("end", line + "\n", "green")
+                        elif line.startswith("✗") or line.startswith("["):
+                            self.txt_float_summary.insert("end", line + "\n", "red")
+                        else:
+                            self.txt_float_summary.insert("end", line + "\n")
+                    self.txt_float_summary.configure(state="normal")
+        except Exception:
+            pass
+
+    def close_floating_preview(self):
+        """ปิดหน้าต่างพรีวิวแบบลอยอย่างปลอดภัย (v5.50)"""
+        try:
+            if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+                self.floating_preview_win.destroy()
+        except Exception:
+            pass
+        finally:
+            self.floating_preview_win = None
+            self.lbl_float_preview = None
+            self.txt_float_summary = None
+
     def check_log_queue(self):
         """ดึง Log จากคิวของ Thread ย่อย มาเติมลงในช่อง Console ของ GUI ในเธรดหลัก"""
         while not self.log_queue.empty():
@@ -2921,6 +3038,12 @@ class FaceSearchApp(ctk.CTk):
             # รันการทำงานสแกนใน Thread ย่อย
             self.scan_thread = threading.Thread(target=self.run_scanning_process, args=(folder_id, sheet_id), daemon=True)
             self.scan_thread.start()
+
+            # เปิดหน้าต่างพรีวิว Real-time แบบลอย (Floating Preview Window) อัตโนมัติ (v5.50)
+            try:
+                self.open_floating_preview_window()
+            except Exception as fe:
+                logger.debug(f"Auto-open floating preview failed: {fe}")
 
     def toggle_pause_scanning(self):
         """ควบคุมสลับการพักการสแกนชั่วคราวและการทำงานต่อ"""
@@ -3634,6 +3757,7 @@ class FaceSearchApp(ctk.CTk):
                                         draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
                                         
                             h_orig, w_orig = preview_pil.height, preview_pil.width
+                            # พรีวิวสำหรับ Main Window (ขนาดเล็ก 240x380)
                             h_new = 240
                             w_new = int(w_orig * (h_new / h_orig))
                             if w_new > 380:
@@ -3641,11 +3765,22 @@ class FaceSearchApp(ctk.CTk):
                                 h_new = int(h_orig * (w_new / w_orig))
                             preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
                             ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
+
+                            # พรีวิวสำหรับ Floating Window (ขนาดใหญ่ คมชัด 460x550) v5.50
+                            fh_new = 460
+                            fw_new = int(w_orig * (fh_new / h_orig))
+                            if fw_new > 550:
+                                fw_new = 550
+                                fh_new = int(h_orig * (fw_new / w_orig))
+                            float_resized = preview_pil.resize((fw_new, fh_new), Image.Resampling.LANCZOS)
+                            float_ctk_preview = ctk.CTkImage(light_image=float_resized, size=(fw_new, fh_new))
                         except Exception as draw_err:
                             logger.debug(f"Fast Rescan preview draw error: {draw_err}")
                             ctk_preview = None
+                            float_ctk_preview = None
 
-                    def update_fast_rescan_ui(preview_obj=ctk_preview, items=summary_list):
+                    def update_fast_rescan_ui(preview_obj=ctk_preview, float_preview_obj=float_ctk_preview if 'float_ctk_preview' in locals() else None, items=summary_list):
+                        # อัปเดต Main Window
                         if preview_obj:
                             self.lbl_realtime_preview.configure(image=preview_obj, text="")
                         else:
@@ -3662,6 +3797,31 @@ class FaceSearchApp(ctk.CTk):
                                 else:
                                     self.txt_match_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
                         self.txt_match_summary.configure(state="normal")
+
+                        # ซิงค์อัปเดต Floating Window หากเปิดอยู่ (v5.50)
+                        if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+                            try:
+                                if self.floating_preview_win.winfo_exists():
+                                    if hasattr(self, 'lbl_float_preview') and self.lbl_float_preview is not None and self.lbl_float_preview.winfo_exists():
+                                        if float_preview_obj:
+                                            self.lbl_float_preview.configure(image=float_preview_obj, text="")
+                                        else:
+                                            self.lbl_float_preview.configure(image="", text="⚡ [ Fast Rescan จากแคช ]")
+                                    if hasattr(self, 'txt_float_summary') and self.txt_float_summary is not None and self.txt_float_summary.winfo_exists():
+                                        self.txt_float_summary.configure(state="normal")
+                                        self.txt_float_summary.delete("1.0", "end")
+                                        if not items:
+                                            self.txt_float_summary.insert("end", "[ ไม่พบใบหน้าในรูป (แคช) ]\n", "red")
+                                        else:
+                                            for name, score, is_match in items:
+                                                pct = int(score * 100)
+                                                if is_match:
+                                                    self.txt_float_summary.insert("end", f"✓ {name} ({pct}%)\n", "green")
+                                                else:
+                                                    self.txt_float_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
+                                        self.txt_float_summary.configure(state="normal")
+                            except Exception as fe:
+                                logger.debug(f"Float preview Fast Rescan UI update error: {fe}")
                     
                     self.after(0, update_fast_rescan_ui)
                     
@@ -3748,7 +3908,7 @@ class FaceSearchApp(ctk.CTk):
                             text_label = f"Unknown ({best_sim*100:.1f}%)"
                             draw.text((x1, max(0, y1 - font.getbbox(text_label)[3] - 5)), text_label, fill=(255, 0, 0), font=font)
 
-                # ปรับรูปพรีวิวย่อขนาดเพื่อแสดงผลบน GUI แบบสดๆ
+                # ปรับรูปพรีวิวย่อขนาดเพื่อแสดงผลบน GUI แบบสดๆ (Main Window)
                 h_orig, w_orig = preview_pil.height, preview_pil.width
                 h_new = 240
                 w_new = int(w_orig * (h_new / h_orig))
@@ -3758,8 +3918,18 @@ class FaceSearchApp(ctk.CTk):
                     
                 preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
                 ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
+
+                # ปรับรูปพรีวิวขนาดใหญ่คมชัดสำหรับ Floating Window (460x550) v5.50
+                fh_new = 460
+                fw_new = int(w_orig * (fh_new / h_orig))
+                if fw_new > 550:
+                    fw_new = 550
+                    fh_new = int(h_orig * (fw_new / w_orig))
+                float_resized = preview_pil.resize((fw_new, fh_new), Image.Resampling.LANCZOS)
+                float_ctk_preview = ctk.CTkImage(light_image=float_resized, size=(fw_new, fh_new))
                 
-                def update_preview_and_summary(img_obj=ctk_preview, items=summary_list):
+                def update_preview_and_summary(img_obj=ctk_preview, float_img_obj=float_ctk_preview, items=summary_list):
+                    # อัปเดต Main Window
                     self.lbl_realtime_preview.configure(image=img_obj, text="")
                     self.txt_match_summary.configure(state="normal")
                     self.txt_match_summary.delete("1.0", "end")
@@ -3773,6 +3943,31 @@ class FaceSearchApp(ctk.CTk):
                             else:
                                 self.txt_match_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
                     self.txt_match_summary.configure(state="normal")
+
+                    # ซิงค์อัปเดต Floating Window หากเปิดอยู่ (v5.50)
+                    if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+                        try:
+                            if self.floating_preview_win.winfo_exists():
+                                if hasattr(self, 'lbl_float_preview') and self.lbl_float_preview is not None and self.lbl_float_preview.winfo_exists():
+                                    if float_img_obj:
+                                        self.lbl_float_preview.configure(image=float_img_obj, text="")
+                                    else:
+                                        self.lbl_float_preview.configure(image="", text="[ ไม่สามารถแสดงภาพพรีวิว ]")
+                                if hasattr(self, 'txt_float_summary') and self.txt_float_summary is not None and self.txt_float_summary.winfo_exists():
+                                    self.txt_float_summary.configure(state="normal")
+                                    self.txt_float_summary.delete("1.0", "end")
+                                    if not items:
+                                        self.txt_float_summary.insert("end", "[ ไม่พบใบหน้าในรูป ]\n", "red")
+                                    else:
+                                        for name, score, is_match in items:
+                                            pct = int(score * 100)
+                                            if is_match:
+                                                self.txt_float_summary.insert("end", f"✓ {name} ({pct}%)\n", "green")
+                                            else:
+                                                self.txt_float_summary.insert("end", f"✗ Unknown ({pct}%)\n", "red")
+                                    self.txt_float_summary.configure(state="normal")
+                        except Exception as fe:
+                            logger.debug(f"Float preview Full Scan UI update error: {fe}")
 
                 self.after(0, update_preview_and_summary)
 
@@ -3864,11 +4059,24 @@ class FaceSearchApp(ctk.CTk):
         self.btn_pause_scan.configure(state="disabled", text="⏸️ พักการสแกน (Pause)", fg_color="#F39C12", hover_color="#D68910")
         self.progress_bar.grid_remove()
         self.lbl_progress_text.grid_remove()
-        # เคลียร์ภาพและคำอธิบายพรีวิว
+        # เคลียร์ภาพและคำอธิบายพรีวิวบน Main Window
         self.lbl_realtime_preview.configure(image="", text="[ แสดงภาพเปรียบเทียบการจับคู่ใบหน้าแบบ Real-time ]")
         self.txt_match_summary.configure(state="normal")
         self.txt_match_summary.delete("1.0", "end")
         self.txt_match_summary.configure(state="normal")
+
+        # เคลียร์การแสดงผลบน Floating Window หากเปิดอยู่ (v5.50)
+        if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+            try:
+                if self.floating_preview_win.winfo_exists():
+                    if hasattr(self, 'lbl_float_preview') and self.lbl_float_preview is not None and self.lbl_float_preview.winfo_exists():
+                        self.lbl_float_preview.configure(image="", text="[ สแกนเสร็จสิ้น / รอรับภาพใหม่ ]")
+                    if hasattr(self, 'txt_float_summary') and self.txt_float_summary is not None and self.txt_float_summary.winfo_exists():
+                        self.txt_float_summary.configure(state="normal")
+                        self.txt_float_summary.delete("1.0", "end")
+                        self.txt_float_summary.configure(state="normal")
+            except Exception:
+                pass
 
     # ==================== (4) หน้าตั้งค่าระบบ (Settings) ====================
     def setup_settings_ui(self):
@@ -4110,7 +4318,15 @@ class FaceSearchApp(ctk.CTk):
         ctk.CTkLabel(
             preview_header, text="Real-time Face Matching Preview & Summary:", 
             font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71"
-        ).pack(anchor="w")
+        ).pack(side="left", anchor="w")
+
+        self.btn_open_float_preview = ctk.CTkButton(
+            preview_header, text="🔍 หน้าต่างแยก (Floating)",
+            font=ctk.CTkFont(size=12, weight="bold"), height=24, width=150,
+            fg_color="#1F3A60", hover_color="#20334F",
+            command=self.open_floating_preview_window
+        )
+        self.btn_open_float_preview.pack(side="right")
 
         # ป้ายสำหรับวาดแปะภาพพรีวิวผลงานการตรวจจับ (ด้านซ้ายของ right_frame)
         self.lbl_realtime_preview = ctk.CTkLabel(

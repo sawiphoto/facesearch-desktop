@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.30
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.50
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -46,6 +46,136 @@ python main.py
 ---
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
+
+## 📋 Version 5.50 Changelog (Floating Real-time Face Matching Preview Window)
+
+**Date:** 19 กันยายน 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **หน้าต่างพรีวิวผลการตรวจจับแบบลอยตัวอิสระ (Floating Real-time Preview Window):**
+   - ผู้ใช้งานต้องการให้ส่วนแสดงผล **Real-time Face Matching Preview & Summary** สามารถแยกออกมาเป็นหน้าต่างลอยอิสระขนาด 1/4 ของจอ Full HD (960x540 px) เพื่อให้สามารถมองเห็นภาพและกรอบ Bounding Box พร้อมรายชื่อที่ตรวจพบได้อย่างชัดเจนเต็มตา
+   - โครงสร้างหน้าต่างแยกต้องแบ่งเป็น 2 ส่วน: **แผงซ้าย (Left Panel)** แสดงภาพพรีวิวผลงานการตรวจจับ Bounding Box ขนาดใหญ่ และ **แผงขวา (Right Panel)** แสดงรายการสรุปผลการจับคู่ใบหน้า (✓ สีเขียว / ✗ สีแดง)
+   - หน้าต่างแยกสามารถกดปิด `[X]` ได้อย่างอิสระโดยไม่กระทบต่อการทำงานของโปรแกรมหลัก และยังคงรักษาการแสดงผลเดิมในหน้าต่างหลักไว้แบบ Dual Display (Non-destructive)
+   - มีปุ่มบนหน้าจอหลักให้กดเปิดหน้าต่างพรีวิวแยกได้ตลอดเวลา และกำหนดให้เปิดหน้าต่างพรีวิวนี้ขึ้นมาอัตโนมัติ (Default Auto-Popup) เมื่อผู้ใช้กดปุ่ม **"3. เริ่มดาวน์โหลดและสแกนใบหน้า"**
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาหน้าต่างแยก `open_floating_preview_window` และ `close_floating_preview` (`app_gui.py`):**
+   - สร้าง `ctk.CTkToplevel` ขนาด `960x540` พิกเซล พร้อม Top Bar ปุ่มปิด `[X]`, แผงซ้ายแสดง `lbl_float_preview`, และแผงขวาแสดง `txt_float_summary`
+   - จัดการ Singleton Window ป้องกันการเปิดหน้าต่างซ้ำซ้อน โดยยกหน้าต่างเดิมขึ้นมา Focus ทันทีหากเปิดอยู่แล้ว
+   - ซิงค์คัดลอกข้อความเดิมจากหน้าต่างหลักมาแสดงทันทีเมื่อเปิดหน้าต่างขึ้นมา
+2. **เพิ่มปุ่มเรียกเปิดหน้าต่างพรีวิวแยกบน GUI:**
+   - เพิ่มปุ่ม `"🔍 หน้าต่างแยก (Floating)"` ในแถบ Header ของ Real-time Preview ในหน้าต่างหลัก
+   - เพิ่มปุ่ม `"🔍 เปิดหน้าต่างพรีวิวแบบลอย (Floating Preview)"` ในแผง Action ของหน้าสแกนรูปภาพกิจกรรม
+3. **เปิดหน้าต่างพรีวิวอัตโนมัติเมื่อกดเริ่มสแกน (`toggle_scanning`):**
+   - เรียก `self.open_floating_preview_window()` ทันทีเมื่อผู้ใช้กดเริ่มกระบวนการสแกนใบหน้า
+4. **ซิงค์ภาพและข้อความแบบ Real-time คู่ขนาน (Dual Display Update):**
+   - ใน `scan_selected_folders()` ทั้งโหมด **Full AI Scan** และ **Fast Rescan** เพิ่มการประมวลผลย่อภาพขนาดใหญ่ความละเอียดสูง (460x550 px) ส่งไปแสดงผลยังหน้าต่างลอยควบคู่กับหน้าต่างหลัก
+   - อัปเดต `reset_scan_ui()` ให้เคลียร์สถานะของหน้าต่างลอยเมื่อสแกนเสร็จสิ้น
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before / After Comparison):
+
+#### 1. การสร้างและจัดการ Floating Window ใน `app_gui.py`
+```python
+# ==================== BEFORE (v5.40) ====================
+# มีเฉพาะการแสดงผลพรีวิวใน Console Frame ด้านล่างของหน้าต่างหลักเท่านั้น
+
+# ==================== AFTER (v5.50) ====================
+def open_floating_preview_window(self):
+    """เปิดหน้าต่างพรีวิวแบบลอย (Floating Window) ขนาด 1/4 ของ Full HD (960x540) v5.50"""
+    if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+        try:
+            if self.floating_preview_win.winfo_exists():
+                self.floating_preview_win.lift()
+                self.floating_preview_win.focus_force()
+                return
+        except Exception:
+            self.floating_preview_win = None
+
+    self.floating_preview_win = ctk.CTkToplevel(self)
+    self.floating_preview_win.title("🔍 Real-time Face Matching Preview & Summary (Floating Window)")
+    self.floating_preview_win.geometry("960x540")
+    self.floating_preview_win.minsize(800, 450)
+    self.floating_preview_win.protocol("WM_DELETE_WINDOW", self.close_floating_preview)
+
+    main_float_frame = ctk.CTkFrame(self.floating_preview_win, fg_color="#0A111A", corner_radius=0)
+    main_float_frame.pack(fill="both", expand=True)
+    main_float_frame.grid_rowconfigure(1, weight=1)
+    main_float_frame.grid_columnconfigure(0, weight=3) # Left: Image
+    main_float_frame.grid_columnconfigure(1, weight=2) # Right: List
+    # ... จัดวาง lbl_float_preview และ txt_float_summary ...
+```
+
+#### 2. การเปิด Floating Window อัตโนมัติเมื่อเริ่มสแกนใน `toggle_scanning`
+```python
+# ==================== BEFORE (v5.40) ====================
+    self.scan_thread = threading.Thread(target=self.run_scanning_process, args=(folder_id, sheet_id), daemon=True)
+    self.scan_thread.start()
+
+# ==================== AFTER (v5.50) ====================
+    self.scan_thread = threading.Thread(target=self.run_scanning_process, args=(folder_id, sheet_id), daemon=True)
+    self.scan_thread.start()
+
+    # เปิดหน้าต่างพรีวิว Real-time แบบลอย (Floating Preview Window) อัตโนมัติ (v5.50)
+    try:
+        self.open_floating_preview_window()
+    except Exception as fe:
+        logger.debug(f"Auto-open floating preview failed: {fe}")
+```
+
+#### 3. การซิงค์พรีวิวภาพขนาดใหญ่และรายชื่อผลลัพธ์ใน `scan_selected_folders`
+```python
+# ==================== BEFORE (v5.40) ====================
+    preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
+    ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
+    
+    def update_preview_and_summary(img_obj=ctk_preview, items=summary_list):
+        self.lbl_realtime_preview.configure(image=img_obj, text="")
+        # ... update main window txt_match_summary ...
+
+# ==================== AFTER (v5.50) ====================
+    # พรีวิวสำหรับ Main Window (ขนาด 240x380)
+    preview_resized = preview_pil.resize((w_new, h_new), Image.Resampling.LANCZOS)
+    ctk_preview = ctk.CTkImage(light_image=preview_resized, size=(w_new, h_new))
+
+    # พรีวิวสำหรับ Floating Window (ขนาดใหญ่ คมชัด 460x550) v5.50
+    fh_new = 460
+    fw_new = int(w_orig * (fh_new / h_orig))
+    if fw_new > 550:
+        fw_new = 550
+        fh_new = int(h_orig * (fw_new / w_orig))
+    float_resized = preview_pil.resize((fw_new, fh_new), Image.Resampling.LANCZOS)
+    float_ctk_preview = ctk.CTkImage(light_image=float_resized, size=(fw_new, fh_new))
+    
+    def update_preview_and_summary(img_obj=ctk_preview, float_img_obj=float_ctk_preview, items=summary_list):
+        # 1. อัปเดต Main Window
+        self.lbl_realtime_preview.configure(image=img_obj, text="")
+        # ... update main window txt_match_summary ...
+
+        # 2. ซิงค์อัปเดต Floating Window หากเปิดอยู่ (v5.50)
+        if hasattr(self, 'floating_preview_win') and self.floating_preview_win is not None:
+            try:
+                if self.floating_preview_win.winfo_exists():
+                    if hasattr(self, 'lbl_float_preview') and self.lbl_float_preview and self.lbl_float_preview.winfo_exists():
+                        self.lbl_float_preview.configure(image=float_img_obj, text="" if float_img_obj else "[ ไม่สามารถแสดงภาพพรีวิว ]")
+                    if hasattr(self, 'txt_float_summary') and self.txt_float_summary and self.txt_float_summary.winfo_exists():
+                        self.txt_float_summary.configure(state="normal")
+                        self.txt_float_summary.delete("1.0", "end")
+                        for name, score, is_match in items:
+                            self.txt_float_summary.insert("end", f"{'✓' if is_match else '✗'} {name} ({int(score*100)}%)\n", "green" if is_match else "red")
+                        self.txt_float_summary.configure(state="normal")
+            except Exception as fe:
+                logger.debug(f"Float preview Full Scan UI update error: {fe}")
+```
+
+---
 
 ## 📋 Version 5.40 Changelog (Batch Multi-Select Threshold & Rescan Fix)
 
