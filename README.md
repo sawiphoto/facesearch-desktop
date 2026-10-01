@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.50
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.60
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -28,12 +28,12 @@ python main.py
 | File / Folder | Description |
 |---|---|
 | [main.py](main.py) | Entry point – สร้างไดเรกทอรีที่จำเป็นและเรียก GUI |
-| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – ปรับแต่งชื่อปุ่ม v5.30 (เพิ่มปุ่ม Task 3), เมนูและการแสดงผล |
-| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เมธอด `get_unbackfilled_teachers`, `mark_teachers_backfilled` และ `register_staff_member` (is_backfilled=0) |
+| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – ปรับแต่งชื่อปุ่ม v5.60, เมนูและการแสดงผล |
+| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เมธอด `get_unbackfilled_teachers`, `mark_teachers_backfilled` และ `register_staff_member` |
 | [face_analyzer.py](face_analyzer.py) | สร้างเวกเตอร์ใบหน้า 512-dim ด้วย InsightFace (antelopev2) พร้อม Matrix Matching เฉพาะบุคคล |
-| [gdrive_sync.py](gdrive_sync.py) | ซิงค์ข้อมูล Google Drive + JSON Index (บังคับใช้ Strict MIME Image Filter `image/` ทุกคำสั่ง) |
-| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษา + Task 2 (นักเรียน) + Task 3 (คุณครู) |
-| [config/year_folders.json](config/year_folders.json) | ไฟล์ตั้งค่า ID โฟลเดอร์หลักประจำปีการศึกษา (2569, 2568, 2567, 2566, 2565) |
+| [gdrive_sync.py](gdrive_sync.py) | ซิงค์ข้อมูล Google Drive + JSON Index + Smart Photo Date Parser (v5.60) |
+| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษา + Dynamic Year Loader (v5.60) |
+| [config/year_folders.json](config/year_folders.json) | ไฟล์ตั้งค่า ID โฟลเดอร์หลักประจำปีการศึกษา |
 | [requirements.txt](requirements.txt) | รายการ dependency ของโปรเจกต์ |
 
 ---
@@ -46,6 +46,82 @@ python main.py
 ---
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
+
+## 📋 Version 5.60 Changelog (Smart Photo Date & Retroactive Year Parser)
+
+**Date:** 1 ตุลาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ปัญหาการจัดกลุ่มเดือน/ปี ย้อนหลังบน Web App (Retroactive Date Parsing Issue):**
+   - เมื่อผู้ใช้อัปโหลดภาพกิจกรรมของปีย้อนหลัง (เช่น **ภาพกิจกรรมปี 2563**) ขึ้น Google Drive ในปัจจุบัน ระบบเดิมจะดึงวันที่จากฟิลด์ `createdTime` ของ Google Drive API ซึ่งจะเป็น **"วันที่อัปโหลดไฟล์" (เช่น `2026-10-01` = ตุลาคม 2569)**
+   - ส่งผลให้ในเมนู Dropdown เลือกดูเดือนย้อนหลังบน Web App รูปภาพของปี 2563 ถูกนำไปแสดงอยู่ที่ **"📅 ตุลาคม 2569" (ด้านบนสุด)** แทนที่จะถูกจัดกลุ่มลงไปเรียงต่อท้ายอยู่ด้านล่างสุดของปี 2563
+2. **ความต้องการปรับปรุง:**
+   - พัฒนาระบบสกัดวันที่และปี พ.ศ. ของภาพกิจกรรมโดยอัตโนมัติจากชื่อโฟลเดอร์, ชื่อไฟล์ และ EXIF กล้อง เพื่อแปลงเป็น ค.ศ. `2020` (พ.ศ. 2563) ให้อย่างแม่นยำ
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาฟังก์ชัน `parse_smart_photo_date` ใน [`gdrive_sync.py`](gdrive_sync.py):**
+   - **Priority 1 (EXIF Date):** ดึงวันที่ถ่ายภาพจริงจากกล้อง `imageMediaMetadata.time` บน Google Drive (เช่น `"2020:07:14 10:30:00"` ➔ `"2020-07-14"`)
+   - **Priority 2 (Specific Date in Name):** ตรวจจับรูปแบบวันที่เฉพาะเจาะจง เช่น `14-07-63`, `14_07_2563`, `2020-07-14` ➔ แปลงเป็น `2020-07-14` (กรกฎาคม 2563)
+   - **Priority 3 (Thai Year & Event Month Mapping):** ตรวจจับปี พ.ศ. เช่น `ปี 2563` ➔ แปลงเป็น ค.ศ. `2020` และกำหนดเดือนตามประเภทกิจกรรมของโรงเรียน (เช่น `ปฐมนิเทศ/มอบตัว` ➔ `2020-05-15`, `วันไหว้ครู` ➔ `2020-06-15`, `เฉลิมพระชนม ร.10` ➔ `2020-07-28`, `สอบเข้า` ➔ `2020-03-15`)
+   - **Priority 4 (Fallback):** ใช้วันที่อัปโหลด `createdTime`
+2. **อัปเดต Google Drive API Request Fields:**
+   - เพิ่ม `imageMediaMetadata` ในคำสั่ง `files().list()` เพื่ออ่าน EXIF metadata ได้ทันทีโดยไม่ต้องดาวน์โหลดไฟล์เต็ม
+3. **ปรับปรุง Dynamic Year Folder Loader ใน [`scheduler_task.py`](scheduler_task.py):**
+   - ปรับ `_task_1_scan_new_folders` ให้อ่านโฟลเดอร์ปีการศึกษาจาก `config/year_folders.json` แบบ Dynamic แทน Hardcoded list
+4. **อัปเดต GUI Version:** ปรับ Window Title และ Sidebar Logo Header เป็น **`v5.60`**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before / After Comparison):
+
+#### 1. การสกัดวันที่รูปภาพใน `gdrive_sync.py`
+```python
+# ==================== BEFORE (v5.50) ====================
+for file in files:
+    created_time = file.get("createdTime", "")
+    date_str = created_time[:10] if created_time else ""
+    all_images.append({
+        "file_name": file.get("name"),
+        "file_id": file.get("id"),
+        "drive_link": file.get("webViewLink"),
+        "event": curr_event_name,
+        "date": date_str
+    })
+
+# ==================== AFTER (v5.60) ====================
+for file in files:
+    date_str = self.parse_smart_photo_date(folder_name=curr_event_name, file_name=file.get("name", ""), file_meta=file)
+    all_images.append({
+        "file_name": file.get("name"),
+        "file_id": file.get("id"),
+        "drive_link": file.get("webViewLink"),
+        "event": curr_event_name,
+        "date": date_str
+    })
+```
+
+#### 2. การโหลดโฟลเดอร์ปีการศึกษาใน `scheduler_task.py`
+```python
+# ==================== BEFORE (v5.50) ====================
+    # 2. เพิ่มโฟลเดอร์ประจำปีการศึกษา
+    target_folders.extend([
+        ("ภาพกิจกรรม 2569", "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"),
+        ("ภาพกิจกรรม 2568", "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"),
+        ("ภาพกิจกรรม 2565-2567", "1BjYQwoso9FKv42XK6RJi1gPS8kyK_jCg")
+    ])
+
+# ==================== AFTER (v5.60) ====================
+    # 2. เพิ่มโฟลเดอร์ประจำปีการศึกษาจาก config/year_folders.json (v5.60 Dynamic)
+    target_folders.extend(self._load_year_folders())
+```
+
+---
 
 ## 📋 Version 5.50 Changelog (Floating Real-time Face Matching Preview Window)
 

@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.50 (Floating Real-time Preview Window)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.60 (Smart Photo Date & Retroactive Year Parser)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -753,7 +753,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.50",
+            text="FACE MATCHING\nSYSTEM v5.60",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )

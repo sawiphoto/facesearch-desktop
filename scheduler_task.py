@@ -246,12 +246,8 @@ class SchedulerTask:
             if gui_folder_id:
                 target_folders.append(("โฟลเดอร์หลักใน GUI", gui_folder_id))
 
-        # 2. เพิ่มโฟลเดอร์ประจำปีการศึกษา
-        target_folders.extend([
-            ("ภาพกิจกรรม 2569", "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"),
-            ("ภาพกิจกรรม 2568", "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"),
-            ("ภาพกิจกรรม 2565-2567", "1BjYQwoso9FKv42XK6RJi1gPS8kyK_jCg")
-        ])
+        # 2. เพิ่มโฟลเดอร์ประจำปีการศึกษาจาก config/year_folders.json (v5.60 Dynamic)
+        target_folders.extend(self._load_year_folders())
         
         scanned_in_this_run = set()
         for year_name, year_id in target_folders:
