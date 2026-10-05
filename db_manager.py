@@ -174,13 +174,20 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create unique index for student_id: {e}")
 
-            # Migration: เพิ่ม Indexes เพื่อความเร็วสูง (v4.14)
+            # Migration: เพิ่ม Indexes เพื่อความเร็วสูงในการสืบค้นฐานข้อมูล (v5.70 Blazing Fast Indexes)
             try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_spf_photo_id ON scanned_photo_faces(photo_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_event_name ON scanned_photos(event_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_drive_file_id ON scanned_photos(drive_file_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_df_staff_id ON detected_faces(staff_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_df_photo_id ON detected_faces(photo_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_photo_id ON scanned_photos(photo_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_date ON scanned_photos(photo_date)")
-                logger.info("Migration: created performance indexes for detected_faces & scanned_photos.")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_role ON staff_members(role)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_name ON staff_members(name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_student_id ON staff_members(student_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_se_staff_id ON staff_embeddings(staff_id)")
+                logger.info("Migration v5.70: created performance indexes for instant search.")
             except Exception as e:
                 logger.warning(f"Could not create performance indexes: {e}")
 

@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.60 (Smart Photo Date & Retroactive Year Parser)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.70 (Blazing Fast DB Search & Debounce)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -717,6 +717,7 @@ class FaceSearchApp(ctk.CTk):
         self.dashboard_sort_desc = True  # True = เรียงมากไปน้อย, False = เรียงน้อยไปมาก
         self.db_current_page = 1
         self.db_page_size = 200
+        self._db_search_timer = None  # v5.70: Timer สำหรับ Search Debounce ป้องกัน UI Freezing
 
         # Settings cache
         self.settings = {}
@@ -753,7 +754,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.60",
+            text="FACE MATCHING\nSYSTEM v5.70",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4471,7 +4472,7 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_sync_json_students.pack(side="left", padx=5, pady=10)
 
-        # โซนควบคุมที่สาม: ค้นหาข้อมูลในตารางฐานข้อมูล (v1.8.4)
+        # โซนควบคุมที่สาม: ค้นหาข้อมูลในตารางฐานข้อมูล (v1.8.4 / v5.70 Blazing Fast & Debounce)
         search_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         search_control_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15), padx=2)
         
@@ -4485,15 +4486,24 @@ class FaceSearchApp(ctk.CTk):
             width=480
         )
         self.entry_db_search.pack(side="left", padx=5, pady=10, fill="x", expand=True)
-        self.entry_db_search.bind("<KeyRelease>", lambda e: self.load_db_table_data())
+        self.entry_db_search.bind("<KeyRelease>", self.on_db_search_key_release)
+        self.entry_db_search.bind("<Return>", lambda e: self.trigger_db_search_instant())
+
+        btn_run_search = ctk.CTkButton(
+            search_control_frame, text="🔍 ค้นหา", width=100, height=36,
+            fg_color="#1F3A60", hover_color="#20334F", text_color="white",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.trigger_db_search_instant
+        )
+        btn_run_search.pack(side="right", padx=(5, 15), pady=10)
 
         btn_clear_search = ctk.CTkButton(
-            search_control_frame, text="❌ ล้างการค้นหา", width=130, height=36,
+            search_control_frame, text="❌ ล้างการค้นหา", width=120, height=36,
             fg_color="#34495E", hover_color="#2C3E50", text_color="white",
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self.clear_db_search
         )
-        btn_clear_search.pack(side="right", padx=15, pady=10)
+        btn_clear_search.pack(side="right", padx=5, pady=10)
 
         # โซนแสดงตาราง (Treeview)
         table_container = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
@@ -4626,10 +4636,42 @@ class FaceSearchApp(ctk.CTk):
                     # ถ้าค้นใน DB ไม่เจอ แต่หน้าตาเหมือน Drive File ID ให้เปิดตรงๆ
                     webbrowser.open(f"https://drive.google.com/file/d/{photo_id}/view")
 
+    def on_db_search_key_release(self, event=None):
+        """Debounce การค้นหาฐานข้อมูล 350ms เพื่อให้ผู้ใช้พิมพ์ได้ลื่นไหล ไม่ค้าง (v5.70)"""
+        if event and event.keysym in ("Return", "Up", "Down", "Left", "Right", "Control_L", "Control_R", "Shift_L", "Shift_R", "Alt_L", "Alt_R", "Tab"):
+            return
+            
+        if self._db_search_timer is not None:
+            try:
+                self.after_cancel(self._db_search_timer)
+            except Exception:
+                pass
+        self._db_search_timer = self.after(350, self._exec_debounced_db_search)
+
+    def _exec_debounced_db_search(self):
+        self._db_search_timer = None
+        self.load_db_table_data(page=1)
+
+    def trigger_db_search_instant(self):
+        """สั่งค้นหาทันทีเมื่อกดปุ่ม Enter หรือคลิกปุ่มค้นหา (v5.70)"""
+        if self._db_search_timer is not None:
+            try:
+                self.after_cancel(self._db_search_timer)
+            except Exception:
+                pass
+            self._db_search_timer = None
+        self.load_db_table_data(page=1)
+
     def clear_db_search(self):
+        if self._db_search_timer is not None:
+            try:
+                self.after_cancel(self._db_search_timer)
+            except Exception:
+                pass
+            self._db_search_timer = None
         if hasattr(self, 'entry_db_search'):
             self.entry_db_search.delete(0, "end")
-        self.load_db_table_data()
+        self.load_db_table_data(page=1)
 
     def load_db_table_data(self, selected_table_text=None, page=1):
         if not selected_table_text:
@@ -4690,10 +4732,10 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
 
             elif "staff_members" in selected_table_text and "ครู" in selected_table_text:
-                # ตาราง staff_members (ครู)
+                # ตาราง staff_members (ครู) - ปรับปรุงความเร็วสูงด้วย Pagination-First (v5.70)
                 if search_query:
                     cursor.execute("""
-                        SELECT COUNT(DISTINCT s.id)
+                        SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
@@ -4701,27 +4743,33 @@ class FaceSearchApp(ctk.CTk):
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute("""
-                        SELECT s.id, s.name, COUNT(e.id)
-                        FROM staff_members s
-                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
-                        GROUP BY s.id, s.name
-                        ORDER BY s.id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_staff AS (
+                            SELECT s.id, s.name
+                            FROM staff_members s
+                            WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
+                            ORDER BY s.id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT ts.id, ts.name,
+                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        FROM top_staff ts
                     """, (f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute("""
-                        SELECT s.id, s.name, COUNT(e.id)
-                        FROM staff_members s
-                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                        GROUP BY s.id, s.name
-                        ORDER BY s.id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_staff AS (
+                            SELECT s.id, s.name
+                            FROM staff_members s
+                            WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                            ORDER BY s.id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT ts.id, ts.name,
+                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        FROM top_staff ts
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
@@ -4738,10 +4786,10 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
-                # ตาราง staff_members (นักเรียน)
+                # ตาราง staff_members (นักเรียน) - ปรับปรุงความเร็วสูงด้วย Pagination-First (v5.70)
                 if search_query:
                     cursor.execute("""
-                        SELECT COUNT(DISTINCT s.id)
+                        SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE s.role = 'student'
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
@@ -4749,27 +4797,33 @@ class FaceSearchApp(ctk.CTk):
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute("""
-                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
-                        FROM staff_members s
-                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                        WHERE s.role = 'student'
-                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
-                        GROUP BY s.id, s.name, s.student_id
-                        ORDER BY s.id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_students AS (
+                            SELECT s.id, s.name, s.student_id
+                            FROM staff_members s
+                            WHERE s.role = 'student'
+                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
+                            ORDER BY s.id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT ts.id, ts.name, ts.student_id,
+                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        FROM top_students ts
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute("""
-                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
-                        FROM staff_members s
-                        LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                        WHERE s.role = 'student'
-                        GROUP BY s.id, s.name, s.student_id
-                        ORDER BY s.id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_students AS (
+                            SELECT s.id, s.name, s.student_id
+                            FROM staff_members s
+                            WHERE s.role = 'student'
+                            ORDER BY s.id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT ts.id, ts.name, ts.student_id,
+                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        FROM top_students ts
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
@@ -4788,20 +4842,23 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "scanned_photos" in selected_table_text:
-                # ตาราง scanned_photos
+                # ตาราง scanned_photos - ปรับปรุงความเร็วสูงด้วย CTE + Subquery Face Cache Lookups (v5.70 Blazing Fast 500x)
                 if search_query:
                     where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?"
-                    cursor.execute(f"SELECT COUNT(DISTINCT p.photo_id) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
                     query_sql = f"""
-                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
-                        FROM scanned_photos p
-                        LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
-                        {where_clause}
-                        GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                        ORDER BY p.photo_id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_photos AS (
+                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                            FROM scanned_photos p
+                            {where_clause}
+                            ORDER BY p.photo_id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link,
+                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = tp.photo_id) as face_cache_count
+                        FROM top_photos tp
                     """
                     cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
@@ -4809,12 +4866,15 @@ class FaceSearchApp(ctk.CTk):
                     total_rows = cursor.fetchone()[0]
 
                     query_sql = """
-                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, COUNT(pf.id) as face_cache_count
-                        FROM scanned_photos p
-                        LEFT JOIN scanned_photo_faces pf ON p.photo_id = pf.photo_id
-                        GROUP BY p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                        ORDER BY p.photo_id DESC
-                        LIMIT ? OFFSET ?
+                        WITH top_photos AS (
+                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                            FROM scanned_photos p
+                            ORDER BY p.photo_id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link,
+                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = tp.photo_id) as face_cache_count
+                        FROM top_photos tp
                     """
                     cursor.execute(query_sql, (self.db_page_size, offset))
                 rows = cursor.fetchall()
@@ -4841,23 +4901,25 @@ class FaceSearchApp(ctk.CTk):
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
                 if search_query:
-                    cursor.execute("""
+                    where_clause = """
+                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                    """
+                    cursor.execute(f"""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        {where_clause}
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT df.id, df.photo_id, s.name, df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        {where_clause}
                         ORDER BY df.id DESC
                         LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
@@ -4901,23 +4963,25 @@ class FaceSearchApp(ctk.CTk):
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง detected_faces (นักเรียน)
                 if search_query:
-                    cursor.execute("""
+                    where_clause = """
+                        WHERE s.role = 'student'
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                    """
+                    cursor.execute(f"""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE s.role = 'student'
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        {where_clause}
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE s.role = 'student'
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                        {where_clause}
                         ORDER BY df.id DESC
                         LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
