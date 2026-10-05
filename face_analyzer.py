@@ -1,13 +1,21 @@
 import os
 import sys
+import io
 import zipfile
 import requests
 import numpy as np
 import cv2
 import logging
 import warnings
+from PIL import Image
 from tqdm import tqdm
 from insightface.app import FaceAnalysis
+
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
 
 # ลงทะเบียนโฟลเดอร์ CUDA และ python nvidia package bin เข้า DLL Search Path สำหรับ Python 3.8+
 cuda_path = os.environ.get("CUDA_PATH")
@@ -416,3 +424,51 @@ class FaceAnalyzer:
                 results.append(None)  # ไม่ผ่าน Threshold หรือไม่พบคู่ที่คล้าย
 
         return results
+
+
+def decode_image_bytes(img_bytes):
+    """
+    ถอดรหัสข้อมูลภาพแบบ Multi-Format สากล (v5.90)
+    รองรับ: JPEG, PNG, Apple iPhone (.HEIC / .HEIF), WEBP, TIFF, BMP
+    คืนค่า: OpenCV BGR NumPy Array หรือ None หากไฟล์เสียหาย
+    """
+    if not img_bytes:
+        return None
+
+    # 1. ลองถอดรหัสด้วย OpenCV (เร็วที่สุดสำหรับ JPEG/PNG มาตรฐาน)
+    try:
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is not None and img.size > 0:
+            return img
+    except Exception:
+        pass
+
+    # 2. Fallback ด้วย Pillow + pillow-heif (สำหรับ .HEIC / .HEIF / .WEBP / TIFF / Progressive JPEG)
+    try:
+        pil_img = Image.open(io.BytesIO(img_bytes))
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        img_np = np.array(pil_img)
+        if img_np is not None and img_np.size > 0:
+            # แปลงจาก RGB ของ Pillow เป็น BGR ของ OpenCV
+            return cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    except Exception as e:
+        logger.debug(f"Pillow decode fallback error: {e}")
+
+    return None
+
+
+def read_image_file(file_path):
+    """
+    อ่านไฟล์ภาพจากดิสก์แบบ Multi-Format รองรับ Unicode Path และ Apple HEIC
+    """
+    if not file_path or not os.path.exists(file_path):
+        return None
+    try:
+        with open(file_path, "rb") as f:
+            return decode_image_bytes(f.read())
+    except Exception as e:
+        logger.error(f"Error reading image file {file_path}: {e}")
+        return None
+

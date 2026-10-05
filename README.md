@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.80
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.90
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -46,6 +46,96 @@ python main.py
 ---
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
+
+## 📋 Version 5.90 Changelog (Full HEIC iPhone Support & Robust Multi-Format Decoder)
+
+**Date:** 6 ตุลาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ปัญหาการตรวจจับใบหน้าล้มเหลวในรูปถ่ายจากกล้อง Apple iPhone (`.HEIC` / `.HEIF`):**
+   - ตรวจพบข้อผิดพลาดร้ายแรง: รูปภาพกิจกรรมจำนวนมากที่ถ่ายด้วย iPhone (เช่น รูป `IMG_4022.HEIC` ในกิจกรรม "การจัดทำแผนปฏิบัติการ 2568" ซึ่งมีใบหน้าคุณครูอยู่ 4 ท่านอย่างชัดเจน) ถูกระบบเดิมบันทึกเป็นภาพ "0 ใบหน้า (0 Faces)"
+   - **สาเหตุ:** OpenCV (`cv2.imdecode`) ไม่รองรับการถอดรหัสไฟล์ภาพ `.HEIC` ของ Apple iPhone เมื่อส่งไบต์ภาพให้ OpenCV จะคืนค่า `None` (อ่านภาพไม่ได้) และระบบเดิมเกิด Silent Failure ปล่อยให้บันทึกว่าพบ 0 ใบหน้า
+2. **ความต้องการปรับปรุงระบบถอดรหัสภาพสากล (Multi-Format Robust Decoder):**
+   - ต้องรองรับไฟล์ภาพทุกฟอร์แมตจากทุกอุปกรณ์: `.HEIC`, `.HEIF`, `.JPG`, `.PNG`, `.WEBP`, `.TIFF`, `.BMP`
+   - ต้องมีระบบ Fallback อัตโนมัติระหว่าง OpenCV และ Pillow + `pillow-heif`
+3. **การล้างข้อมูลและปลดล็อกภาพเพื่อสแกนใหม่ (0-Face Recovery Migration):**
+   - ล้างรายการรูปภาพที่เคยถูกบันทึกเป็น 0 Faces จากปัญหาการถอดรหัส เพื่อให้ระบบสแกนอัตโนมัติ (Task 1) นำภาพกลับมาสแกนตรวจจับใบหน้าคุณครูและนักเรียนด้วยตัวถอดรหัสใหม่
+   - ปลดล็อกโฟลเดอร์ที่เกี่ยวข้องใน `data/matched_folders.json`
+4. **บันทึกบทเรียนและมาตรการป้องกันถาวร (/learn):**
+   - บรรจุกฎเหล็กข้อ 6 (Multi-Format Decoding Standard) และ ข้อ 7 (Deep Data Auditing) ลงใน [`.agents/AGENTS.md`](.agents/AGENTS.md)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ติดตั้งและลงทะเบียน `pillow-heif`:**
+   - บรรจุ `pillow-heif>=1.8.0` ลงใน [`requirements.txt`](requirements.txt) และเรียก `pillow_heif.register_heif_opener()`
+2. **สร้างฟังก์ชันถอดรหัสภาพสากลใน [`face_analyzer.py`](face_analyzer.py):**
+   - พัฒนาฟังก์ชัน `decode_image_bytes(img_bytes)`: ลองถอดรหัสด้วย OpenCV ก่อน หากไม่ได้จะ Fallback ผ่าน Pillow + pillow-heif เพื่อแปลงเป็น BGR NumPy Array ให้ InsightFace
+   - พัฒนาฟังก์ชัน `read_image_file(file_path)`: รองรับการอ่านไฟล์ภาพจากดิสก์ที่มีชื่อเป็นภาษาไทยและไฟล์ `.HEIC`
+3. **อัปเกรดจุดประมวลผลภาพทั้งหมดใน [`scheduler_task.py`](scheduler_task.py) และ [`app_gui.py`](app_gui.py):**
+   - นำ `decode_image_bytes` และ `read_image_file` ไปใช้งานแทน `cv2.imdecode` ทุกจุด
+4. **ล้างข้อมูล 0-Faces เก่าและปลดล็อกโฟลเดอร์:**
+   - พัฒนาฟังก์ชัน `purge_zero_face_scanned_photos()` ใน [`db_manager.py`](db_manager.py) และล้างข้อมูลรูป 0-Faces ที่ตกค้าง 4,683 รายการ
+   - ปลดล็อก 219 โฟลเดอร์ใน `data/matched_folders.json` (จาก 682 เหลือ 463 โฟลเดอร์)
+5. **อัปเดต GUI และหน้าแรก:**
+   - อัปเดต Window Title และ Sidebar Logo เป็น `v5.90 (Full HEIC iPhone Support & Robust Multi-Format Decoder)`
+
+---
+
+### 🔧 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. ฟังก์ชันถอดรหัสภาพสากลใน [`face_analyzer.py`](face_analyzer.py)
+**ก่อนแก้ไข (Before):**
+```python
+# พึ่งพา cv2.imdecode เพียงอย่างเดียว ทำให้อ่านไฟล์ .HEIC ของ iPhone ไม่ได้
+nparr = np.frombuffer(img_bytes, np.uint8)
+img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+```
+
+**หลังแก้ไข (After):**
+```python
+def decode_image_bytes(img_bytes):
+    if not img_bytes:
+        return None
+    # 1. ลอง OpenCV ก่อน (เร็วที่สุดสำหรับ JPEG/PNG)
+    try:
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is not None and img.size > 0:
+            return img
+    except Exception:
+        pass
+    # 2. Fallback ด้วย Pillow + pillow-heif (รองรับ .HEIC / .HEIF / .WEBP / TIFF)
+    try:
+        pil_img = Image.open(io.BytesIO(img_bytes))
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        img_np = np.array(pil_img)
+        if img_np is not None and img_np.size > 0:
+            return cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    except Exception:
+        pass
+    return None
+```
+
+#### 2. การเรียกใช้ตัวถอดรหัสใน [`scheduler_task.py`](scheduler_task.py)
+**ก่อนแก้ไข (Before):**
+```python
+np_arr = np.frombuffer(img_bytes, np.uint8)
+img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+```
+
+**หลังแก้ไข (After):**
+```python
+# รองรับภาพ iPhone .HEIC ทุกภาพ 100%
+img = decode_image_bytes(img_bytes)
+```
+
+---
 
 ## 📋 Version 5.80 Changelog (Auto-Recovery & Safe Download Handler)
 

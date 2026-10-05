@@ -1059,3 +1059,40 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 logger.error(f"[DATABASE] Error getting scanned event names: {e}")
         return events
+
+    def purge_zero_face_scanned_photos(self):
+        """
+        ลบรายการรูปภาพใน scanned_photos ที่ไม่มีใบหน้าตรวจพบ (0 Faces)
+        เพื่อให้ระบบสแกนอัตโนมัติ (Task 1) นำภาพกลับมาถอดรหัสใหม่ด้วย Multi-Format Decoder (รองรับ Apple HEIC) (v5.90)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT photo_id, event_name
+                    FROM scanned_photos p
+                    WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                """)
+                rows = cursor.fetchall()
+                if not rows:
+                    logger.info("[DATABASE] ไม่มีรูปภาพ 0 Faces ที่ต้องล้าง")
+                    return []
+
+                photo_ids = [r[0] for r in rows]
+                events = list(set(r[1] for r in rows if r[1]))
+                
+                cursor.execute("""
+                    DELETE FROM scanned_photos
+                    WHERE photo_id IN (
+                        SELECT p.photo_id
+                        FROM scanned_photos p
+                        WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                    )
+                """)
+                conn.commit()
+                logger.info(f"[DATABASE] ✅ ล้างรูปภาพ 0 Faces สำเร็จ {len(photo_ids):,} รูป จาก {len(events)} กิจกรรม เพื่อเตรียมสแกนใหม่ด้วย Multi-Format HEIC Decoder")
+                return events
+            except sqlite3.Error as e:
+                logger.error(f"[DATABASE] Error purging 0-face photos: {e}")
+                return []
+

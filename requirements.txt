@@ -13,5 +13,5 @@ rawpy>=0.19.0
 nvidia-cudnn-cu11==8.9.5.29
 nvidia-cufft-cu11==10.9.0.58
 openpyxl>=3.1.0
-
 schedule==1.2.2
+pillow-heif>=1.8.0

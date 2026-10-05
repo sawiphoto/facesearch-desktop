@@ -10,6 +10,7 @@ import schedule
 import cv2
 import numpy as np
 from datetime import datetime
+from face_analyzer import decode_image_bytes, read_image_file
 
 logger = logging.getLogger("FaceSearchApp")
 
@@ -591,10 +592,7 @@ class SchedulerTask:
                         try:
                             logger.info(f"[SCHEDULE] กำลังดาวน์โหลดรูปภาพ {file_id} ของ {std_name}...")
                             img_bytes = self.sync_manager.download_image_bytes(file_id)
-                            import numpy as np
-                            import cv2
-                            nparr = np.frombuffer(img_bytes, np.uint8)
-                            img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            img_cv = decode_image_bytes(img_bytes)
                             if img_cv is not None:
                                 faces = self.analyzer.app.get(img_cv)
                                 if not faces:
@@ -877,9 +875,8 @@ class SchedulerTask:
                             processed_count += 1
                             continue
 
-                        # 2. Decode OpenCV
-                        np_arr = np.frombuffer(img_bytes, np.uint8)
-                        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                        # 2. Decode Multi-Format (v5.90: Full HEIC / JPEG / PNG / WEBP Support)
+                        img = decode_image_bytes(img_bytes)
                         
                         if img is None:
                             logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
@@ -1121,10 +1118,9 @@ class SchedulerTask:
                                 continue
                             
                             if isinstance(img_data, str) and os.path.exists(img_data):
-                                img = cv2.imdecode(np.fromfile(img_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                                img = read_image_file(img_data)
                             elif isinstance(img_data, bytes):
-                                nparr = np.frombuffer(img_data, np.uint8)
-                                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                img = decode_image_bytes(img_data)
                             else:
                                 img = None
 

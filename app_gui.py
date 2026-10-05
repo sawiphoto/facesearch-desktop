@@ -16,7 +16,7 @@ import requests
 
 # นำเข้าโมดูลหลังบ้านที่เราพัฒนาไว้
 from db_manager import DatabaseManager
-from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root
+from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
 from gdrive_sync import GoogleSyncManager
 from scheduler_task import SchedulerTask
 
@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.80 (Auto-Recovery & Safe Download Handler)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.90 (Full HEIC iPhone Support & Robust Multi-Format Decoder)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -754,7 +754,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.80",
+            text="FACE MATCHING\nSYSTEM v5.90",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1838,7 +1838,7 @@ class FaceSearchApp(ctk.CTk):
     def save_cropped_student_face(self, student_id, student_code, original_path, bbox, count, orig_filename=None):
         """ตัดและบันทึกใบหน้านักเรียนที่ตรวจพบ เป็นไฟล์ .jpg ลงโฟลเดอร์ registered_students"""
         try:
-            img = cv2.imdecode(np.fromfile(original_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+            img = read_image_file(original_path)
             if img is None:
                 logger.warning(f"Could not read image: {original_path}")
                 return original_path
@@ -3312,10 +3312,8 @@ class FaceSearchApp(ctk.CTk):
                         # Full Scan
                         img_bytes, dl_time, img_size = self.sync_manager.download_image_bytes_with_stats(img_info["file_id"], img_info["file_name"])
                         if img_bytes:
-                            import cv2
                             import time
-                            nparr = np.frombuffer(img_bytes, np.uint8)
-                            img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            img_cv = decode_image_bytes(img_bytes)
                             if img_cv is not None:
                                 t_ai_start = time.time()
                                 faces = self.analyzer.get_faces_optimized(img_cv)
@@ -3617,7 +3615,7 @@ class FaceSearchApp(ctk.CTk):
                         try:
                             thumb_path = os.path.join(os.path.dirname(__file__), "data", "thumbnail_cache", f"thumb_{f_id}.jpg")
                             if os.path.exists(thumb_path):
-                                thumb_bgr = cv2.imdecode(np.fromfile(thumb_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+                                thumb_bgr = read_image_file(thumb_path)
                         except Exception:
                             thumb_bgr = None
                             
@@ -3633,13 +3631,7 @@ class FaceSearchApp(ctk.CTk):
                         
                     # ดาวน์โหลดไบต์รูปภาพจริง (กรณีปกติ หรือ Re-scan แบบเต็ม)
                     img_bytes, dl_time, _ = self.sync_manager.download_image_bytes_with_stats(f_id, f_name)
-                    img_bgr = None
-                    if img_bytes:
-                        try:
-                            nparr = np.frombuffer(img_bytes, np.uint8)
-                            img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                        except Exception:
-                            img_bgr = None
+                    img_bgr = decode_image_bytes(img_bytes) if img_bytes else None
                             
                     download_queue.put({
                         "img_info": img_item,
@@ -5708,9 +5700,7 @@ class FaceSearchApp(ctk.CTk):
                         if not downloaded and hasattr(self, 'sync_manager') and self.sync_manager:
                             img_bytes, dl_time, _ = self.sync_manager.download_image_bytes_with_stats(target_fid, f"thumb_{target_fid}")
                             if img_bytes:
-                                import cv2
-                                nparr = np.frombuffer(img_bytes, np.uint8)
-                                img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                img_cv = decode_image_bytes(img_bytes)
                                 if img_cv is not None:
                                     h, w = img_cv.shape[:2]
                                     scale = 300.0 / max(h, w)
@@ -5754,8 +5744,8 @@ class FaceSearchApp(ctk.CTk):
     def save_cropped_face(self, staff_id, original_path, bbox, count, orig_filename=None):
         """ตัดส่วนใบหน้าคุณครูแล้วเก็บเป็นไฟล์ย่อยลงในแอป ป้องกันไฟล์ต้นฉบับหาย"""
         try:
-            # อ่านภาพดึงข้อมูลไบต์แบบรองรับภาษาไทย
-            img = cv2.imdecode(np.fromfile(original_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+            # อ่านภาพดึงข้อมูลไบต์แบบรองรับภาษาไทย และ Apple HEIC
+            img = read_image_file(original_path)
             if img is None:
                 return original_path # fallback
                 
