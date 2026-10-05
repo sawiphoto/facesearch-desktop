@@ -1,4 +1,4 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.70
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.80
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -46,6 +46,98 @@ python main.py
 ---
 
 *This README is automatically generated and kept up‑to‑date with each version change.*
+
+## 📋 Version 5.80 Changelog (Auto-Recovery & Safe Download Handler)
+
+**Date:** 5 ตุลาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ปัญหาภาพในอดีต (โดยเฉพาะปี 2565) ไม่มีแคชใบหน้าแต่ถูกข้ามการสแกน (Missing Face Caches & False Completed Folders):**
+   - ตรวจพบว่ารูปภาพกิจกรรมจำนวน 22,838 รูปใน 214 โฟลเดอร์ (เช่น โฟลเดอร์ "รูปเกษียณ 65") มีสถานะเป็น Dummy Error บันทึกลงในฐานข้อมูล เช่น `ERROR_Unable to find the server at www.googleapis.com` หรือ `SKIPPED_UNSUPPORTED_FORMAT` เนื่องจากข้อผิดพลาดเครือข่าย/เน็ตหลุดในอดีต
+   - เมื่อระบบเดิมบันทึกรูปเหล่านี้ลงในตาราง `scanned_photos` ทำให้ระบบตีความว่าโฟลเดอร์ถูกประมวลผลครบถ้วน และบันทึก ID โฟลเดอร์ลงใน `data/matched_folders.json` ส่งผลให้ Fast Skip ข้ามโฟลเดอร์เหล่านี้ไปตลอดกาล
+2. **ความต้องการปรับปรุงระบบ Safe Download Handler:**
+   - เมื่อระบบดาวน์โหลดภาพไม่สำเร็จ (เช่น เน็ตหลุดชั่วคราว หรือ Google API Error) **ห้ามบันทึก Dummy Error ลงในตาราง `scanned_photos`** แต่ให้บันทึกแจ้งเตือนใน Log และปล่อยให้รูปภาพคงสถานะ Unscanned เพื่อให้ระบบสามารถกลับมาดาวน์โหลดและสแกนซ้ำใหม่อัตโนมัติใน Task 1
+   - หากในโฟลเดอร์มีรูปภาพที่สแกนไม่สำเร็จแม้แต่รูปเดียว **ห้ามบันทึกโฟลเดอร์นั้นลงใน `matched_folders.json`** เพื่อเปิดโอกาสให้ระบบสแกนซ่อมแซมจนครบถ้วน
+3. **การสำรองข้อมูลและความปลอดภัย (Data Safety & Recovery):**
+   - สำรองฐานข้อมูล SQLite เป็นไฟล์ `.db` ฉบับเต็มก่อนการแก้ไข
+   - เคลียร์ Dummy Error ออกจากตาราง `scanned_photos` และปลดล็อกโฟลเดอร์ที่ผิดพลาดใน `matched_folders.json`
+4. **เพิ่มเครื่องมือค้นหาและตรวจสอบใน GUI (Database Viewer Menu):**
+   - เพิ่มเมนูกรองในหน้า SQLite Database Viewer: `"⚠️ ภาพที่ยังไม่มีแคชใบหน้า / ต้องสแกนใหม่ (0 Faces)"` เพื่อให้ผู้ดูแลระบบสามารถตรวจสอบและส่งออก CSV รายชื่อรูปภาพที่ยังไม่มีใบหน้าได้ทันที
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สำรองฐานข้อมูล:**
+   - สร้างไฟล์สำรอง `data/faces_db_backup_20261005_v570.db` ขนาด 3.3 GB
+2. **ล้าง Dummy Error และปลดล็อก Fast Skip:**
+   - พัฒนาฟังก์ชัน `purge_error_scanned_photos()` ใน [`db_manager.py`](db_manager.py) และลบแถว Dummy Error ทั้งหมด 22,838 แถวออกจากตาราง `scanned_photos`
+   - ปลดล็อก 214 โฟลเดอร์ที่ได้รับผลกระทบออกจาก `data/matched_folders.json` (ลดจำนวนที่เคยบันทึกจาก 845 เหลือ 620 โฟลเดอร์)
+3. **พัฒนาระบบ Safe Download Handler ใน [`scheduler_task.py`](scheduler_task.py):**
+   - ในลูปการดาวน์โหลด หาก `download_image_bytes` ล้มเหลว ให้บันทึก Warning Log และไม่เพิ่มเข้า `db_batch_buffer` หรือ `scanned_photos`
+   - ปรับปรุงการตรวจสอบโฟลเดอร์ที่ยังสแกนไม่ครบ (`_get_unscanned_subfolder`) ให้กรองเฉพาะรูปภาพที่สแกนสมบูรณ์จริงเท่านั้น
+   - หากมีรูปที่ดาวน์โหลดไม่สำเร็จในโฟลเดอร์ใด โฟลเดอร์นั้นจะไม่ถูกบันทึกเข้า `matched_folders.json`
+4. **เพิ่มเมนูกรองและค้นหาใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มตัวเลือก `"⚠️ ภาพที่ยังไม่มีแคชใบหน้า / ต้องสแกนใหม่ (0 Faces)"` ใน `self.option_db_table`
+   - เพิ่มการสืบค้นข้อมูลใน `load_db_table_data` และการส่งออกข้อมูลใน `export_current_table`
+   - อัปเดต Window Title และ Sidebar Logo เป็น `v5.80 (Auto-Recovery & Safe Download Handler)`
+
+---
+
+### 🔧 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การจัดการข้อผิดพลาดขณะดาวน์โหลดรูปภาพใน [`scheduler_task.py`](scheduler_task.py)
+**ก่อนแก้ไข (Before):**
+```python
+if img_bytes is None:
+    # นำ Dummy Error ไปบันทึกลง scanned_photos ทำให้รูปถูกมองว่าสแกนแล้ว
+    logger.warning(f"[AI SCAN] ({idx}/{total_photos}) ⚠️ ไม่สามารถดาวน์โหลด: {file_name}")
+    self.db.save_scanned_photos_batch([(photo_id, file_id, event_name, f"ERROR_{err_msg}", drive_link)])
+```
+
+**หลังแก้ไข (After):**
+```python
+if img_bytes is None:
+    # Safe Download Handler: บันทึก Log เตือน และไม่บันทึกลง scanned_photos
+    logger.warning(f"[AI SCAN] ({idx}/{total_photos}) ⚠️ ข้ามรูปภาพชั่วคราวเนื่องจากโหลดไม่สำเร็จ: {file_name} (ID: {file_id})")
+    has_failed_downloads = True
+    continue  # ปล่อยคงสถานะ Unscanned เพื่อให้ Task 1 นำกลับมาสแกนใหม่ในรอบถัดไป
+```
+
+#### 2. การเพิ่มเมนูกรองรูปภาพ 0 Faces ใน [`app_gui.py`](app_gui.py)
+**ก่อนแก้ไข (Before):**
+```python
+self.option_db_table = ctk.CTkOptionMenu(
+    control_frame, 
+    values=[
+        "รายชื่อคุณครู (staff_members - ครู)", 
+        "รายชื่อนักเรียน (staff_members - นักเรียน)", 
+        "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
+        "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
+        ...
+    ]
+)
+```
+
+**หลังแก้ไข (After):**
+```python
+self.option_db_table = ctk.CTkOptionMenu(
+    control_frame, 
+    values=[
+        "รายชื่อคุณครู (staff_members - ครู)", 
+        "รายชื่อนักเรียน (staff_members - นักเรียน)", 
+        "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
+        "⚠️ ภาพที่ยังไม่มีแคชใบหน้า / ต้องสแกนใหม่ (0 Faces)",
+        "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
+        ...
+    ]
+)
+```
+
+---
 
 ## 📋 Version 5.70 Changelog (Blazing Fast DB Search & Debounce)
 

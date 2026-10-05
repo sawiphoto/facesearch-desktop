@@ -192,10 +192,10 @@ class SchedulerTask:
         if not subdirs:
             subdirs = [{"id": root_folder_id, "name": "TargetFolder"}]
                 
-        # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB
+        # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB (เฉพาะรูปที่สแกนสำเร็จจริง v5.80)
         with self.db.get_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT drive_file_id FROM scanned_photos")
+            c.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'")
             scanned_ids = set(row[0] for row in c.fetchall())
 
         total_subdirs = len(subdirs)
@@ -743,7 +743,7 @@ class SchedulerTask:
             c.execute("SELECT staff_id, embedding FROM staff_embeddings")
             emb_data = c.fetchall()
 
-            c.execute("SELECT drive_file_id FROM scanned_photos")
+            c.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'")
             scanned_ids = set(row[0] for row in c.fetchall())
 
         if not staff_data or not emb_data:
@@ -872,9 +872,8 @@ class SchedulerTask:
                         t_dl = time.time() - t_dl_start
                         
                         if not img_bytes:
-                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name}")
+                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_DOWNLOAD_EMPTY"))
-                            scanned_ids.add(f_id)
                             processed_count += 1
                             continue
 
@@ -883,9 +882,8 @@ class SchedulerTask:
                         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                         
                         if img is None:
-                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้ (Skipped): {f_name}")
+                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_UNREADABLE_IMAGE"))
-                            scanned_ids.add(f_id)
                             processed_count += 1
                             continue
 
@@ -954,46 +952,46 @@ class SchedulerTask:
                         processed_count += 1
                             
                     except Exception as e:
-                        logger.error(f"[AI SCAN] ❌ Error analyzing faces for {f_name}: {e}")
+                        logger.error(f"[AI SCAN] ❌ Error analyzing faces for {f_name}: {e} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                         skipped_files.append((f_id, f_name, f"ERROR_{e}"))
+                        processed_count += 1
 
-                # Single Transaction Batch Save
-                if results_data or skipped_files:
+                # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 Safe Download Handler)
+                if results_data:
                     with self.db.get_connection() as conn:
                         c = conn.cursor()
-                        if results_data:
-                            scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"]) for r in results_data]
-                            c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", scanned_rows)
+                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"]) for r in results_data]
+                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", scanned_rows)
+                        
+                        photo_ids_batch = [r["photo_id"] for r in results_data]
+                        if photo_ids_batch:
+                            placeholders_del = ",".join("?" for _ in photo_ids_batch)
+                            c.execute(f"DELETE FROM detected_faces WHERE photo_id IN ({placeholders_del})", photo_ids_batch)
+
+                        match_rows = []
+                        for r in results_data:
+                            for staff_id, conf in r["matches"]: match_rows.append((r["photo_id"], staff_id, conf))
+                        if match_rows:
+                            c.executemany("INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)", match_rows)
                             
-                            photo_ids_batch = [r["photo_id"] for r in results_data]
-                            if photo_ids_batch:
-                                placeholders_del = ",".join("?" for _ in photo_ids_batch)
-                                c.execute(f"DELETE FROM detected_faces WHERE photo_id IN ({placeholders_del})", photo_ids_batch)
-
-                            match_rows = []
-                            for r in results_data:
-                                for staff_id, conf in r["matches"]: match_rows.append((r["photo_id"], staff_id, conf))
-                            if match_rows:
-                                c.executemany("INSERT INTO detected_faces (photo_id, staff_id, confidence) VALUES (?, ?, ?)", match_rows)
-                                
-                            emb_rows = []
-                            for r in results_data:
-                                for f in r["face_embeddings"]:
-                                    emb_rows.append((r["photo_id"], f["face_index"], f["bbox"][0], f["bbox"][1], f["bbox"][2], f["bbox"][3], f["embedding"]))
-                            if emb_rows:
-                                c.executemany("INSERT INTO scanned_photo_faces (photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)", emb_rows)
-
-                        if skipped_files:
-                            skipped_rows = [(f_id, f_id, folder_name, f"https://drive.google.com/file/d/{f_id}/view", reason) for f_id, f_name, reason in skipped_files]
-                            c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", skipped_rows)
+                        emb_rows = []
+                        for r in results_data:
+                            for f in r["face_embeddings"]:
+                                emb_rows.append((r["photo_id"], f["face_index"], f["bbox"][0], f["bbox"][1], f["bbox"][2], f["bbox"][3], f["embedding"]))
+                        if emb_rows:
+                            c.executemany("INSERT INTO scanned_photo_faces (photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)", emb_rows)
 
                         conn.commit()
 
-                if hasattr(self.app_gui, 'record_matched_folder'):
-                    self.app_gui.record_matched_folder(folder_id, folder_name)
-                    
+                # เฉพาะโฟลเดอร์ที่สแกนสำเร็จครบ 100% (ไม่มีไฟล์หลุด/Error) จึงบันทึกเป็น Completed Folder (v5.80)
+                if len(results_data) == total_files and len(skipped_files) == 0:
+                    if hasattr(self.app_gui, 'record_matched_folder'):
+                        self.app_gui.record_matched_folder(folder_id, folder_name)
+                        completed_folder_ids.add(folder_id)
+                else:
+                    logger.warning(f"[FULLSCAN] ⚠️ โฟลเดอร์ '{folder_name}' สแกนสำเร็จ {len(results_data)}/{total_files} รูป (มี {len(skipped_files)} รูปค้างเนื่องจากเน็ตหลุด/ผิดพลาด จะไม่บันทึกว่าเสร็จเพื่อให้สแกนซ้ำ)")
+
                 for r in results_data: scanned_ids.add(r["photo_id"])
-                for f_id, _, _ in skipped_files: scanned_ids.add(f_id)
                 
                 if self.stop_requested:
                     logger.info(f"[SCHEDULE] 🛑 หยุดการทำงานในโฟลเดอร์ '{folder_name}' ตามคำร้องขอ (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")

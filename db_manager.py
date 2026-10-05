@@ -200,8 +200,38 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not clean up orphan detected_faces: {e}")
 
+            # Migration v5.80: ล้างประวัติภาพที่เคยติด Error จากเน็ตหลุดในอดีต (ERROR_ / SKIPPED_) ออกจาก scanned_photos เพื่อให้สแกนใหม่ได้
+            try:
+                cursor.execute("""
+                    DELETE FROM scanned_photos 
+                    WHERE photo_date LIKE 'ERROR%' 
+                       OR photo_date LIKE 'SKIPPED%' 
+                       OR drive_link LIKE 'ERROR%' 
+                       OR drive_link LIKE 'SKIPPED%'
+                """)
+                purged_cnt = cursor.rowcount
+                if purged_cnt > 0:
+                    logger.info(f"Migration v5.80: Purged {purged_cnt} dummy error photos from scanned_photos for automatic rescan.")
+            except Exception as e:
+                logger.warning(f"Could not purge dummy error photos: {e}")
+
             conn.commit()
         logger.info("SQLite database initialized successfully.")
+
+    def purge_error_scanned_photos(self):
+        """ลบรายการภาพที่เคยติด Error/Skipped ออกจาก scanned_photos เพื่อให้สามารถดึงมาสแกนใหม่ได้ทันที (v5.80)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM scanned_photos 
+                WHERE photo_date LIKE 'ERROR%' 
+                   OR photo_date LIKE 'SKIPPED%' 
+                   OR drive_link LIKE 'ERROR%' 
+                   OR drive_link LIKE 'SKIPPED%'
+            """)
+            deleted_cnt = cursor.rowcount
+            conn.commit()
+            return deleted_cnt
 
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     

@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.70 (Blazing Fast DB Search & Debounce)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.80 (Auto-Recovery & Safe Download Handler)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -754,7 +754,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.70",
+            text="FACE MATCHING\nSYSTEM v5.80",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4378,6 +4378,7 @@ class FaceSearchApp(ctk.CTk):
                 "รายชื่อคุณครู (staff_members - ครู)", 
                 "รายชื่อนักเรียน (staff_members - นักเรียน)", 
                 "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
+                "⚠️ ภาพที่ยังไม่มีแคชใบหน้า / ต้องสแกนใหม่ (0 Faces)",
                 "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
                 "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)",
                 "📋 ตารางทั้งหมด: staff_members",
@@ -4841,6 +4842,62 @@ class FaceSearchApp(ctk.CTk):
                 for r in rows:
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
+            elif "0 Faces" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
+                # ตารางภาพที่ยังไม่มีแคชใบหน้า (0 Faces - ต้องสแกนใหม่)
+                if search_query:
+                    where_clause = "WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?)"
+                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = f"""
+                        WITH top_photos AS (
+                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                            FROM scanned_photos p
+                            {where_clause}
+                            ORDER BY p.photo_id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link, 0 as face_cache_count
+                        FROM top_photos tp
+                    """
+                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM scanned_photos p WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0")
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = """
+                        WITH top_photos AS (
+                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
+                            FROM scanned_photos p
+                            WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                            ORDER BY p.photo_id DESC
+                            LIMIT ? OFFSET ?
+                        )
+                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link, 0 as face_cache_count
+                        FROM top_photos tp
+                    """
+                    cursor.execute(query_sql, (self.db_page_size, offset))
+                rows = cursor.fetchall()
+                
+                self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
+                self.db_tree.column("photo_id", width=90, anchor="center")
+                self.db_tree.column("file_id", width=180, anchor="center")
+                self.db_tree.column("event", width=150, anchor="w")
+                self.db_tree.column("cache_status", width=140, anchor="center")
+                self.db_tree.column("link", width=260, anchor="w")
+                
+                self.db_tree.heading("photo_id", text="Photo ID")
+                self.db_tree.heading("file_id", text="Drive File ID")
+                self.db_tree.heading("event", text="ชื่องานกิจกรรม")
+                self.db_tree.heading("cache_status", text="สถานะแคชใบหน้า")
+                self.db_tree.heading("link", text="ลิงก์ไดรฟ์รูปภาพ")
+                
+                for r in rows:
+                    pid, fid, evt, link, c_count = r
+                    c_status = "⚠️ ยังไม่มีแคชใบหน้า (0)"
+                    row_vals = (pid, fid, evt, c_status, link)
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
+                    
             elif "scanned_photos" in selected_table_text:
                 # ตาราง scanned_photos - ปรับปรุงความเร็วสูงด้วย CTE + Subquery Face Cache Lookups (v5.70 Blazing Fast 500x)
                 if search_query:
@@ -5089,6 +5146,16 @@ class FaceSearchApp(ctk.CTk):
                         ORDER BY s.id ASC
                     """)
                     writer.writerow(["ID", "ชื่อ-นามสกุล นักเรียน", "รหัสประจำตัว", "จำนวนรูปที่บันทึก"])
+                    writer.writerows(cursor.fetchall())
+                    
+                elif "0 Faces" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
+                    cursor.execute("""
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link 
+                        FROM scanned_photos p
+                        WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                        ORDER BY p.photo_id ASC
+                    """)
+                    writer.writerow(["Photo ID", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "scanned_photos" in selected_table_text:
