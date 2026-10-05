@@ -4378,7 +4378,7 @@ class FaceSearchApp(ctk.CTk):
                 "รายชื่อคุณครู (staff_members - ครู)", 
                 "รายชื่อนักเรียน (staff_members - นักเรียน)", 
                 "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
-                "⚠️ ภาพที่ยังไม่มีแคชใบหน้า / ต้องสแกนใหม่ (0 Faces)",
+                "📷 ภาพที่ไม่พบใบหน้าคน (0 Faces - สิ่งของ/ป้าย/วิว)",
                 "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
                 "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)",
                 "📋 ตารางทั้งหมด: staff_members",
@@ -4842,8 +4842,8 @@ class FaceSearchApp(ctk.CTk):
                 for r in rows:
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
-            elif "0 Faces" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
-                # ตารางภาพที่ยังไม่มีแคชใบหน้า (0 Faces - ต้องสแกนใหม่)
+            elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
+                # ตารางภาพที่ไม่พบใบหน้าคน (0 Faces เช่น สิ่งของ/ป้าย/วิว)
                 if search_query:
                     where_clause = "WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?)"
                     cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
@@ -4883,18 +4883,18 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.column("photo_id", width=90, anchor="center")
                 self.db_tree.column("file_id", width=180, anchor="center")
                 self.db_tree.column("event", width=150, anchor="w")
-                self.db_tree.column("cache_status", width=140, anchor="center")
+                self.db_tree.column("cache_status", width=160, anchor="center")
                 self.db_tree.column("link", width=260, anchor="w")
                 
                 self.db_tree.heading("photo_id", text="Photo ID")
                 self.db_tree.heading("file_id", text="Drive File ID")
                 self.db_tree.heading("event", text="ชื่องานกิจกรรม")
-                self.db_tree.heading("cache_status", text="สถานะแคชใบหน้า")
+                self.db_tree.heading("cache_status", text="สถานะใบหน้า")
                 self.db_tree.heading("link", text="ลิงก์ไดรฟ์รูปภาพ")
                 
                 for r in rows:
                     pid, fid, evt, link, c_count = r
-                    c_status = "⚠️ ยังไม่มีแคชใบหน้า (0)"
+                    c_status = "ℹ️ ไม่พบใบหน้าคน (0)"
                     row_vals = (pid, fid, evt, c_status, link)
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
@@ -5148,7 +5148,7 @@ class FaceSearchApp(ctk.CTk):
                     writer.writerow(["ID", "ชื่อ-นามสกุล นักเรียน", "รหัสประจำตัว", "จำนวนรูปที่บันทึก"])
                     writer.writerows(cursor.fetchall())
                     
-                elif "0 Faces" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
+                elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
                     cursor.execute("""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link 
                         FROM scanned_photos p
