@@ -1,3 +1,148 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.10 (Camera RAW Files Management & Separation)
+
+## 📋 Version 6.10 Changelog (Camera RAW Files Management & Dedicated Table Separation)
+
+**Date:** 6 ตุลาคม 2026 (08:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **การจัดการไฟล์ภาพดิบจากกล้องดิจิทัล (Camera RAW Files):**
+   - ไฟล์ RAW จากกล้องดิจิทัลระดับโปร (เช่น Sony `.ARW`/`.SR2`, Canon `.CR2`/`.CR3`/`.CRW`, Nikon `.NEF`/`.NRW`, Fujifilm `.RAF`, Panasonic `.RW2`/`.RAW`, Olympus `.ORF`, Adobe Digital Negative `.DNG`, Pentax `.PEF`, Leica `.RWL`, Hasselblad `.3FR`/`.FFF`, Sigma `.X3F`, Phase One `.IIQ`) มีขนาดใหญ่มาก (30 MB – 100+ MB ต่อรูป)
+   - โมเดล AI ตรวจจับใบหน้าไม่สามารถถอดรหัสและสแกนไฟล์ RAW ตรงๆ ได้ หากระบบพยายามดาวน์โหลดไฟล์ลงมา จะทำให้สิ้นเปลืองแบนด์วิดท์อินเทอร์เน็ตมหาศาลและทำให้กระบวนการสแกนโฟลเดอร์ทำงานล่าช้ามาก
+2. **ความต้องการแยกจัดเก็บไฟล์ RAW ลงตารางเฉพาะ (`raw_camera_photos`):**
+   - ผู้ใช้ต้องการให้ระบบคัดแยกไฟล์ RAW จากกล้องทุกยี่ห้อไปจัดเก็บในตารางใหม่ `raw_camera_photos` เพื่อรักษาความสะอาดของฐานข้อมูลตรวจจับใบหน้าหลัก `scanned_photos`
+   - สามารถระบุยี่ห้อกล้องถ่ายภาพ (Camera Brand) ของแต่ละไฟล์ได้โดยอัตโนมัติ
+   - มีเมนูใน SQLite Database Viewer ให้ผู้ใช้สามารถตรวจสอบ ค้นหา เรียงลำดับ และดับเบิ้ลคลิกเพื่อเปิดดูไฟล์ต้นฉบับบน Google Drive ได้ทันที
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สร้างตารางและดัชนีสืบค้น `raw_camera_photos` ใน [`db_manager.py`](db_manager.py):**
+   - เพิ่มคำสั่งสร้างตาราง:
+     ```sql
+     CREATE TABLE IF NOT EXISTS raw_camera_photos (
+         photo_id TEXT PRIMARY KEY,
+         drive_file_id TEXT NOT NULL,
+         event_name TEXT NOT NULL,
+         drive_link TEXT NOT NULL,
+         photo_date TEXT,
+         file_name TEXT,
+         file_extension TEXT,
+         camera_brand TEXT,
+         detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_raw_brand ON raw_camera_photos(camera_brand);
+     CREATE INDEX IF NOT EXISTS idx_raw_ext ON raw_camera_photos(file_extension);
+     CREATE INDEX IF NOT EXISTS idx_raw_event ON raw_camera_photos(event_name);
+     CREATE INDEX IF NOT EXISTS idx_raw_drive_id ON raw_camera_photos(drive_file_id);
+     ```
+   - พัฒนาฟังก์ชัน `RAW_EXTENSIONS_MAP` และ `get_camera_brand_from_filename(filename)`
+   - เพิ่มเมธอด `save_raw_photos_batch(batch_items)` และปรับปรุง `is_photo_scanned(drive_file_id)` ให้ตรวจจับทั้งสองตาราง
+2. **ระบบตรวจจับไฟล์ RAW ตั้งแต่ระดับ Drive API Metadata ใน [`scheduler_task.py`](scheduler_task.py) & [`app_gui.py`](app_gui.py):**
+   - เมื่อระบบสแกนโฟลเดอร์ Google Drive และพบนามสกุลไฟล์ RAW ระบบจะบันทึกข้อมูล Metadata ลงตาราง `raw_camera_photos` ทันที **โดยข้ามการดาวน์โหลดไฟล์ไบนารีขนาด 100MB+ (Zero Bandwidth Waste)** ทำให้สแกนโฟลเดอร์ได้รวดเร็วเต็มประสิทธิภาพ
+3. **เพิ่มเมนูดูตารางและส่งออกไฟล์ RAW ใน SQLite Database Viewer ([`app_gui.py`](app_gui.py)):**
+   - เพิ่มตัวเลือกใน Dropdown: `📷 ไฟล์ภาพดิบกล้อง (raw_camera_photos - RAW Files)`
+   - แสดงคอลัมน์: `Photo ID` | `ชื่อไฟล์ RAW` | `ยี่ห้อกล้อง / สกุลไฟล์` | `ชื่องานกิจกรรม` | `วันที่ถ่ายภาพ` | `ลิงก์ไดรฟ์รูปภาพ`
+   - รองรับการค้นหาแบบ Debounced Search, การจัดเรียงคอลัมน์ ASC/DESC (`▲`/`▼`), การดับเบิ้ลคลิกเพื่อเปิดลิงก์ Google Drive และการส่งออกเป็นไฟล์ CSV
+4. **อัปเดตเวอร์ชันโปรแกรมเป็น `v6.10`:**
+   - ปรับปรุงข้อความบนแถบ Window Title และ Sidebar Logo Header ของ GUI
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การสร้างตาราง `raw_camera_photos` และฟังก์ชันตรวจจับยี่ห้อกล้อง ใน [`db_manager.py`](db_manager.py):
+```python
+# Before (v6.00):
+# มีเฉพาะตาราง scanned_photos, detected_faces, scanned_photo_faces
+def is_photo_scanned(self, drive_file_id):
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?", (drive_file_id,))
+        return cursor.fetchone() is not None
+
+# After (v6.10):
+RAW_EXTENSIONS_MAP = {
+    '.arw': 'Sony', '.sr2': 'Sony', '.srf': 'Sony',
+    '.cr2': 'Canon', '.cr3': 'Canon', '.crw': 'Canon',
+    '.nef': 'Nikon', '.nrw': 'Nikon',
+    '.raf': 'Fujifilm',
+    '.rw2': 'Panasonic', '.raw': 'Panasonic/Leica',
+    '.orf': 'Olympus',
+    '.dng': 'Adobe DNG / Leica / Pentax',
+    '.pef': 'Pentax', '.rwl': 'Leica',
+    '.3fr': 'Hasselblad', '.fff': 'Hasselblad',
+    '.x3f': 'Sigma', '.iiq': 'Phase One'
+}
+
+def get_camera_brand_from_filename(filename):
+    if not filename: return None
+    ext = os.path.splitext(filename)[1].lower()
+    return RAW_EXTENSIONS_MAP.get(ext, None)
+
+def is_photo_scanned(self, drive_file_id):
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?
+            UNION
+            SELECT photo_id FROM raw_camera_photos WHERE drive_file_id = ?
+            LIMIT 1
+        """, (drive_file_id, drive_file_id))
+        return cursor.fetchone() is not None
+```
+
+#### 2. การดักจับไฟล์ RAW และข้ามการดาวน์โหลดใน [`scheduler_task.py`](scheduler_task.py):
+```python
+# Before (v6.00):
+# พยายามดาวน์โหลดทุกไฟล์จาก Drive แม้เป็นไฟล์ RAW ขนาดใหญ่
+req = self.sync_manager.drive_service.files().get_media(fileId=f_id)
+img_bytes = req.execute()
+img = decode_image_bytes(img_bytes)
+
+# After (v6.10):
+f_ext = os.path.splitext(f_name)[1].lower() if f_name else ""
+camera_brand = RAW_EXTENSIONS_MAP.get(f_ext)
+if camera_brand:
+    logger.info(f"[AI SCAN] 📷 ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {f_name} (บันทึกลง raw_camera_photos โดยอัตโนมัติ ข้ามการดาวน์โหลด)")
+    raw_photos_data.append({
+        "photo_id": f_id,
+        "drive_file_id": f_id,
+        "event_name": folder_name,
+        "drive_link": f_link,
+        "photo_date": p_date,
+        "file_name": f_name,
+        "file_extension": f_ext,
+        "camera_brand": camera_brand
+    })
+    processed_count += 1
+    continue
+```
+
+#### 3. การแสดงผลตาราง `raw_camera_photos` และการส่งออก CSV ใน [`app_gui.py`](app_gui.py):
+```python
+# Before (v6.00):
+# ไม่มีตัวเลือกและฟังก์ชันแสดงผลตาราง raw_camera_photos
+
+# After (v6.10):
+elif "raw_camera_photos" in selected_table_text or "ไฟล์ภาพดิบกล้อง" in selected_table_text:
+    sort_col_map = {
+        "photo_id": "r.photo_id",
+        "file_name": "COALESCE(r.file_name, r.photo_id)",
+        "brand_ext": "r.camera_brand",
+        "event": "r.event_name",
+        "date": "r.photo_date",
+        "link": "r.drive_link"
+    }
+    order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'r.photo_id')} {sort_dir}"
+    # ดึงข้อมูลจากตาราง raw_camera_photos แสดงใน Treeview พร้อมรองรับ Search & Sort
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.00 (Universal Clipboard Support & Column Sorting Table)
 
 ## 📋 Version 6.00 Changelog (Universal Clipboard Support & Column Sorting Table)

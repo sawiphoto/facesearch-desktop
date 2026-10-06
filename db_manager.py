@@ -5,6 +5,36 @@ import logging
 
 logger = logging.getLogger("FaceSearchApp")
 
+# แผนผังนามสกุลไฟล์ภาพดิบกล้องดิจิทัลสากลและยี่ห้อกล้อง (v6.10 Camera RAW Support)
+RAW_EXTENSIONS_MAP = {
+    '.arw': 'Sony',
+    '.sr2': 'Sony',
+    '.srf': 'Sony',
+    '.cr2': 'Canon',
+    '.cr3': 'Canon',
+    '.crw': 'Canon',
+    '.nef': 'Nikon',
+    '.nrw': 'Nikon',
+    '.raf': 'Fujifilm',
+    '.rw2': 'Panasonic',
+    '.raw': 'Panasonic/Leica',
+    '.orf': 'Olympus',
+    '.dng': 'Adobe DNG / Leica / Pentax',
+    '.pef': 'Pentax',
+    '.rwl': 'Leica',
+    '.3fr': 'Hasselblad',
+    '.fff': 'Hasselblad',
+    '.x3f': 'Sigma',
+    '.iiq': 'Phase One'
+}
+
+def get_camera_brand_from_filename(filename):
+    """คืนค่าชื่อยี่ห้อกล้องจากนามสกุลไฟล์ RAW หากไม่ใช่ไฟล์ RAW ให้คืนค่า None (v6.10)"""
+    if not filename:
+        return None
+    ext = os.path.splitext(filename)[1].lower()
+    return RAW_EXTENSIONS_MAP.get(ext, None)
+
 class CachedFace:
     def __init__(self, bbox, embedding):
         self.bbox = bbox
@@ -92,6 +122,31 @@ class DatabaseManager:
                 FOREIGN KEY (photo_id) REFERENCES scanned_photos (photo_id) ON DELETE CASCADE
             )
             """)
+
+            # 6. ตารางเก็บข้อมูลไฟล์ภาพดิบจากกล้องดิจิทัล (Camera RAW Files) (v6.10)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS raw_camera_photos (
+                photo_id TEXT PRIMARY KEY,
+                drive_file_id TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                drive_link TEXT NOT NULL,
+                photo_date TEXT,
+                file_name TEXT,
+                file_extension TEXT,
+                camera_brand TEXT,
+                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            
+            # Indexes สำหรับตาราง raw_camera_photos (v6.10)
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_brand ON raw_camera_photos(camera_brand)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_ext ON raw_camera_photos(file_extension)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_event ON raw_camera_photos(event_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_raw_drive_id ON raw_camera_photos(drive_file_id)")
+                logger.info("Executed database migration v6.10: created raw_camera_photos table and indexes.")
+            except Exception as e:
+                logger.warning(f"Could not create raw_camera_photos indexes: {e}")
             
             # ตรวจสอบและอัปเดตตารางเก่าให้มีคอลัมน์ photo_date (Alter Table)
             try:
@@ -578,10 +633,22 @@ class DatabaseManager:
     # --- ส่วนการจัดการภาพสแกนกิจกรรม (Photo Matching DB) ---
     
     def is_photo_scanned(self, drive_file_id):
-        """ตรวจสอบว่ารูปนี้ใน Google Drive ถูกสแกนไปแล้วหรือไม่"""
+        """ตรวจสอบว่ารูปนี้ใน Google Drive ถูกสแกนหรือบันทึกเป็นไฟล์ RAW ไปแล้วหรือไม่ (v6.10)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?", (drive_file_id,))
+            cursor.execute("""
+                SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?
+                UNION
+                SELECT photo_id FROM raw_camera_photos WHERE drive_file_id = ?
+                LIMIT 1
+            """, (drive_file_id, drive_file_id))
+            return cursor.fetchone() is not None
+
+    def is_raw_photo_recorded(self, drive_file_id):
+        """ตรวจสอบว่าไฟล์นี้ถูกบันทึกในตาราง raw_camera_photos หรือไม่ (v6.10)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT photo_id FROM raw_camera_photos WHERE drive_file_id = ? LIMIT 1", (drive_file_id,))
             return cursor.fetchone() is not None
 
     def save_scanned_photo(self, photo_id, drive_file_id, event_name, drive_link, matches, photo_date="", file_name="", file_extension=""):
@@ -709,6 +776,43 @@ class DatabaseManager:
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Error marking skipped photo {photo_id}: {e}")
+                return False
+
+    def save_raw_photos_batch(self, batch_items):
+        """บันทึกข้อมูลไฟล์ภาพดิบจากกล้อง (RAW Camera Files) ลงตาราง raw_camera_photos แบบ Batch (v6.10)"""
+        if not batch_items:
+            return True
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                for item in batch_items:
+                    pid = item["photo_id"]
+                    fid = item["drive_file_id"]
+                    event = item.get("event_name", "")
+                    link = item.get("drive_link", f"https://drive.google.com/file/d/{fid}/view")
+                    pdate = item.get("photo_date", "")
+                    fname = item.get("file_name", "")
+                    fext = item.get("file_extension", "")
+                    if not fext and fname:
+                        fext = os.path.splitext(fname)[1].lower()
+                    brand = item.get("camera_brand", "")
+                    if not brand and fext:
+                        brand = RAW_EXTENSIONS_MAP.get(fext, "Unknown Camera RAW")
+
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO raw_camera_photos 
+                        (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, camera_brand) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (pid, fid, event, link, pdate, fname, fext, brand)
+                    )
+                conn.commit()
+                logger.info(f"📷 [RAW DB] Successfully saved batch of {len(batch_items)} RAW camera files to SQLite.")
+                return True
+            except sqlite3.Error as e:
+                logger.error(f"Error saving raw camera photos batch: {e}")
+                conn.rollback()
                 return False
 
     def get_all_sync_data(self):

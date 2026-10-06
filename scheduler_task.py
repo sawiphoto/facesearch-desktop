@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from datetime import datetime
 from face_analyzer import decode_image_bytes, read_image_file
+from db_manager import RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
 
 logger = logging.getLogger("FaceSearchApp")
 
@@ -193,10 +194,16 @@ class SchedulerTask:
         if not subdirs:
             subdirs = [{"id": root_folder_id, "name": "TargetFolder"}]
                 
-        # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB (เฉพาะรูปที่สแกนสำเร็จจริง v5.80)
+        # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB (เฉพาะรูปที่สแกนสำเร็จจริง v5.80 + RAW files v6.10)
         with self.db.get_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'")
+            c.execute("""
+                SELECT drive_file_id FROM scanned_photos 
+                WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' 
+                  AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'
+                UNION
+                SELECT drive_file_id FROM raw_camera_photos
+            """)
             scanned_ids = set(row[0] for row in c.fetchall())
 
         total_subdirs = len(subdirs)
@@ -741,7 +748,13 @@ class SchedulerTask:
             c.execute("SELECT staff_id, embedding FROM staff_embeddings")
             emb_data = c.fetchall()
 
-            c.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'")
+            c.execute("""
+                SELECT drive_file_id FROM scanned_photos 
+                WHERE photo_date NOT LIKE 'ERROR%' AND photo_date NOT LIKE 'SKIPPED%' 
+                  AND drive_link NOT LIKE 'ERROR%' AND drive_link NOT LIKE 'SKIPPED%'
+                UNION
+                SELECT drive_file_id FROM raw_camera_photos
+            """)
             scanned_ids = set(row[0] for row in c.fetchall())
 
         if not staff_data or not emb_data:
@@ -848,6 +861,7 @@ class SchedulerTask:
                 logger.info(f"[FULLSCAN] 🚀 [{year_name}] ({idx+1}/{total_in_year}) สแกนโฟลเดอร์: {folder_name} ({total_files} รูป)")
                 
                 results_data = []
+                raw_photos_data = []
                 skipped_files = []
                 processed_count = 0
                 
@@ -859,6 +873,24 @@ class SchedulerTask:
                     f_name = file_info['name']
                     f_link = file_info.get('webContentLink', f"https://drive.google.com/file/d/{f_id}/view")
                     p_date = file_info.get('createdTime', '').split('T')[0] if 'createdTime' in file_info else datetime.now().strftime("%Y-%m-%d")
+                    f_ext = os.path.splitext(f_name)[1].lower() if f_name else ""
+
+                    # 📷 ตรวจจับไฟล์ RAW กล้องดิจิทัล (Sony .ARW, Canon .CR2/.CR3, Nikon .NEF, Fuji .RAF, etc.) (v6.10)
+                    camera_brand = RAW_EXTENSIONS_MAP.get(f_ext)
+                    if camera_brand:
+                        logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📷 ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {f_name} (บันทึกลง raw_camera_photos โดยอัตโนมัติ ข้ามการดาวน์โหลด)")
+                        raw_photos_data.append({
+                            "photo_id": f_id,
+                            "drive_file_id": f_id,
+                            "event_name": folder_name,
+                            "drive_link": f_link,
+                            "photo_date": p_date,
+                            "file_name": f_name,
+                            "file_extension": f_ext,
+                            "camera_brand": camera_brand
+                        })
+                        processed_count += 1
+                        continue
 
                     logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
                     
@@ -936,7 +968,6 @@ class SchedulerTask:
                         except Exception as thumb_err:
                             logger.error(f"[AI SCAN] ⚠️ บันทึก Thumbnail Cache ล้มเหลวสำหรับ {f_id}: {thumb_err}")
 
-                        f_ext = os.path.splitext(f_name)[1].lower() if f_name else ""
                         results_data.append({
                             "photo_id": f_id,
                             "drive_file_id": f_id,
@@ -983,13 +1014,19 @@ class SchedulerTask:
 
                         conn.commit()
 
-                # เฉพาะโฟลเดอร์ที่สแกนสำเร็จครบ 100% (ไม่มีไฟล์หลุด/Error) จึงบันทึกเป็น Completed Folder (v5.80)
-                if len(results_data) == total_files and len(skipped_files) == 0:
+                # บันทึกไฟล์ภาพดิบ RAW ลงตาราง raw_camera_photos (v6.10)
+                if raw_photos_data:
+                    self.db.save_raw_photos_batch(raw_photos_data)
+                    for r in raw_photos_data:
+                        scanned_ids.add(r["photo_id"])
+
+                # เฉพาะโฟลเดอร์ที่สแกนสำเร็จครบ 100% (ไม่มีไฟล์หลุด/Error) จึงบันทึกเป็น Completed Folder (v5.80 / v6.10)
+                if (len(results_data) + len(raw_photos_data)) == total_files and len(skipped_files) == 0:
                     if hasattr(self.app_gui, 'record_matched_folder'):
                         self.app_gui.record_matched_folder(folder_id, folder_name)
                         completed_folder_ids.add(folder_id)
                 else:
-                    logger.warning(f"[FULLSCAN] ⚠️ โฟลเดอร์ '{folder_name}' สแกนสำเร็จ {len(results_data)}/{total_files} รูป (มี {len(skipped_files)} รูปค้างเนื่องจากเน็ตหลุด/ผิดพลาด จะไม่บันทึกว่าเสร็จเพื่อให้สแกนซ้ำ)")
+                    logger.warning(f"[FULLSCAN] ⚠️ โฟลเดอร์ '{folder_name}' สแกนสำเร็จ {len(results_data) + len(raw_photos_data)}/{total_files} รูป (มี {len(skipped_files)} รูปค้างเนื่องจากเน็ตหลุด/ผิดพลาด จะไม่บันทึกว่าเสร็จเพื่อให้สแกนซ้ำ)")
 
                 for r in results_data: scanned_ids.add(r["photo_id"])
                 

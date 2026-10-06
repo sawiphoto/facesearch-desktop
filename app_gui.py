@@ -15,7 +15,7 @@ import webbrowser
 import requests
 
 # นำเข้าโมดูลหลังบ้านที่เราพัฒนาไว้
-from db_manager import DatabaseManager
+from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
 from gdrive_sync import GoogleSyncManager
 from scheduler_task import SchedulerTask
@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.00 (Universal Clipboard Support & Column Sorting Table)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.10 (Camera RAW Files Management & Separation)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -756,7 +756,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.00",
+            text="FACE MATCHING\nSYSTEM v6.10",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3608,6 +3608,22 @@ class FaceSearchApp(ctk.CTk):
                         break
                     f_id = img_item["file_id"]
                     f_name = img_item["file_name"]
+                    f_ext = os.path.splitext(f_name)[1].lower() if f_name else ""
+                    camera_brand = RAW_EXTENSIONS_MAP.get(f_ext)
+
+                    # กรณีไฟล์ RAW กล้องดิจิทัล (ข้ามการดาวน์โหลดภาพขนาดใหญ่) (v6.10)
+                    if camera_brand:
+                        download_queue.put({
+                            "img_info": img_item,
+                            "img_bytes": None,
+                            "img_bgr": None,
+                            "dl_time": 0.0,
+                            "is_cached": False,
+                            "is_raw": True,
+                            "camera_brand": camera_brand,
+                            "existing_photo_id": None
+                        })
+                        continue
                     
                     existing_pid = self.db.get_photo_id_by_drive_id(f_id)
                     # ถ้าผู้ใช้ติ๊ก Fast Rescan และมีแคชใบหน้าเดิมใน DB แล้ว -> ไม่ต้องดาวน์โหลดใหม่จาก Drive
@@ -3627,6 +3643,7 @@ class FaceSearchApp(ctk.CTk):
                             "img_bgr": thumb_bgr,
                             "dl_time": 0.0,
                             "is_cached": True,
+                            "is_raw": False,
                             "existing_photo_id": existing_pid
                         })
                         continue
@@ -3641,6 +3658,7 @@ class FaceSearchApp(ctk.CTk):
                         "img_bgr": img_bgr,
                         "dl_time": dl_time,
                         "is_cached": False,
+                        "is_raw": False,
                         "existing_photo_id": existing_pid
                     })
                 # ใส่ Sentinel เพื่อแจ้ง Consumer ว่าโหลดครบทุกรูปแล้ว
@@ -3672,6 +3690,7 @@ class FaceSearchApp(ctk.CTk):
                 img = queue_item["img_bgr"]
                 dl_time = queue_item["dl_time"]
                 is_cached = queue_item["is_cached"]
+                is_raw = queue_item.get("is_raw", False)
                 existing_photo_id = queue_item["existing_photo_id"]
                 
                 # แสดงความก้าวหน้าบน UI
@@ -3679,6 +3698,26 @@ class FaceSearchApp(ctk.CTk):
                 self.progress_bar.set(prog_val)
                 self.lbl_progress_text.configure(text=f"กำลังสแกนรูปที่ {idx+1}/{len(images_to_scan)}: {img_info['file_name']}")
                 logger.info(f"[{idx+1}/{len(images_to_scan)}] Processing image '{img_info['file_name']}' from event '{img_info['event']}'")
+
+                # -------------------------------------------------------------
+                # กรณีที่ 0: ไฟล์ภาพดิบกล้องดิจิทัล RAW Camera Files (v6.10)
+                # -------------------------------------------------------------
+                if is_raw:
+                    camera_brand = queue_item.get("camera_brand", "Camera RAW")
+                    f_ext = os.path.splitext(img_info["file_name"])[1].lower() if img_info["file_name"] else ""
+                    logger.info(f"📷 [{idx+1}/{len(images_to_scan)}] ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {img_info['file_name']} -> บันทึกลงตาราง raw_camera_photos โดยอัตโนมัติ")
+                    self.db.save_raw_photos_batch([{
+                        "photo_id": img_info["file_id"],
+                        "drive_file_id": img_info["file_id"],
+                        "event_name": img_info.get("event", "Unknown Event"),
+                        "drive_link": img_info.get("drive_link", f"https://drive.google.com/file/d/{img_info['file_id']}/view"),
+                        "photo_date": img_info.get("photo_date", datetime.now().strftime("%Y-%m-%d")),
+                        "file_name": img_info["file_name"],
+                        "file_extension": f_ext,
+                        "camera_brand": camera_brand
+                    }])
+                    success_scan_count += 1
+                    continue
                 
                 # -------------------------------------------------------------
                 # กรณีที่ 1: FAST RESCAN (มีแคชเดิมอยู่แล้ว)
@@ -4373,10 +4412,12 @@ class FaceSearchApp(ctk.CTk):
                 "รายชื่อนักเรียน (staff_members - นักเรียน)", 
                 "ประวัติภาพถ่ายกิจกรรม (scanned_photos)", 
                 "📷 ภาพที่ไม่พบใบหน้าคน (0 Faces - สิ่งของ/ป้าย/วิว)",
+                "📷 ไฟล์ภาพดิบกล้อง (raw_camera_photos - RAW Files)",
                 "ผลจับคู่ใบหน้าครู (detected_faces - ครู)",
                 "ผลจับคู่ใบหน้านักเรียน (detected_faces - นักเรียน)",
                 "📋 ตารางทั้งหมด: staff_members",
                 "📋 ตารางทั้งหมด: scanned_photos",
+                "📋 ตารางทั้งหมด: raw_camera_photos",
                 "📋 ตารางทั้งหมด: detected_faces",
                 "📋 ตารางทั้งหมด: scanned_photo_faces",
                 "📋 ตารางทั้งหมด: staff_embeddings"
@@ -4620,7 +4661,12 @@ class FaceSearchApp(ctk.CTk):
         if photo_id:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT drive_link, drive_file_id FROM scanned_photos WHERE photo_id = ? OR drive_file_id = ?", (photo_id, photo_id))
+                cursor.execute("""
+                    SELECT drive_link, drive_file_id FROM scanned_photos WHERE photo_id = ? OR drive_file_id = ?
+                    UNION
+                    SELECT drive_link, drive_file_id FROM raw_camera_photos WHERE photo_id = ? OR drive_file_id = ?
+                    LIMIT 1
+                """, (photo_id, photo_id, photo_id, photo_id))
                 row = cursor.fetchone()
                 if row:
                     link, fid = row
@@ -4751,14 +4797,14 @@ class FaceSearchApp(ctk.CTk):
                 pass
 
     def on_db_table_option_selected(self, selected_table_text):
-        """เมื่อผู้ใช้เปลี่ยนตารางที่ต้องการดูใน OptionMenu (v6.00)"""
+        """เมื่อผู้ใช้เปลี่ยนตารางที่ต้องการดูใน OptionMenu (v6.10)"""
         if "staff_members" in selected_table_text:
             self.db_sort_col = "id"
             self.db_sort_desc = False
         elif "detected_faces" in selected_table_text:
             self.db_sort_col = "match_id"
             self.db_sort_desc = True
-        elif "scanned_photos" in selected_table_text or "0 Faces" in selected_table_text:
+        elif "scanned_photos" in selected_table_text or "0 Faces" in selected_table_text or "raw_camera_photos" in selected_table_text or "ไฟล์ภาพดิบกล้อง" in selected_table_text:
             self.db_sort_col = "photo_id"
             self.db_sort_desc = True
         else:
@@ -4767,12 +4813,12 @@ class FaceSearchApp(ctk.CTk):
         self.load_db_table_data(selected_table_text, page=1)
 
     def sort_db_table_by_column(self, col_id):
-        """สลับการเรียงลำดับ ASC / DESC เมื่อผู้ใช้คลิกหัวตาราง (v6.00)"""
+        """สลับการเรียงลำดับ ASC / DESC เมื่อผู้ใช้คลิกหัวตาราง (v6.10)"""
         if self.db_sort_col == col_id:
             self.db_sort_desc = not self.db_sort_desc
         else:
             self.db_sort_col = col_id
-            if col_id in ("name", "event", "file_name", "file_ext"):
+            if col_id in ("name", "event", "file_name", "file_ext", "brand_ext"):
                 self.db_sort_desc = False
             else:
                 self.db_sort_desc = True
@@ -5123,6 +5169,76 @@ class FaceSearchApp(ctk.CTk):
                     c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)" if c_count > 0 else "❌ ยังไม่มีแคช (0)"
                     row_vals = (pid, display_name, display_ext, evt, c_status, link)
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
+
+            elif "raw_camera_photos" in selected_table_text or "ไฟล์ภาพดิบกล้อง" in selected_table_text:
+                # ตาราง raw_camera_photos (ไฟล์ RAW เช่น .ARW, .CR2, .CR3, .NEF, .RAF, .DNG)
+                sort_col_map = {
+                    "photo_id": "r.photo_id",
+                    "file_name": "COALESCE(r.file_name, r.photo_id)",
+                    "brand_ext": "r.camera_brand",
+                    "event": "r.event_name",
+                    "date": "r.photo_date",
+                    "link": "r.drive_link"
+                }
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'r.photo_id')} {sort_dir}"
+
+                if search_query:
+                    where_clause = """
+                        WHERE r.photo_id LIKE ? OR r.drive_file_id LIKE ? OR r.event_name LIKE ? 
+                           OR r.file_name LIKE ? OR r.file_extension LIKE ? OR r.camera_brand LIKE ? 
+                           OR r.photo_date LIKE ? OR r.drive_link LIKE ?
+                    """
+                    cursor.execute(f"SELECT COUNT(*) FROM raw_camera_photos r {where_clause}", 
+                                   (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                    f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                    f"%{search_query}%", f"%{search_query}%"))
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = f"""
+                        SELECT r.photo_id, r.file_name, r.file_extension, r.camera_brand, r.event_name, r.photo_date, r.drive_link
+                        FROM raw_camera_photos r
+                        {where_clause}
+                        {order_by}
+                        LIMIT ? OFFSET ?
+                    """
+                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                               f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                               f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM raw_camera_photos")
+                    total_rows = cursor.fetchone()[0]
+
+                    query_sql = f"""
+                        SELECT r.photo_id, r.file_name, r.file_extension, r.camera_brand, r.event_name, r.photo_date, r.drive_link
+                        FROM raw_camera_photos r
+                        {order_by}
+                        LIMIT ? OFFSET ?
+                    """
+                    cursor.execute(query_sql, (self.db_page_size, offset))
+                rows = cursor.fetchall()
+                
+                self.db_tree["columns"] = ("photo_id", "file_name", "brand_ext", "event", "date", "link")
+                self.db_tree.column("photo_id", width=90, anchor="center")
+                self.db_tree.column("file_name", width=180, anchor="w")
+                self.db_tree.column("brand_ext", width=160, anchor="center")
+                self.db_tree.column("event", width=160, anchor="w")
+                self.db_tree.column("date", width=110, anchor="center")
+                self.db_tree.column("link", width=220, anchor="w")
+                
+                set_tree_heading("photo_id", "Photo ID")
+                set_tree_heading("file_name", "ชื่อไฟล์ RAW")
+                set_tree_heading("brand_ext", "ยี่ห้อกล้อง / สกุลไฟล์")
+                set_tree_heading("event", "ชื่องานกิจกรรม")
+                set_tree_heading("date", "วันที่ถ่ายภาพ")
+                set_tree_heading("link", "ลิงก์ไดรฟ์รูปภาพ")
+                
+                for r in rows:
+                    pid, fname, fext, brand, evt, pdate, link = r
+                    display_name = fname if fname else pid
+                    display_brand_ext = f"{brand} ({fext})" if (brand and fext) else (brand or fext or "-")
+                    display_date = pdate if pdate else "-"
+                    row_vals = (pid, display_name, display_brand_ext, evt, display_date, link)
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
@@ -5359,6 +5475,16 @@ class FaceSearchApp(ctk.CTk):
                 elif "scanned_photos" in selected_table_text:
                     cursor.execute("SELECT photo_id, COALESCE(file_name, '-'), COALESCE(file_extension, '-'), drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id ASC")
                     writer.writerow(["Photo ID", "ชื่อไฟล์ภาพ", "สกุลไฟล์", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
+                    writer.writerows(cursor.fetchall())
+
+                elif "raw_camera_photos" in selected_table_text or "ไฟล์ภาพดิบกล้อง" in selected_table_text:
+                    cursor.execute("""
+                        SELECT r.photo_id, COALESCE(r.file_name, '-'), COALESCE(r.file_extension, '-'), 
+                               COALESCE(r.camera_brand, '-'), r.event_name, COALESCE(r.photo_date, '-'), r.drive_link 
+                        FROM raw_camera_photos r 
+                        ORDER BY r.photo_id ASC
+                    """)
+                    writer.writerow(["Photo ID", "ชื่อไฟล์ RAW", "สกุลไฟล์", "ยี่ห้อกล้อง", "ชื่องานกิจกรรม", "วันที่ถ่ายภาพ", "ลิงก์ไดรฟ์รูปภาพ"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
