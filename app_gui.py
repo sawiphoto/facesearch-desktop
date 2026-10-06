@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.90 (Full HEIC iPhone Support & Robust Multi-Format Decoder)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.00 (Universal Clipboard Support & Column Sorting Table)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -717,6 +717,8 @@ class FaceSearchApp(ctk.CTk):
         self.dashboard_sort_desc = True  # True = เรียงมากไปน้อย, False = เรียงน้อยไปมาก
         self.db_current_page = 1
         self.db_page_size = 200
+        self.db_sort_col = "photo_id"  # v6.00: คอลัมน์ที่กำลังจัดเรียงในตาราง SQLite
+        self.db_sort_desc = True       # v6.00: ทิศทางการจัดเรียง (True = DESC, False = ASC)
         self._db_search_timer = None  # v5.70: Timer สำหรับ Search Debounce ป้องกัน UI Freezing
 
         # Settings cache
@@ -754,7 +756,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v5.90",
+            text="FACE MATCHING\nSYSTEM v6.00",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4386,7 +4388,7 @@ class FaceSearchApp(ctk.CTk):
             dropdown_fg_color="#101B2B",
             dropdown_hover_color="#1F3A60",
             dropdown_text_color="white",
-            command=lambda v: self.load_db_table_data(v, page=1)
+            command=self.on_db_table_option_selected
         )
         self.option_db_table.pack(side="left", padx=5, pady=15)
 
@@ -4410,6 +4412,7 @@ class FaceSearchApp(ctk.CTk):
         self.entry_personal_thresh = ctk.CTkEntry(control_frame, width=75, height=36, placeholder_text="0.50", font=ctk.CTkFont(size=14, weight="bold"), justify="center")
         self.entry_personal_thresh.insert(0, "0.50")
         self.entry_personal_thresh.pack(side="left", padx=2, pady=15)
+        self.bind_universal_entry_shortcuts(self.entry_personal_thresh)
 
         self.btn_save_personal_thresh = ctk.CTkButton(
             control_frame, text="💾 บันทึก Threshold", width=140, height=36,
@@ -4465,7 +4468,7 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_sync_json_students.pack(side="left", padx=5, pady=10)
 
-        # โซนควบคุมที่สาม: ค้นหาข้อมูลในตารางฐานข้อมูล (v1.8.4 / v5.70 Blazing Fast & Debounce)
+        # โซนควบคุมที่สาม: ค้นหาข้อมูลในตารางฐานข้อมูล (v1.8.4 / v5.70 Blazing Fast & Debounce / v6.00 Universal Clipboard)
         search_control_frame = ctk.CTkFrame(self.frame_database, fg_color="#101B2B")
         search_control_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15), padx=2)
         
@@ -4473,7 +4476,7 @@ class FaceSearchApp(ctk.CTk):
         
         self.entry_db_search = ctk.CTkEntry(
             search_control_frame, 
-            placeholder_text="พิมพ์คำค้นหา (Drive File ID, ลิงก์ Drive, Photo ID, ชื่อ, กิจกรรม, รหัสนักเรียน...)", 
+            placeholder_text="พิมพ์คำค้นหา (Drive File ID, ลิงก์ Drive, Photo ID, ชื่อไฟล์, สกุลไฟล์ .HEIC/.JPG, ชื่อ, กิจกรรม...)", 
             height=36,
             font=ctk.CTkFont(size=14),
             width=480
@@ -4481,6 +4484,7 @@ class FaceSearchApp(ctk.CTk):
         self.entry_db_search.pack(side="left", padx=5, pady=10, fill="x", expand=True)
         self.entry_db_search.bind("<KeyRelease>", self.on_db_search_key_release)
         self.entry_db_search.bind("<Return>", lambda e: self.trigger_db_search_instant())
+        self.bind_universal_entry_shortcuts(self.entry_db_search, on_change_callback=self.on_db_search_key_release)
 
         btn_run_search = ctk.CTkButton(
             search_control_frame, text="🔍 ค้นหา", width=100, height=36,
@@ -4629,6 +4633,151 @@ class FaceSearchApp(ctk.CTk):
                     # ถ้าค้นใน DB ไม่เจอ แต่หน้าตาเหมือน Drive File ID ให้เปิดตรงๆ
                     webbrowser.open(f"https://drive.google.com/file/d/{photo_id}/view")
 
+    def bind_universal_entry_shortcuts(self, entry_widget, on_change_callback=None):
+        """
+        ผูกปุ่มลัดคีย์บอร์ดสากล (Ctrl+V, Ctrl+C, Ctrl+A, Ctrl+X) รองรับแป้นพิมพ์ภาษาไทย (Virtual Keycodes 86, 67, 65, 88)
+        พร้อมสร้างเมนูคลิกขวา (Context Menu) สไตล์ Modern Dark Navy Blue (v6.00)
+        """
+        target_widget = getattr(entry_widget, "_entry", entry_widget)
+
+        def do_paste(event=None):
+            try:
+                text = self.clipboard_get()
+                if text:
+                    try:
+                        if target_widget.select_present():
+                            target_widget.delete("sel.first", "sel.last")
+                    except Exception:
+                        pass
+                    target_widget.insert("insert", text)
+                    if on_change_callback:
+                        on_change_callback()
+            except Exception:
+                pass
+            return "break"
+
+        def do_copy(event=None):
+            try:
+                if target_widget.select_present():
+                    text = target_widget.selection_get()
+                    self.clipboard_clear()
+                    self.clipboard_append(text)
+            except Exception:
+                pass
+            return "break"
+
+        def do_cut(event=None):
+            try:
+                if target_widget.select_present():
+                    text = target_widget.selection_get()
+                    self.clipboard_clear()
+                    self.clipboard_append(text)
+                    target_widget.delete("sel.first", "sel.last")
+                    if on_change_callback:
+                        on_change_callback()
+            except Exception:
+                pass
+            return "break"
+
+        def do_select_all(event=None):
+            try:
+                target_widget.select_range(0, "end")
+                target_widget.icursor("end")
+            except Exception:
+                pass
+            return "break"
+
+        def do_clear(event=None):
+            try:
+                entry_widget.delete(0, "end")
+                if on_change_callback:
+                    on_change_callback()
+            except Exception:
+                pass
+            return "break"
+
+        def on_control_key(event):
+            kc = getattr(event, "keycode", 0)
+            if kc == 86 or event.keysym in ("v", "V", "Thai_oang"):
+                return do_paste(event)
+            elif kc == 67 or event.keysym in ("c", "C", "Thai_ae"):
+                return do_copy(event)
+            elif kc == 88 or event.keysym in ("x", "X", "Thai_popla"):
+                return do_cut(event)
+            elif kc == 65 or event.keysym in ("a", "A", "Thai_fofan"):
+                return do_select_all(event)
+
+        for w in (target_widget, entry_widget):
+            try:
+                w.bind("<Control-KeyPress>", on_control_key, add="+")
+                w.bind("<Control-v>", do_paste, add="+")
+                w.bind("<Control-V>", do_paste, add="+")
+                w.bind("<Control-c>", do_copy, add="+")
+                w.bind("<Control-C>", do_copy, add="+")
+                w.bind("<Control-x>", do_cut, add="+")
+                w.bind("<Control-X>", do_cut, add="+")
+                w.bind("<Control-a>", do_select_all, add="+")
+                w.bind("<Control-A>", do_select_all, add="+")
+            except Exception:
+                pass
+
+        # Context menu (Right-click menu)
+        context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#101B2B",
+            fg="#E0E6ED",
+            activebackground="#1F3A60",
+            activeforeground="#FFFFFF",
+            font=("Segoe UI", 11)
+        )
+        context_menu.add_command(label="📋  วาง (Paste)", command=do_paste)
+        context_menu.add_command(label="📄  คัดลอก (Copy)", command=do_copy)
+        context_menu.add_command(label="✂️  ตัด (Cut)", command=do_cut)
+        context_menu.add_separator()
+        context_menu.add_command(label="🔘  เลือกทั้งหมด (Select All)", command=do_select_all)
+        context_menu.add_command(label="❌  ล้างข้อความ (Clear)", command=do_clear)
+
+        def show_context_menu(event):
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+
+        for w in (target_widget, entry_widget):
+            try:
+                w.bind("<Button-3>", show_context_menu, add="+")
+            except Exception:
+                pass
+
+    def on_db_table_option_selected(self, selected_table_text):
+        """เมื่อผู้ใช้เปลี่ยนตารางที่ต้องการดูใน OptionMenu (v6.00)"""
+        if "staff_members" in selected_table_text:
+            self.db_sort_col = "id"
+            self.db_sort_desc = False
+        elif "detected_faces" in selected_table_text:
+            self.db_sort_col = "match_id"
+            self.db_sort_desc = True
+        elif "scanned_photos" in selected_table_text or "0 Faces" in selected_table_text:
+            self.db_sort_col = "photo_id"
+            self.db_sort_desc = True
+        else:
+            self.db_sort_col = None
+            self.db_sort_desc = True
+        self.load_db_table_data(selected_table_text, page=1)
+
+    def sort_db_table_by_column(self, col_id):
+        """สลับการเรียงลำดับ ASC / DESC เมื่อผู้ใช้คลิกหัวตาราง (v6.00)"""
+        if self.db_sort_col == col_id:
+            self.db_sort_desc = not self.db_sort_desc
+        else:
+            self.db_sort_col = col_id
+            if col_id in ("name", "event", "file_name", "file_ext"):
+                self.db_sort_desc = False
+            else:
+                self.db_sort_desc = True
+        self.load_db_table_data(page=1)
+
     def on_db_search_key_release(self, event=None):
         """Debounce การค้นหาฐานข้อมูล 350ms เพื่อให้ผู้ใช้พิมพ์ได้ลื่นไหล ไม่ค้าง (v5.70)"""
         if event and event.keysym in ("Return", "Up", "Down", "Left", "Right", "Control_L", "Control_R", "Shift_L", "Shift_R", "Alt_L", "Alt_R", "Tab"):
@@ -4686,6 +4835,14 @@ class FaceSearchApp(ctk.CTk):
             s = str(v)
             return s[:100] + "..." if len(s) > 100 else s
 
+        def set_tree_heading(col_key, label):
+            indicator = ""
+            if self.db_sort_col == col_key:
+                indicator = " ▼" if self.db_sort_desc else " ▲"
+            self.db_tree.heading(col_key, text=f"{label}{indicator}", command=lambda c=col_key: self.sort_db_table_by_column(c))
+
+        sort_dir = "DESC" if self.db_sort_desc else "ASC"
+
         conn = self.db.get_connection()
         cursor = conn.cursor()
         total_rows = 0
@@ -4703,8 +4860,10 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree["columns"] = col_names
                 for col in col_names:
                     self.db_tree.column(col, width=130, anchor="w")
-                    self.db_tree.heading(col, text=col)
+                    set_tree_heading(col, col)
                     
+                order_by = f"ORDER BY {self.db_sort_col} {sort_dir}" if (self.db_sort_col and self.db_sort_col in col_names) else "ORDER BY 1 DESC"
+
                 # นับจำนวนแถวทั้งหมด (Global Count)
                 if search_query:
                     where_clauses = [f"CAST({c} AS TEXT) LIKE ?" for c in col_names]
@@ -4713,19 +4872,22 @@ class FaceSearchApp(ctk.CTk):
                     cursor.execute(count_sql, params)
                     total_rows = cursor.fetchone()[0]
                     
-                    data_sql = f"SELECT * FROM {table_name} WHERE {' OR '.join(where_clauses)} ORDER BY 1 DESC LIMIT ? OFFSET ?"
+                    data_sql = f"SELECT * FROM {table_name} WHERE {' OR '.join(where_clauses)} {order_by} LIMIT ? OFFSET ?"
                     cursor.execute(data_sql, params + [self.db_page_size, offset])
                 else:
                     cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
                     total_rows = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT * FROM {table_name} ORDER BY 1 DESC LIMIT ? OFFSET ?", (self.db_page_size, offset))
+                    cursor.execute(f"SELECT * FROM {table_name} {order_by} LIMIT ? OFFSET ?", (self.db_page_size, offset))
                     
                 rows = cursor.fetchall()
                 for r in rows:
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
 
             elif "staff_members" in selected_table_text and "ครู" in selected_table_text:
-                # ตาราง staff_members (ครู) - ปรับปรุงความเร็วสูงด้วย Pagination-First (v5.70)
+                # ตาราง staff_members (ครู)
+                sort_col_map = {"id": "ts.id", "name": "ts.name", "photos": "photos"}
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
+
                 if search_query:
                     cursor.execute("""
                         SELECT COUNT(s.id)
@@ -4735,34 +4897,34 @@ class FaceSearchApp(ctk.CTk):
                     """, (f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         WITH top_staff AS (
-                            SELECT s.id, s.name
+                            SELECT s.id, s.name,
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                               AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
-                            ORDER BY s.id DESC
-                            LIMIT ? OFFSET ?
                         )
-                        SELECT ts.id, ts.name,
-                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        SELECT ts.id, ts.name, ts.photos
                         FROM top_staff ts
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         WITH top_staff AS (
-                            SELECT s.id, s.name
+                            SELECT s.id, s.name,
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                            ORDER BY s.id DESC
-                            LIMIT ? OFFSET ?
                         )
-                        SELECT ts.id, ts.name,
-                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        SELECT ts.id, ts.name, ts.photos
                         FROM top_staff ts
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
@@ -4771,15 +4933,18 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.column("name", width=350, anchor="w")
                 self.db_tree.column("photos", width=120, anchor="center")
                 
-                self.db_tree.heading("id", text="ID ครู")
-                self.db_tree.heading("name", text="ชื่อ-นามสกุล คุณครู")
-                self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
+                set_tree_heading("id", "ID ครู")
+                set_tree_heading("name", "ชื่อ-นามสกุล คุณครู")
+                set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
-                # ตาราง staff_members (นักเรียน) - ปรับปรุงความเร็วสูงด้วย Pagination-First (v5.70)
+                # ตาราง staff_members (นักเรียน)
+                sort_col_map = {"id": "ts.id", "name": "ts.name", "student_id": "ts.student_id", "photos": "photos"}
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
+
                 if search_query:
                     cursor.execute("""
                         SELECT COUNT(s.id)
@@ -4789,34 +4954,34 @@ class FaceSearchApp(ctk.CTk):
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         WITH top_students AS (
-                            SELECT s.id, s.name, s.student_id
+                            SELECT s.id, s.name, s.student_id,
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'student'
                               AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
-                            ORDER BY s.id DESC
-                            LIMIT ? OFFSET ?
                         )
-                        SELECT ts.id, ts.name, ts.student_id,
-                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        SELECT ts.id, ts.name, ts.student_id, ts.photos
                         FROM top_students ts
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
+                    cursor.execute(f"""
                         WITH top_students AS (
-                            SELECT s.id, s.name, s.student_id
+                            SELECT s.id, s.name, s.student_id,
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'student'
-                            ORDER BY s.id DESC
-                            LIMIT ? OFFSET ?
                         )
-                        SELECT ts.id, ts.name, ts.student_id,
-                               (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = ts.id) as photos
+                        SELECT ts.id, ts.name, ts.student_id, ts.photos
                         FROM top_students ts
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
@@ -4826,133 +4991,155 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.column("student_id", width=150, anchor="center")
                 self.db_tree.column("photos", width=120, anchor="center")
                 
-                self.db_tree.heading("id", text="ID")
-                self.db_tree.heading("name", text="ชื่อ-นามสกุล นักเรียน")
-                self.db_tree.heading("student_id", text="รหัสประจำตัว")
-                self.db_tree.heading("photos", text="จำนวนรูปที่ลงทะเบียน (รูป)")
+                set_tree_heading("id", "ID")
+                set_tree_heading("name", "ชื่อ-นามสกุล นักเรียน")
+                set_tree_heading("student_id", "รหัสประจำตัว")
+                set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
                 # ตารางภาพที่ไม่พบใบหน้าคน (0 Faces เช่น สิ่งของ/ป้าย/วิว)
+                sort_col_map = {
+                    "photo_id": "p.photo_id",
+                    "file_name": "COALESCE(p.file_name, p.photo_id)",
+                    "file_ext": "COALESCE(p.file_extension, '')",
+                    "event": "p.event_name",
+                    "cache_status": "p.photo_id",
+                    "link": "p.drive_link"
+                }
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'p.photo_id')} {sort_dir}"
+
                 if search_query:
-                    where_clause = "WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?)"
-                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    where_clause = "WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ? OR p.file_name LIKE ? OR p.file_extension LIKE ?)"
+                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
                     query_sql = f"""
-                        WITH top_photos AS (
-                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                            FROM scanned_photos p
-                            {where_clause}
-                            ORDER BY p.photo_id DESC
-                            LIMIT ? OFFSET ?
-                        )
-                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link, 0 as face_cache_count
-                        FROM top_photos tp
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension, 0 as face_cache_count
+                        FROM scanned_photos p
+                        {where_clause}
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """
-                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM scanned_photos p WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0")
                     total_rows = cursor.fetchone()[0]
 
-                    query_sql = """
-                        WITH top_photos AS (
-                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                            FROM scanned_photos p
-                            WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
-                            ORDER BY p.photo_id DESC
-                            LIMIT ? OFFSET ?
-                        )
-                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link, 0 as face_cache_count
-                        FROM top_photos tp
+                    query_sql = f"""
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension, 0 as face_cache_count
+                        FROM scanned_photos p
+                        WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """
                     cursor.execute(query_sql, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
+                self.db_tree["columns"] = ("photo_id", "file_name", "file_ext", "event", "cache_status", "link")
                 self.db_tree.column("photo_id", width=90, anchor="center")
-                self.db_tree.column("file_id", width=180, anchor="center")
-                self.db_tree.column("event", width=150, anchor="w")
-                self.db_tree.column("cache_status", width=160, anchor="center")
-                self.db_tree.column("link", width=260, anchor="w")
+                self.db_tree.column("file_name", width=180, anchor="w")
+                self.db_tree.column("file_ext", width=80, anchor="center")
+                self.db_tree.column("event", width=160, anchor="w")
+                self.db_tree.column("cache_status", width=150, anchor="center")
+                self.db_tree.column("link", width=220, anchor="w")
                 
-                self.db_tree.heading("photo_id", text="Photo ID")
-                self.db_tree.heading("file_id", text="Drive File ID")
-                self.db_tree.heading("event", text="ชื่องานกิจกรรม")
-                self.db_tree.heading("cache_status", text="สถานะใบหน้า")
-                self.db_tree.heading("link", text="ลิงก์ไดรฟ์รูปภาพ")
+                set_tree_heading("photo_id", "Photo ID")
+                set_tree_heading("file_name", "ชื่อไฟล์ภาพ")
+                set_tree_heading("file_ext", "สกุลไฟล์")
+                set_tree_heading("event", "ชื่องานกิจกรรม")
+                set_tree_heading("cache_status", "สถานะใบหน้า")
+                set_tree_heading("link", "ลิงก์ไดรฟ์รูปภาพ")
                 
                 for r in rows:
-                    pid, fid, evt, link, c_count = r
+                    pid, fid, evt, link, fname, fext, c_count = r
+                    display_name = fname if fname else pid
+                    display_ext = fext if fext else (os.path.splitext(display_name)[1].lower() if "." in display_name else "-")
                     c_status = "ℹ️ ไม่พบใบหน้าคน (0)"
-                    row_vals = (pid, fid, evt, c_status, link)
+                    row_vals = (pid, display_name, display_ext, evt, c_status, link)
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "scanned_photos" in selected_table_text:
-                # ตาราง scanned_photos - ปรับปรุงความเร็วสูงด้วย CTE + Subquery Face Cache Lookups (v5.70 Blazing Fast 500x)
+                # ตาราง scanned_photos
+                sort_col_map = {
+                    "photo_id": "p.photo_id",
+                    "file_name": "COALESCE(p.file_name, p.photo_id)",
+                    "file_ext": "COALESCE(p.file_extension, '')",
+                    "event": "p.event_name",
+                    "cache_status": "face_cache_count",
+                    "link": "p.drive_link"
+                }
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'p.photo_id')} {sort_dir}"
+
                 if search_query:
-                    where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ?"
-                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ? OR p.file_name LIKE ? OR p.file_extension LIKE ?"
+                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
                     query_sql = f"""
-                        WITH top_photos AS (
-                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                            FROM scanned_photos p
-                            {where_clause}
-                            ORDER BY p.photo_id DESC
-                            LIMIT ? OFFSET ?
-                        )
-                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link,
-                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = tp.photo_id) as face_cache_count
-                        FROM top_photos tp
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension,
+                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) as face_cache_count
+                        FROM scanned_photos p
+                        {where_clause}
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """
-                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM scanned_photos")
                     total_rows = cursor.fetchone()[0]
 
-                    query_sql = """
-                        WITH top_photos AS (
-                            SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link
-                            FROM scanned_photos p
-                            ORDER BY p.photo_id DESC
-                            LIMIT ? OFFSET ?
-                        )
-                        SELECT tp.photo_id, tp.drive_file_id, tp.event_name, tp.drive_link,
-                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = tp.photo_id) as face_cache_count
-                        FROM top_photos tp
+                    query_sql = f"""
+                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension,
+                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) as face_cache_count
+                        FROM scanned_photos p
+                        {order_by}
+                        LIMIT ? OFFSET ?
                     """
                     cursor.execute(query_sql, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
+                self.db_tree["columns"] = ("photo_id", "file_name", "file_ext", "event", "cache_status", "link")
                 self.db_tree.column("photo_id", width=90, anchor="center")
-                self.db_tree.column("file_id", width=180, anchor="center")
-                self.db_tree.column("event", width=150, anchor="w")
+                self.db_tree.column("file_name", width=180, anchor="w")
+                self.db_tree.column("file_ext", width=80, anchor="center")
+                self.db_tree.column("event", width=160, anchor="w")
                 self.db_tree.column("cache_status", width=140, anchor="center")
-                self.db_tree.column("link", width=260, anchor="w")
+                self.db_tree.column("link", width=220, anchor="w")
                 
-                self.db_tree.heading("photo_id", text="Photo ID")
-                self.db_tree.heading("file_id", text="Drive File ID")
-                self.db_tree.heading("event", text="ชื่องานกิจกรรม")
-                self.db_tree.heading("cache_status", text="สถานะแคชใบหน้า")
-                self.db_tree.heading("link", text="ลิงก์ไดรฟ์รูปภาพ")
+                set_tree_heading("photo_id", "Photo ID")
+                set_tree_heading("file_name", "ชื่อไฟล์ภาพ")
+                set_tree_heading("file_ext", "สกุลไฟล์")
+                set_tree_heading("event", "ชื่องานกิจกรรม")
+                set_tree_heading("cache_status", "สถานะแคชใบหน้า")
+                set_tree_heading("link", "ลิงก์ไดรฟ์รูปภาพ")
                 
                 for r in rows:
-                    pid, fid, evt, link, c_count = r
+                    pid, fid, evt, link, fname, fext, c_count = r
+                    display_name = fname if fname else pid
+                    display_ext = fext if fext else (os.path.splitext(display_name)[1].lower() if "." in display_name else "-")
                     c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)" if c_count > 0 else "❌ ยังไม่มีแคช (0)"
-                    row_vals = (pid, fid, evt, c_status, link)
+                    row_vals = (pid, display_name, display_ext, evt, c_status, link)
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                 # ตาราง detected_faces (ครู)
+                sort_col_map = {
+                    "match_id": "df.id",
+                    "photo_id": "df.photo_id",
+                    "file_name": "COALESCE(p.file_name, df.photo_id)",
+                    "name": "s.name",
+                    "event": "COALESCE(p.event_name, '')",
+                    "conf": "df.confidence"
+                }
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'df.id')} {sort_dir}"
+
                 if search_query:
                     where_clause = """
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ? OR p.file_name LIKE ?)
                     """
                     cursor.execute(f"""
                         SELECT COUNT(*)
@@ -4960,18 +5147,18 @@ class FaceSearchApp(ctk.CTk):
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute(f"""
-                        SELECT df.id, df.photo_id, s.name, df.confidence
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                        ORDER BY df.id DESC
+                        {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("""
                         SELECT COUNT(*)
@@ -4981,40 +5168,55 @@ class FaceSearchApp(ctk.CTk):
                     """)
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
-                        SELECT df.id, df.photo_id, s.name, df.confidence
+                    cursor.execute(f"""
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                        ORDER BY df.id DESC
+                        {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("match_id", "photo_id", "name", "conf")
-                self.db_tree.column("match_id", width=100, anchor="center")
-                self.db_tree.column("photo_id", width=120, anchor="center")
-                self.db_tree.column("name", width=250, anchor="w")
-                self.db_tree.column("conf", width=150, anchor="center")
+                self.db_tree["columns"] = ("match_id", "photo_id", "file_name", "name", "event", "conf")
+                self.db_tree.column("match_id", width=80, anchor="center")
+                self.db_tree.column("photo_id", width=90, anchor="center")
+                self.db_tree.column("file_name", width=160, anchor="w")
+                self.db_tree.column("name", width=220, anchor="w")
+                self.db_tree.column("event", width=160, anchor="w")
+                self.db_tree.column("conf", width=130, anchor="center")
                 
-                self.db_tree.heading("match_id", text="Match ID")
-                self.db_tree.heading("photo_id", text="Photo ID")
-                self.db_tree.heading("name", text="คุณครูที่ตรวจพบ")
-                self.db_tree.heading("conf", text="ระดับความเหมือน (Similarity)")
+                set_tree_heading("match_id", "Match ID")
+                set_tree_heading("photo_id", "Photo ID")
+                set_tree_heading("file_name", "ชื่อไฟล์ภาพ")
+                set_tree_heading("name", "คุณครูที่ตรวจพบ")
+                set_tree_heading("event", "ชื่องานกิจกรรม")
+                set_tree_heading("conf", "ระดับความเหมือน (Similarity)")
                 
                 for r in rows:
-                    match_id, pid, name, conf = r
+                    match_id, pid, fname, name, evt, conf = r
                     conf_val = self.db.safe_float(conf)
-                    row_vals = (match_id, pid, name, f"{conf_val*100:.2f}%")
-
+                    row_vals = (match_id, pid, fname, name, evt, f"{conf_val*100:.2f}%")
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง detected_faces (นักเรียน)
+                sort_col_map = {
+                    "match_id": "df.id",
+                    "photo_id": "df.photo_id",
+                    "file_name": "COALESCE(p.file_name, df.photo_id)",
+                    "name": "s.name",
+                    "student_id": "s.student_id",
+                    "event": "COALESCE(p.event_name, '')",
+                    "conf": "df.confidence"
+                }
+                order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'df.id')} {sort_dir}"
+
                 if search_query:
                     where_clause = """
                         WHERE s.role = 'student'
-                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ?)
+                          AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ? OR p.file_name LIKE ?)
                     """
                     cursor.execute(f"""
                         SELECT COUNT(*)
@@ -5022,18 +5224,18 @@ class FaceSearchApp(ctk.CTk):
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
                     total_rows = cursor.fetchone()[0]
 
                     cursor.execute(f"""
-                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                        ORDER BY df.id DESC
+                        {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     cursor.execute("""
                         SELECT COUNT(*)
@@ -5043,34 +5245,38 @@ class FaceSearchApp(ctk.CTk):
                     """)
                     total_rows = cursor.fetchone()[0]
 
-                    cursor.execute("""
-                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                    cursor.execute(f"""
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         WHERE s.role = 'student'
-                        ORDER BY df.id DESC
+                        {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("match_id", "photo_id", "name", "student_id", "conf")
-                self.db_tree.column("match_id", width=80, anchor="center")
-                self.db_tree.column("photo_id", width=100, anchor="center")
-                self.db_tree.column("name", width=220, anchor="w")
-                self.db_tree.column("student_id", width=120, anchor="center")
+                self.db_tree["columns"] = ("match_id", "photo_id", "file_name", "name", "student_id", "event", "conf")
+                self.db_tree.column("match_id", width=75, anchor="center")
+                self.db_tree.column("photo_id", width=85, anchor="center")
+                self.db_tree.column("file_name", width=150, anchor="w")
+                self.db_tree.column("name", width=200, anchor="w")
+                self.db_tree.column("student_id", width=110, anchor="center")
+                self.db_tree.column("event", width=150, anchor="w")
                 self.db_tree.column("conf", width=120, anchor="center")
                 
-                self.db_tree.heading("match_id", text="Match ID")
-                self.db_tree.heading("photo_id", text="Photo ID")
-                self.db_tree.heading("name", text="นักเรียนที่ตรวจพบ")
-                self.db_tree.heading("student_id", text="รหัสประจำตัว")
-                self.db_tree.heading("conf", text="ระดับความเหมือน (Similarity)")
+                set_tree_heading("match_id", "Match ID")
+                set_tree_heading("photo_id", "Photo ID")
+                set_tree_heading("file_name", "ชื่อไฟล์ภาพ")
+                set_tree_heading("name", "นักเรียนที่ตรวจพบ")
+                set_tree_heading("student_id", "รหัสประจำตัว")
+                set_tree_heading("event", "ชื่องานกิจกรรม")
+                set_tree_heading("conf", "ระดับความเหมือน (Similarity)")
                 
                 for r in rows:
-                    match_id, pid, name, std_id, conf = r
+                    match_id, pid, fname, name, std_id, evt, conf = r
                     conf_val = self.db.safe_float(conf)
-                    row_vals = (match_id, pid, name, std_id, f"{conf_val*100:.2f}%")
-
+                    row_vals = (match_id, pid, fname, name, std_id, evt, f"{conf_val*100:.2f}%")
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
 
             # อัปเดตสถานะปุ่มและข้อความบน Pagination Bar
@@ -5142,39 +5348,41 @@ class FaceSearchApp(ctk.CTk):
                     
                 elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
                     cursor.execute("""
-                        SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link 
+                        SELECT p.photo_id, COALESCE(p.file_name, '-'), COALESCE(p.file_extension, '-'), p.drive_file_id, p.event_name, p.drive_link 
                         FROM scanned_photos p
                         WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
                         ORDER BY p.photo_id ASC
                     """)
-                    writer.writerow(["Photo ID", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
+                    writer.writerow(["Photo ID", "ชื่อไฟล์ภาพ", "สกุลไฟล์", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "scanned_photos" in selected_table_text:
-                    cursor.execute("SELECT photo_id, drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id ASC")
-                    writer.writerow(["Photo ID", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
+                    cursor.execute("SELECT photo_id, COALESCE(file_name, '-'), COALESCE(file_extension, '-'), drive_file_id, event_name, drive_link FROM scanned_photos ORDER BY photo_id ASC")
+                    writer.writerow(["Photo ID", "ชื่อไฟล์ภาพ", "สกุลไฟล์", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
                     cursor.execute("""
-                        SELECT df.id, df.photo_id, s.name, df.confidence
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         ORDER BY df.id ASC
                     """)
-                    writer.writerow(["Match ID", "Photo ID", "คุณครูที่ตรวจพบ", "ระดับความเหมือน"])
+                    writer.writerow(["Match ID", "Photo ID", "ชื่อไฟล์ภาพ", "คุณครูที่ตรวจพบ", "ชื่องานกิจกรรม", "ระดับความเหมือน"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
                     cursor.execute("""
-                        SELECT df.id, df.photo_id, s.name, s.student_id, df.confidence
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         WHERE s.role = 'student'
                         ORDER BY df.id ASC
                     """)
-                    writer.writerow(["Match ID", "Photo ID", "นักเรียนที่ตรวจพบ", "รหัสประจำตัว", "ระดับความเหมือน"])
+                    writer.writerow(["Match ID", "Photo ID", "ชื่อไฟล์ภาพ", "นักเรียนที่ตรวจพบ", "รหัสประจำตัว", "ชื่องานกิจกรรม", "ระดับความเหมือน"])
                     writer.writerows(cursor.fetchall())
                     
             logger.info("CSV Export completed successfully.")

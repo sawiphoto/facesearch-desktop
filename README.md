@@ -1,4 +1,127 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v5.90
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.00 (Universal Clipboard Support & Column Sorting Table)
+
+## 📋 Version 6.00 Changelog (Universal Clipboard Support & Column Sorting Table)
+
+**Date:** 6 ตุลาคม 2026  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.7 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ปัญหาไม่สามารถ Paste (วางข้อความ) ในช่องค้นหาข้อมูล SQLite (`self.entry_db_search`) ได้:**
+   - เมื่อผู้ใช้สลับแป้นพิมพ์เป็นภาษาไทย (เกษมณี) บน Windows การกดปุ่ม `Ctrl + V` จะส่ง KeySym เป็น `Thai_oang` (`อ`) แทนที่จะเป็นตัวอักษร ASCII `v` ทำให้ Tkinter / CustomTkinter ไม่ทำงาน และไม่มีเมนูคลิกขวา (Context Menu)
+2. **ความต้องการเพิ่ม Attributes `file_name` (ชื่อภาพ) และ `file_extension` (สกุลไฟล์ภาพ):**
+   - ผู้ใช้ต้องการให้ตาราง `scanned_photos` บันทึกและแสดงคอลัมน์ชื่อไฟล์ (`file_name` เช่น `IMG_4022.HEIC`, `DSC01709.JPG`) และสกุลไฟล์ (`file_extension` เช่น `.HEIC`, `.JPG`, `.PNG`) อย่างชัดเจนในตารางข้อมูล SQLite
+3. **ความต้องการคลิกที่หัวข้อคอลัมน์เพื่อเรียงลำดับ Ascending / Descending (Column Header Sorting):**
+   - ผู้ใช้ต้องการสามารถคลิกที่หัวคอลัมน์ใดๆ ในตาราง Treeview (เช่น ชื่องานกิจกรรม, ชื่อไฟล์ภาพ, สกุลไฟล์, Photo ID, ID บุคคล, ความเหมือน ฯลฯ) เพื่อสลับการเรียงลำดับจากน้อยไปมาก (`ASC ▲`) หรือมากไปน้อย (`DESC ▼`) ได้ทันที
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **Universal Clipboard & Context Menu Binding:**
+   - พัฒนาฟังก์ชัน `bind_universal_entry_shortcuts()` ดักจับ Virtual Keycodes ระดับฮาร์ดแวร์บน Windows:
+     - `Keycode 86` (`Ctrl+V` แม้เป็นภาษาไทย `อ`) -> วางข้อความจาก Clipboard อัตโนมัติ
+     - `Keycode 67` (`Ctrl+C` แม้เป็นภาษาไทย `แ`) -> คัดลอกข้อความ
+     - `Keycode 88` (`Ctrl+X` แม้เป็นภาษาไทย `ป`) -> ตัดข้อความ
+     - `Keycode 65` (`Ctrl+A` แม้เป็นภาษาไทย `ฟ`) -> เลือกข้อความทั้งหมด
+   - เพิ่ม Modern Navy Blue Context Menu เมื่อคลิกขวาที่ช่องค้นหา: `📋 วาง (Paste)`, `📄 คัดลอก (Copy)`, `✂️ ตัด (Cut)`, `🔘 เลือกทั้งหมด (Select All)`, `❌ ล้างข้อความ (Clear)`
+2. **Database Migration & Schema Update (`file_name` & `file_extension`):**
+   - เพิ่ม Migration อัตโนมัติใน [`db_manager.py`](db_manager.py):
+     - `ALTER TABLE scanned_photos ADD COLUMN file_name TEXT;`
+     - `ALTER TABLE scanned_photos ADD COLUMN file_extension TEXT;`
+     - สร้าง Performance Indexes `idx_sp_file_name` และ `idx_sp_file_ext`
+   - ปรับปรุง `save_scanned_photo()`, `save_scanned_photos_batch()`, และ `mark_skipped_photo()` ให้บันทึกชื่อไฟล์และนามสกุลเสมอ
+   - ปรับปรุง [`scheduler_task.py`](scheduler_task.py) ใน Task 1 สแกนภาพ ให้สกัด `f_name` และ `f_ext` บันทึกลงฐานข้อมูล
+3. **Interactive Column Header Sorting & Multi-Column Treeview:**
+   - ปรับปรุง Treeview ให้แสดงคอลัมน์ `Photo ID` | `ชื่อไฟล์ภาพ` | `สกุลไฟล์` | `ชื่องานกิจกรรม` | `สถานะใบหน้า` | `ลิงก์ไดรฟ์รูปภาพ`
+   - พัฒนาระบบ `sort_db_table_by_column(col_id)` รองรับการคลิกหัวตารางทุกคอลัมน์ พร้อมสัญลักษณ์ `▲` (ASC) และ `▼` (DESC)
+   - ขยายขอบเขตการค้นหา (Search Query) ให้ค้นหาเจาะจงตามชื่อไฟล์และสกุลไฟล์ (เช่น ค้นหา `.HEIC` หรือ `DSC01709` ได้ทันที)
+   - ปรับปรุง `export_current_table()` ให้ส่งออกไฟล์ CSV พร้อมชื่อไฟล์และนามสกุลครบถ้วน
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. Universal Clipboard Shortcuts & Context Menu ใน [`app_gui.py`](app_gui.py):
+```python
+# Before (v5.90):
+self.entry_db_search.bind("<KeyRelease>", self.on_db_search_key_release)
+self.entry_db_search.bind("<Return>", lambda e: self.trigger_db_search_instant())
+# ไม่รองรับ Ctrl+V ในภาษาไทย และไม่มีคลิกขวา
+
+# After (v6.00):
+self.entry_db_search.bind("<KeyRelease>", self.on_db_search_key_release)
+self.entry_db_search.bind("<Return>", lambda e: self.trigger_db_search_instant())
+self.bind_universal_entry_shortcuts(self.entry_db_search, on_change_callback=self.on_db_search_key_release)
+
+def bind_universal_entry_shortcuts(self, entry_widget, on_change_callback=None):
+    target_widget = getattr(entry_widget, "_entry", entry_widget)
+    def do_paste(event=None):
+        try:
+            text = self.clipboard_get()
+            if text:
+                if target_widget.select_present():
+                    target_widget.delete("sel.first", "sel.last")
+                target_widget.insert("insert", text)
+                if on_change_callback: on_change_callback()
+        except Exception: pass
+        return "break"
+    def on_control_key(event):
+        kc = getattr(event, "keycode", 0)
+        if kc == 86 or event.keysym in ("v", "V", "Thai_oang"): return do_paste(event)
+        elif kc == 67 or event.keysym in ("c", "C", "Thai_ae"): return do_copy(event)
+        elif kc == 88 or event.keysym in ("x", "X", "Thai_popla"): return do_cut(event)
+        elif kc == 65 or event.keysym in ("a", "A", "Thai_fofan"): return do_select_all(event)
+    for w in (target_widget, entry_widget):
+        w.bind("<Control-KeyPress>", on_control_key, add="+")
+        w.bind("<Button-3>", show_context_menu, add="+")
+```
+
+#### 2. Database Migration และคอลัมน์ชื่อ/สกุลไฟล์ ใน [`db_manager.py`](db_manager.py):
+```python
+# Before (v5.90):
+CREATE TABLE scanned_photos (
+    photo_id TEXT PRIMARY KEY,
+    drive_file_id TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    drive_link TEXT NOT NULL,
+    photo_date TEXT,
+    scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+
+# After (v6.00):
+# Migration v6.00: เพิ่มคอลัมน์ file_name และ file_extension ใน scanned_photos
+cursor.execute("ALTER TABLE scanned_photos ADD COLUMN file_name TEXT")
+cursor.execute("ALTER TABLE scanned_photos ADD COLUMN file_extension TEXT")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_file_name ON scanned_photos(file_name)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_file_ext ON scanned_photos(file_extension)")
+```
+
+#### 3. Column Header Sorting Logic ใน [`app_gui.py`](app_gui.py):
+```python
+# Before (v5.90):
+self.db_tree["columns"] = ("photo_id", "file_id", "event", "cache_status", "link")
+self.db_tree.heading("photo_id", text="Photo ID")
+self.db_tree.heading("event", text="ชื่องานกิจกรรม")
+
+# After (v6.00):
+self.db_tree["columns"] = ("photo_id", "file_name", "file_ext", "event", "cache_status", "link")
+set_tree_heading("photo_id", "Photo ID")
+set_tree_heading("file_name", "ชื่อไฟล์ภาพ")
+set_tree_heading("file_ext", "สกุลไฟล์")
+set_tree_heading("event", "ชื่องานกิจกรรม")
+
+def sort_db_table_by_column(self, col_id):
+    if self.db_sort_col == col_id:
+        self.db_sort_desc = not self.db_sort_desc
+    else:
+        self.db_sort_col = col_id
+        self.db_sort_desc = False if col_id in ("name", "event", "file_name", "file_ext") else True
+    self.load_db_table_data(page=1)
+```
+
+---
 
 ## 📖 Project Overview
 ระบบนี้เป็นเครื่องมือสำหรับ **ค้นหาและวิเคราะห์ใบหน้าบุคลากรโรงเรียน** โดยใช้ SQLite เป็นฐานข้อมูลจัดเก็บเวกเตอร์ใบหน้าและข้อมูลเมตาที่เกี่ยวข้อง พร้อม UI ที่ทำงานบน CustomTkinter ให้ผู้ดูแลระบบสามารถอัปโหลดรูป, ทำการสแกน, และจัดการผลลัพธ์ได้ง่าย ๆ
@@ -28,11 +151,11 @@ python main.py
 | File / Folder | Description |
 |---|---|
 | [main.py](main.py) | Entry point – สร้างไดเรกทอรีที่จำเป็นและเรียก GUI |
-| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – ปรับแต่งชื่อปุ่ม v5.70, เมนูและการแสดงผล |
-| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เมธอด `get_unbackfilled_teachers`, `mark_teachers_backfilled` และ Blazing Fast Indexes (v5.70) |
-| [face_analyzer.py](face_analyzer.py) | สร้างเวกเตอร์ใบหน้า 512-dim ด้วย InsightFace (antelopev2) พร้อม Matrix Matching เฉพาะบุคคล |
+| [app_gui.py](app_gui.py) | GUI หลัก (CustomTkinter) – Universal Clipboard Support & Column Sorting Table (v6.00) |
+| [db_manager.py](db_manager.py) | จัดการ SQLite DB – เพิ่มคอลัมน์ `file_name` และ `file_extension` พร้อม Indexes (v6.00) |
+| [face_analyzer.py](face_analyzer.py) | สร้างเวกเตอร์ใบหน้า 512-dim ด้วย InsightFace (antelopev2) พร้อม Multi-Format Decoder (HEIC/JPEG/PNG) |
 | [gdrive_sync.py](gdrive_sync.py) | ซิงค์ข้อมูล Google Drive + JSON Index + Smart Photo Date Parser (v5.60) |
-| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษา + Dynamic Year Loader (v5.60) |
+| [scheduler_task.py](scheduler_task.py) | จัดการระบบสแกนอัตโนมัติ 5 โฟลเดอร์ปีการศึกษา + บันทึก file_name และ file_extension (v6.00) |
 | [config/year_folders.json](config/year_folders.json) | ไฟล์ตั้งค่า ID โฟลเดอร์หลักประจำปีการศึกษา |
 | [requirements.txt](requirements.txt) | รายการ dependency ของโปรเจกต์ |
 

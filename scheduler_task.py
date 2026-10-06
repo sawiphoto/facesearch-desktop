@@ -936,12 +936,15 @@ class SchedulerTask:
                         except Exception as thumb_err:
                             logger.error(f"[AI SCAN] ⚠️ บันทึก Thumbnail Cache ล้มเหลวสำหรับ {f_id}: {thumb_err}")
 
+                        f_ext = os.path.splitext(f_name)[1].lower() if f_name else ""
                         results_data.append({
                             "photo_id": f_id,
                             "drive_file_id": f_id,
                             "event_name": folder_name,
                             "drive_link": f_link,
                             "photo_date": p_date,
+                            "file_name": f_name,
+                            "file_extension": f_ext,
                             "matches": photo_matches,
                             "face_embeddings": face_embeddings
                         })
@@ -953,12 +956,12 @@ class SchedulerTask:
                         skipped_files.append((f_id, f_name, f"ERROR_{e}"))
                         processed_count += 1
 
-                # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 Safe Download Handler)
+                # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 / v6.00 with file_name & file_extension)
                 if results_data:
                     with self.db.get_connection() as conn:
                         c = conn.cursor()
-                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"]) for r in results_data]
-                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)", scanned_rows)
+                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"], r.get("file_name", ""), r.get("file_extension", "")) for r in results_data]
+                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)", scanned_rows)
                         
                         photo_ids_batch = [r["photo_id"] for r in results_data]
                         if photo_ids_batch:

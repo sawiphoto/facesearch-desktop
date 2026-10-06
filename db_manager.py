@@ -215,6 +215,25 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not purge dummy error photos: {e}")
 
+            # Migration v6.00: เพิ่มคอลัมน์ file_name และ file_extension ใน scanned_photos
+            try:
+                cursor.execute("ALTER TABLE scanned_photos ADD COLUMN file_name TEXT")
+                logger.info("Executed database migration v6.00: added file_name to scanned_photos.")
+            except Exception:
+                pass
+
+            try:
+                cursor.execute("ALTER TABLE scanned_photos ADD COLUMN file_extension TEXT")
+                logger.info("Executed database migration v6.00: added file_extension to scanned_photos.")
+            except Exception:
+                pass
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_file_name ON scanned_photos(file_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_file_ext ON scanned_photos(file_extension)")
+            except Exception as e:
+                logger.warning(f"Could not create file_name/file_extension indexes: {e}")
+
             conn.commit()
         logger.info("SQLite database initialized successfully.")
 
@@ -565,18 +584,20 @@ class DatabaseManager:
             cursor.execute("SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?", (drive_file_id,))
             return cursor.fetchone() is not None
 
-    def save_scanned_photo(self, photo_id, drive_file_id, event_name, drive_link, matches, photo_date=""):
+    def save_scanned_photo(self, photo_id, drive_file_id, event_name, drive_link, matches, photo_date="", file_name="", file_extension=""):
         """
-        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วและรายชื่อใบหน้าที่ตรวจพบ
+        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วและรายชื่อใบหน้าที่ตรวจพบ (v6.00 เพิ่ม file_name และ file_extension)
         matches: list ของ tuple (staff_id, confidence)
         """
+        if not file_extension and file_name:
+            file_extension = os.path.splitext(file_name)[1].lower()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # บันทึกรูปภาพ (ใช้ INSERT OR REPLACE เพื่อป้องกัน drive_file_id ซ้ำซ้อน)
                 cursor.execute(
-                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
-                    (photo_id, drive_file_id, event_name, drive_link, photo_date)
+                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension)
                 )
                 
                 # บันทึกคนในรูป
@@ -586,7 +607,7 @@ class DatabaseManager:
                         (photo_id, staff_id, float(confidence))
                     )
                 conn.commit()
-                logger.info(f"Saved scanned photo {photo_id} with {len(matches)} matches to SQLite.")
+                logger.info(f"Saved scanned photo {photo_id} ({file_name}) with {len(matches)} matches to SQLite.")
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Error saving scanned photo {photo_id} to SQLite: {e}")
@@ -595,7 +616,7 @@ class DatabaseManager:
 
     def save_scanned_photos_batch(self, batch_items):
         """
-        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วแบบกลุ่ม (Batch) ใน Transaction เดียว (v5.20)
+        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วแบบกลุ่ม (Batch) ใน Transaction เดียว (v5.20 / v6.00 รองรับ file_name และ file_extension)
         batch_items: list of dict [
             {
                 "photo_id": ...,
@@ -604,6 +625,8 @@ class DatabaseManager:
                 "drive_link": ...,
                 "matches": [...],
                 "photo_date": ...,
+                "file_name": ...,
+                "file_extension": ...,
                 "faces": [...]
             }
         ]
@@ -620,13 +643,17 @@ class DatabaseManager:
                     event = item["event_name"]
                     link = item["drive_link"]
                     pdate = item.get("photo_date", "")
+                    fname = item.get("file_name", "")
+                    fext = item.get("file_extension", "")
+                    if not fext and fname:
+                        fext = os.path.splitext(fname)[1].lower()
                     matches = item.get("matches", [])
                     faces = item.get("faces", [])
                     
                     # 1. บันทึก scanned_photos
                     cursor.execute(
-                        "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
-                        (pid, fid, event, link, pdate)
+                        "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (pid, fid, event, link, pdate, fname, fext)
                     )
                     
                     # 2. บันทึก detected_faces
@@ -666,17 +693,19 @@ class DatabaseManager:
                 conn.rollback()
                 return False
 
-    def mark_skipped_photo(self, photo_id, drive_file_id, event_name, reason="SKIPPED_UNREADABLE"):
-        """บันทึกประวัติไฟล์รูปภาพที่ไม่สามารถอ่านได้/เสียหาย/ไม่ใช่ไฟล์รูปภาพลง SQLite เพื่อป้องกันการติดลูปสแกนซ้ำ"""
+    def mark_skipped_photo(self, photo_id, drive_file_id, event_name, reason="SKIPPED_UNREADABLE", file_name="", file_extension=""):
+        """บันทึกประวัติไฟล์รูปภาพที่ไม่สามารถอ่านได้/เสียหาย/ไม่ใช่ไฟล์รูปภาพลง SQLite เพื่อป้องกันการติดลูปสแกนซ้ำ (v6.00)"""
+        if not file_extension and file_name:
+            file_extension = os.path.splitext(file_name)[1].lower()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 cursor.execute(
-                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date) VALUES (?, ?, ?, ?, ?)",
-                    (photo_id, drive_file_id, event_name, f"https://drive.google.com/file/d/{drive_file_id}/view", reason)
+                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (photo_id, drive_file_id, event_name, f"https://drive.google.com/file/d/{drive_file_id}/view", reason, file_name, file_extension)
                 )
                 conn.commit()
-                logger.info(f"[DATABASE] Marked unreadable photo {photo_id} as '{reason}' in SQLite.")
+                logger.info(f"[DATABASE] Marked unreadable photo {photo_id} ({file_name}) as '{reason}' in SQLite.")
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Error marking skipped photo {photo_id}: {e}")
