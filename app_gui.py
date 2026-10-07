@@ -19,6 +19,8 @@ from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_fro
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
 from gdrive_sync import GoogleSyncManager
 from scheduler_task import SchedulerTask
+from gradient_chart import GradientBarChart, get_gradient_color
+import unknown_analyzer
 
 # ตั้งค่าการบันทึก Log หลัก
 logger = logging.getLogger("FaceSearchApp")
@@ -672,7 +674,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.20 (Unknown Faces VIP & Yearly Analytics Dashboard)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -726,6 +728,13 @@ class FaceSearchApp(ctk.CTk):
         # Settings cache
         self.settings = {}
 
+        # v6.20: State variables for Unknown Faces Analytics
+        self.selected_unknown_cluster_id = None
+        self.selected_unknown_cluster_data = None
+        self.unknown_clusters_cache = []
+        self.unknown_gallery_filter_year = None
+        self._unknown_face_preview_img = None  # Reference to prevent GC
+
         # --- Scheduler Task ---
         self.scheduler = SchedulerTask(self.db, self.sync_manager, self.analyzer, self)
 
@@ -758,7 +767,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.11",
+            text="FACE MATCHING\nSYSTEM v6.20",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -811,47 +820,54 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_matched_gallery.grid(row=6, column=0, padx=12, pady=5, sticky="ew")
 
+        self.btn_unknown_analytics = ctk.CTkButton(
+            self.sidebar_frame, text="👥 สถิติบุคคลนิรนาม (Unknowns)", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("unknown_analytics")
+        )
+        self.btn_unknown_analytics.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+
         self.btn_settings = ctk.CTkButton(
             self.sidebar_frame, text="⚙️ ตั้งค่าระบบ", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("settings")
         )
-        self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+        self.btn_settings.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_delete_req = ctk.CTkButton(
             self.sidebar_frame, text="🗑️ คำขอลบภาพ (Requests)", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("delete_req")
         )
-        self.btn_delete_req.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
+        self.btn_delete_req.grid(row=9, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_start_schedule = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 1. สแกนภาพเพิ่มมาใหม่", height=38, font=schedule_font,
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=9, column=0, padx=12, pady=(12, 4), sticky="ew")
+        self.btn_start_schedule.grid(row=10, column=0, padx=12, pady=(12, 4), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 2. Sync New Student", height=38, font=schedule_font,
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task2.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_start_task3 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 3. Sync New Teacher", height=38, font=schedule_font,
             fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
             anchor="w", command=lambda: self.scheduler.run_task_3_manual()
         )
-        self.btn_start_task3.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task3.grid(row=12, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task", height=38, font=schedule_font,
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
+        self.btn_stop_schedule.grid(row=13, column=0, padx=12, pady=(4, 12), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -860,8 +876,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(13, weight=1)
+        self.credit_label.grid(row=14, column=0, pady=15, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(14, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -871,6 +887,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_scan.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_database.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_matched_gallery.configure(fg_color="transparent", text_color="#A2B5CD")
+        self.btn_unknown_analytics.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_delete_req.configure(fg_color="transparent", text_color="#A2B5CD")
 
@@ -881,6 +898,7 @@ class FaceSearchApp(ctk.CTk):
         self.frame_scan.grid_forget()
         self.frame_database.grid_forget()
         self.frame_matched_gallery.grid_forget()
+        self.frame_unknown_analytics.grid_forget()
         self.frame_settings.grid_forget()
         self.frame_delete_req.grid_forget()
 
@@ -910,6 +928,10 @@ class FaceSearchApp(ctk.CTk):
             if hasattr(self, 'on_matched_role_change'):
                 # โหลดข้อมูล async เพื่อไม่ให้ GUI ฟรีซค้างขณะเปิดเมนู (v4.14)
                 self.after(50, lambda: self.on_matched_role_change(self.combo_matched_role.get()))
+        elif menu_name == "unknown_analytics":
+            self.btn_unknown_analytics.configure(fg_color="#1F3A60", text_color="white")
+            self.frame_unknown_analytics.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+            self.load_unknown_clusters_list()
         elif menu_name == "settings":
             self.btn_settings.configure(fg_color="#1F3A60", text_color="white")
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
@@ -943,13 +965,16 @@ class FaceSearchApp(ctk.CTk):
         self.frame_matched_gallery = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_matched_gallery_ui()
 
-        # 7. เฟรมหน้าตั้งค่าระบบ
+        # 7. เฟรมหน้าสถิติบุคคลนิรนาม (Unknowns Analytics v6.20)
+        self.frame_unknown_analytics = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_unknown_analytics_ui()
+
+        # 8. เฟรมหน้าตั้งค่าระบบ
         self.frame_settings = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_settings_ui()
 
-        # 8. เฟรมหน้าคำขอลบภาพ (Delete Requests)
+        # 9. เฟรมหน้าคำขอลบภาพ (Delete Requests)
         self.frame_delete_req = ctk.CTkFrame(self, fg_color="transparent")
-        self.setup_delete_req_ui()
         self.setup_delete_req_ui()
 
     # ==================== (1) หน้า Dashboard ====================
@@ -7508,6 +7533,655 @@ class FaceSearchApp(ctk.CTk):
                 self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการอนุมัติลบ: {ex}"))
 
         threading.Thread(target=process_delete, daemon=True).start()
+
+    # ==================== (7) เมนูสถิติบุคคลนิรนาม (Unknown Faces VIP & Yearly Analytics v6.20) ====================
+    def setup_unknown_analytics_ui(self):
+        """จัดสร้างส่วนแสดงผลสถิติและจัดกลุ่มบุคคลนิรนาม (Unknown Faces Analytics) พร้อมกราฟแท่งเฉดสีรายปี"""
+        self.frame_unknown_analytics.grid_columnconfigure(0, weight=1)
+        self.frame_unknown_analytics.grid_rowconfigure(1, weight=1)
+
+        # 1. แถบควบคุมเมนูด้านบน (Top Bar Header & Filters)
+        top_bar = ctk.CTkFrame(self.frame_unknown_analytics, fg_color="#1A2636")
+        top_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        lbl_header = ctk.CTkLabel(
+            top_bar, text="👥 สถิติและจัดกลุ่มบุคคลนิรนาม",
+            font=ctk.CTkFont(size=16, weight="bold"), text_color="white"
+        )
+        lbl_header.pack(side="left", padx=(15, 15), pady=10)
+
+        # Dropdown ปี
+        ctk.CTkLabel(top_bar, text="ปี พ.ศ.:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(5, 3), pady=10)
+        self.combo_unknown_year = ctk.CTkComboBox(
+            top_bar, values=["🌐 ภาพรวมทั้งหมด (Overall)"], width=190, height=34,
+            font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13),
+            command=self.on_unknown_year_change
+        )
+        self.combo_unknown_year.set("🌐 ภาพรวมทั้งหมด (Overall)")
+        self.combo_unknown_year.pack(side="left", padx=5, pady=10)
+
+        # ช่องกรองความถี่ขั้นต่ำ (Min photos)
+        ctk.CTkLabel(top_bar, text="รูปขั้นต่ำ:", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(10, 3), pady=10)
+        self.entry_unknown_min_photos = ctk.CTkEntry(top_bar, width=50, height=34, font=ctk.CTkFont(size=13))
+        self.entry_unknown_min_photos.insert(0, "3")
+        self.entry_unknown_min_photos.pack(side="left", padx=3, pady=10)
+        self.entry_unknown_min_photos.bind("<Return>", lambda e: self.load_unknown_clusters_list())
+
+        btn_filter = ctk.CTkButton(
+            top_bar, text="🔍 กรอง", width=65, height=34,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#2980B9", hover_color="#1F618D",
+            command=self.load_unknown_clusters_list
+        )
+        btn_filter.pack(side="left", padx=5, pady=10)
+
+        # ปุ่มประมวลผลจัดกลุ่มสถิติใหม่
+        self.btn_run_recluster = ctk.CTkButton(
+            top_bar, text="🔄 ประมวลผลจัดกลุ่มสถิติใหม่", width=195, height=34,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#8E44AD", hover_color="#732D91",
+            command=self.run_recluster_thread
+        )
+        self.btn_run_recluster.pack(side="left", padx=10, pady=10)
+
+        # สรุปผล
+        self.lbl_unknown_summary = ctk.CTkLabel(
+            top_bar, text="พบ 0 กลุ่ม",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color="#2ECC71"
+        )
+        self.lbl_unknown_summary.pack(side="right", padx=15, pady=10)
+
+        # 2. พื้นที่เนื้อหาหลักแบ่ง 2 ฝั่ง (Split-Pane Main Container)
+        main_pane = ctk.CTkFrame(self.frame_unknown_analytics, fg_color="transparent")
+        main_pane.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        main_pane.grid_columnconfigure(0, weight=4)  # ตารางซ้าย 40%
+        main_pane.grid_columnconfigure(1, weight=6)  # รายละเอียดขวา 60%
+        main_pane.grid_rowconfigure(0, weight=1)
+
+        # ------------------- 2.1 ฝั่งซ้าย: ตารางจัดอันดับ (Left Pane) -------------------
+        left_box = ctk.CTkFrame(main_pane, fg_color="#101B2B")
+        left_box.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=0)
+        left_box.grid_columnconfigure(0, weight=1)
+        left_box.grid_rowconfigure(2, weight=1)
+
+        # ส่วนหัวฝั่งซ้าย
+        lbl_left_title = ctk.CTkLabel(
+            left_box, text="📋 ตารางจัดอันดับบุคคลนิรนาม",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD"
+        )
+        lbl_left_title.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+
+        # ช่องค้นหารหัสกลุ่ม
+        self.entry_unknown_search = ctk.CTkEntry(
+            left_box, placeholder_text="🔍 ค้นหารหัสกลุ่ม (เช่น UNK_00001)...",
+            height=32, font=ctk.CTkFont(size=12)
+        )
+        self.entry_unknown_search.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+        self.entry_unknown_search.bind("<KeyRelease>", self.filter_unknown_table)
+
+        # คอนเทนเนอร์ตาราง Treeview
+        table_frame = ctk.CTkFrame(left_box, fg_color="#1C2D42")
+        table_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        from tkinter import ttk
+        cols = ("rank", "cluster_id", "year_count", "total_count", "active_years")
+        self.tree_unknown = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="browse")
+        
+        self.tree_unknown.heading("rank", text="#")
+        self.tree_unknown.heading("cluster_id", text="รหัสกลุ่ม")
+        self.tree_unknown.heading("year_count", text="รูปปีนี้")
+        self.tree_unknown.heading("total_count", text="รูปรวม")
+        self.tree_unknown.heading("active_years", text="ช่วงปีที่พบ")
+
+        self.tree_unknown.column("rank", width=36, anchor="center")
+        self.tree_unknown.column("cluster_id", width=85, anchor="center")
+        self.tree_unknown.column("year_count", width=65, anchor="center")
+        self.tree_unknown.column("total_count", width=65, anchor="center")
+        self.tree_unknown.column("active_years", width=120, anchor="w")
+
+        tree_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree_unknown.yview)
+        self.tree_unknown.configure(yscrollcommand=tree_scroll.set)
+
+        self.tree_unknown.grid(row=0, column=0, sticky="nsew")
+        tree_scroll.grid(row=0, column=1, sticky="ns")
+
+        self.tree_unknown.bind("<<TreeviewSelect>>", self.on_unknown_cluster_select)
+
+        # ------------------- 2.2 ฝั่งขวา: รายละเอียด, กราฟแท่ง, แกลเลอรี (Right Pane) -------------------
+        right_box = ctk.CTkFrame(main_pane, fg_color="transparent")
+        right_box.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
+        right_box.grid_columnconfigure(0, weight=1)
+        right_box.grid_rowconfigure(0, weight=0) # Profile Card
+        right_box.grid_rowconfigure(1, weight=0) # Gradient Bar Chart
+        right_box.grid_rowconfigure(2, weight=1) # Photo Gallery
+
+        # 2.2.1 Profile Card (ส่วนบน)
+        profile_card = ctk.CTkFrame(right_box, fg_color="#101B2B")
+        profile_card.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 6))
+        profile_card.grid_columnconfigure(1, weight=1)
+
+        # รูปหน้าตัวอย่าง (Representative Cropped Face)
+        self.lbl_unknown_face_preview = ctk.CTkLabel(
+            profile_card, text="[ รูปตัวแทน ]", width=95, height=95,
+            fg_color="#18283D", corner_radius=6, font=ctk.CTkFont(size=11), text_color="#A2B5CD"
+        )
+        self.lbl_unknown_face_preview.grid(row=0, column=0, rowspan=4, padx=12, pady=10)
+
+        # ข้อมูลและรหัสกลุ่ม
+        self.lbl_unknown_info_id = ctk.CTkLabel(
+            profile_card, text="รหัสกลุ่ม: -- กรุณาเลือกบุคคลในตาราง --",
+            font=ctk.CTkFont(size=15, weight="bold"), text_color="#5CACEE", anchor="w"
+        )
+        self.lbl_unknown_info_id.grid(row=0, column=1, sticky="w", padx=5, pady=(8, 2))
+
+        self.lbl_unknown_info_stats = ctk.CTkLabel(
+            profile_card, text="จำนวนรูปถ่าย: - รูป | กิจกรรม: - กิจกรรม",
+            font=ctk.CTkFont(size=12), text_color="#ECEFF1", anchor="w"
+        )
+        self.lbl_unknown_info_stats.grid(row=1, column=1, sticky="w", padx=5, pady=1)
+
+        self.lbl_unknown_info_years = ctk.CTkLabel(
+            profile_card, text="ช่วงปีที่ปรากฏตัว: -",
+            font=ctk.CTkFont(size=12), text_color="#BDC3C7", anchor="w"
+        )
+        self.lbl_unknown_info_years.grid(row=2, column=1, sticky="w", padx=5, pady=1)
+
+        # ปุ่มบันทึกรูปครอปใบหน้าลงเครื่อง (Save Cropped Face)
+        btn_action_box = ctk.CTkFrame(profile_card, fg_color="transparent")
+        btn_action_box.grid(row=3, column=1, sticky="w", padx=5, pady=(4, 8))
+
+        self.btn_export_cropped_face = ctk.CTkButton(
+            btn_action_box, text="💾 บันทึกรูปครอปใบหน้าลงเครื่อง (Save Cropped Face)",
+            height=30, font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#2ECC71", hover_color="#27AE60", text_color="#0A111A",
+            state="disabled", command=self.export_cropped_unknown_face
+        )
+        self.btn_export_cropped_face.pack(side="left")
+
+        # 2.2.2 กราฟแท่งเปรียบเทียบสถิติรายปีพร้อมไล่เฉดสี (Gradient Bar Chart Widget)
+        chart_box = ctk.CTkFrame(right_box, fg_color="#101B2B")
+        chart_box.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 6))
+        chart_box.grid_columnconfigure(0, weight=1)
+
+        lbl_chart_title = ctk.CTkLabel(
+            chart_box,
+            text="📈 สถิติจำนวนรูปภาพรายปี (เรียงปัจจุบัน ➔ อดีต | แดง=น้อย, ส้ม=กลาง, เขียว=มาก)",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color="#A2B5CD", anchor="w"
+        )
+        lbl_chart_title.pack(anchor="w", padx=12, pady=(8, 2))
+
+        # Canvas Widget สำหรับกราฟแท่ง
+        self.chart_unknown = GradientBarChart(chart_box, on_bar_click=self.on_unknown_bar_click, height=140)
+        self.chart_unknown.pack(fill="x", padx=10, pady=(0, 8))
+
+        # 2.2.3 แกลเลอรีรูปภาพกิจกรรม (Photo Gallery)
+        gallery_box = ctk.CTkFrame(right_box, fg_color="#101B2B")
+        gallery_box.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
+        gallery_box.grid_columnconfigure(0, weight=1)
+        gallery_box.grid_rowconfigure(1, weight=1)
+
+        gal_header = ctk.CTkFrame(gallery_box, fg_color="transparent")
+        gal_header.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
+        gal_header.grid_columnconfigure(0, weight=1)
+
+        self.lbl_unknown_gal_title = ctk.CTkLabel(
+            gal_header, text="🖼️ ภาพกิจกรรมที่พบบุคคลนี้",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD", anchor="w"
+        )
+        self.lbl_unknown_gal_title.pack(side="left")
+
+        self.btn_reset_gal_filter = ctk.CTkButton(
+            gal_header, text="แสดงทุกปี", width=75, height=24,
+            font=ctk.CTkFont(size=11), fg_color="#34495E", hover_color="#2C3E50",
+            state="disabled", command=self.reset_unknown_gallery_filter
+        )
+        self.btn_reset_gal_filter.pack(side="right")
+
+        self.scr_unknown_gallery = ctk.CTkScrollableFrame(gallery_box, fg_color="#09101A")
+        self.scr_unknown_gallery.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.bind_scroll_events(self.scr_unknown_gallery)
+
+    def update_unknown_year_dropdown(self):
+        """อัปเดตตัวเลือกใน Dropdown ปีตามข้อมูลปี พ.ศ. ที่มีในฐานข้อมูล"""
+        available_years = self.db.get_unknown_available_years()
+        current_selection = self.combo_unknown_year.get()
+        values = ["🌐 ภาพรวมทั้งหมด (Overall)"] + [f"📅 ปี {y}" for y in available_years]
+        self.combo_unknown_year.configure(values=values)
+        if current_selection in values:
+            self.combo_unknown_year.set(current_selection)
+        else:
+            self.combo_unknown_year.set("🌐 ภาพรวมทั้งหมด (Overall)")
+
+    def on_unknown_year_change(self, value=None):
+        """เมื่อผู้ใช้สลับตัวกรองปี ให้รีเซ็ตตัวกรองแกลเลอรีและโหลดตารางใหม่"""
+        self.unknown_gallery_filter_year = None
+        self.btn_reset_gal_filter.configure(state="disabled")
+        self.lbl_unknown_gal_title.configure(text="🖼️ ภาพกิจกรรมที่พบบุคคลนี้")
+        self.load_unknown_clusters_list()
+
+    def load_unknown_clusters_list(self):
+        """โหลดข้อมูลจัดอันดับกลุ่มบุคคลนิรนามเข้าสู่ตาราง Treeview"""
+        raw_year = self.combo_unknown_year.get()
+        if "ภาพรวม" in raw_year or "Overall" in raw_year:
+            selected_year = "all"
+        else:
+            match = re.search(r'(\d{4})', raw_year)
+            selected_year = match.group(1) if match else "all"
+
+        try:
+            min_photos = int(self.entry_unknown_min_photos.get().strip())
+        except (ValueError, AttributeError):
+            min_photos = 1
+
+        rows = self.db.get_unknown_clusters_summary(selected_year=selected_year, min_photos=min_photos)
+        self.unknown_clusters_cache = rows
+
+        # ล้างข้อมูลเดิมในตาราง
+        for item in self.tree_unknown.get_children():
+            self.tree_unknown.delete(item)
+
+        for idx, row in enumerate(rows):
+            if selected_year == "all":
+                # row: cluster_id, photo_count, event_count, rep_photo_id, rep_face_index, rep_bbox, first_seen_year, last_seen_year, active_years
+                cid = row[0]
+                y_count = row[1]
+                t_count = row[1]
+                years = row[8] or "-"
+            else:
+                # row: cluster_id, year_photos, total_photos, event_count, rep_photo_id, rep_face_index, rep_bbox, first_seen_year, last_seen_year, active_years
+                cid = row[0]
+                y_count = row[1]
+                t_count = row[2]
+                years = row[9] or "-"
+
+            self.tree_unknown.insert("", "end", iid=cid, values=(idx + 1, cid, y_count, t_count, years))
+
+        self.lbl_unknown_summary.configure(text=f"พบ {len(rows):,} กลุ่ม")
+
+        # เลือกแถวแรกอัตโนมัติหากมีข้อมูล
+        children = self.tree_unknown.get_children()
+        if children:
+            first_id = children[0]
+            self.tree_unknown.selection_set(first_id)
+            self.tree_unknown.focus(first_id)
+            self.display_unknown_cluster_detail(first_id)
+        else:
+            self.clear_unknown_detail_view()
+
+    def filter_unknown_table(self, event=None):
+        """กรองตารางตามรหัสกลุ่มที่พิมพ์ในช่องค้นหา"""
+        query = self.entry_unknown_search.get().strip().upper()
+        raw_year = self.combo_unknown_year.get()
+        is_all = ("ภาพรวม" in raw_year or "Overall" in raw_year)
+
+        for item in self.tree_unknown.get_children():
+            self.tree_unknown.delete(item)
+
+        rank = 1
+        for row in self.unknown_clusters_cache:
+            cid = row[0]
+            if query and query not in cid.upper():
+                continue
+
+            if is_all:
+                y_count = row[1]
+                t_count = row[1]
+                years = row[8] or "-"
+            else:
+                y_count = row[1]
+                t_count = row[2]
+                years = row[9] or "-"
+
+            self.tree_unknown.insert("", "end", iid=cid, values=(rank, cid, y_count, t_count, years))
+            rank += 1
+
+    def on_unknown_cluster_select(self, event=None):
+        """เมื่อคลิกเลือกแถวในตาราง Treeview ให้แสดงรายละเอียด กราฟแท่ง และแกลเลอรี"""
+        selected = self.tree_unknown.selection()
+        if not selected:
+            return
+        cid = selected[0]
+        self.display_unknown_cluster_detail(cid)
+
+    def display_unknown_cluster_detail(self, cluster_id):
+        """ดึงและแสดงรายละเอียดของกลุ่มบุคคลนิรนามที่เลือก"""
+        self.selected_unknown_cluster_id = cluster_id
+        
+        # ดึงข้อมูลคลัสเตอร์จากแคชหรือคิวรี
+        cdata = None
+        for r in self.unknown_clusters_cache:
+            if r[0] == cluster_id:
+                raw_year = self.combo_unknown_year.get()
+                if "ภาพรวม" in raw_year or "Overall" in raw_year:
+                    cdata = {
+                        "cluster_id": r[0], "photo_count": r[1], "event_count": r[2],
+                        "rep_photo_id": r[3], "rep_face_index": r[4], "rep_bbox": r[5],
+                        "first_seen_year": r[6], "last_seen_year": r[7], "active_years": r[8]
+                    }
+                else:
+                    cdata = {
+                        "cluster_id": r[0], "year_photos": r[1], "photo_count": r[2],
+                        "event_count": r[3], "rep_photo_id": r[4], "rep_face_index": r[5], "rep_bbox": r[6],
+                        "first_seen_year": r[7], "last_seen_year": r[8], "active_years": r[9]
+                    }
+                break
+
+        if not cdata:
+            return
+
+        self.selected_unknown_cluster_data = cdata
+
+        # 1. อัปเดตข้อมูลบน Profile Card
+        self.lbl_unknown_info_id.configure(text=f"รหัสกลุ่ม: {cluster_id}")
+        self.lbl_unknown_info_stats.configure(
+            text=f"จำนวนรูปถ่ายสะสม: {cdata.get('photo_count', 0):,} รูป | ปรากฏใน {cdata.get('event_count', 0):,} กิจกรรม"
+        )
+        first_y = cdata.get('first_seen_year', '-')
+        last_y = cdata.get('last_seen_year', '-')
+        self.lbl_unknown_info_years.configure(
+            text=f"ช่วงปีที่ปรากฏตัว: พ.ศ. {first_y} – {last_y} ({cdata.get('active_years', '-')})"
+        )
+        self.btn_export_cropped_face.configure(state="normal")
+
+        # 2. โหลดรูปพรีวิวใบหน้าตัวแทน (Cropped Face Preview)
+        rep_pid = cdata.get("rep_photo_id", "")
+        rep_bbox = cdata.get("rep_bbox", [])
+        if isinstance(rep_bbox, str):
+            try:
+                import json
+                rep_bbox = json.loads(rep_bbox)
+            except Exception:
+                rep_bbox = []
+        self.load_rep_face_preview_async(rep_pid, rep_bbox)
+
+        # 3. ดึงสถิติรายปีและวาดกราฟแท่งไล่เฉดสี
+        yearly_stats = self.db.get_unknown_cluster_yearly_breakdown(cluster_id)
+        self.chart_unknown.set_data(yearly_stats)
+
+        # 4. โหลดแกลเลอรีรูปภาพกิจกรรม
+        photos = self.db.get_unknown_cluster_member_photos(cluster_id, filter_year=self.unknown_gallery_filter_year)
+        self.render_unknown_gallery(cluster_id, photos)
+
+    def clear_unknown_detail_view(self):
+        """ล้างหน้าจอรายละเอียดเมื่อไม่มีข้อมูลในตาราง"""
+        self.selected_unknown_cluster_id = None
+        self.selected_unknown_cluster_data = None
+        self.lbl_unknown_info_id.configure(text="รหัสกลุ่ม: -")
+        self.lbl_unknown_info_stats.configure(text="จำนวนรูปถ่าย: - รูป | กิจกรรม: - กิจกรรม")
+        self.lbl_unknown_info_years.configure(text="ช่วงปีที่ปรากฏตัว: -")
+        self.lbl_unknown_face_preview.configure(image=None, text="[ ไม่มีรูป ]")
+        self.btn_export_cropped_face.configure(state="disabled")
+        self.chart_unknown.set_data([])
+        for widget in self.scr_unknown_gallery.winfo_children():
+            widget.destroy()
+
+    def load_rep_face_preview_async(self, photo_id, bbox):
+        """โหลดและครอปรูปหน้าตัวแทนขึ้นพรีวิวบน GUI แบบ Asynchronous"""
+        def _loader():
+            cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
+            img_path = os.path.join(cache_dir, f"{photo_id}.jpg")
+            if not os.path.exists(img_path):
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_id = ? LIMIT 1", (photo_id,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        fid = row[0]
+                        alt1 = os.path.join(cache_dir, f"thumb_{fid}.jpg")
+                        alt2 = os.path.join(cache_dir, f"{fid}.jpg")
+                        if os.path.exists(alt1): img_path = alt1
+                        elif os.path.exists(alt2): img_path = alt2
+
+            if os.path.exists(img_path):
+                try:
+                    img = read_image_file(img_path)
+                    if img is not None:
+                        h, w = img.shape[:2]
+                        if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]):
+                            x1, y1, x2, y2 = bbox
+                            bw = x2 - x1
+                            bh = y2 - y1
+                            pad_x = int(bw * 0.25)
+                            pad_y = int(bh * 0.25)
+                            cx1 = max(0, int(x1 - pad_x))
+                            cy1 = max(0, int(y1 - pad_y))
+                            cx2 = min(w, int(x2 + pad_x))
+                            cy2 = min(h, int(y2 + pad_y))
+                            cropped = img[cy1:cy2, cx1:cx2]
+                        else:
+                            cropped = img
+
+                        from PIL import Image
+                        import cv2
+                        rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+                        pil_img = Image.fromarray(rgb)
+                        pil_img.thumbnail((95, 95), Image.Resampling.LANCZOS)
+                        ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
+                        self._unknown_face_preview_img = ctk_img
+                        self.after(0, lambda: self.lbl_unknown_face_preview.configure(image=ctk_img, text=""))
+                        return
+                except Exception as e:
+                    logger.warning(f"Error previewing rep face {photo_id}: {e}")
+
+            self.after(0, lambda: self.lbl_unknown_face_preview.configure(image=None, text="[ ไม่มีรูป ]"))
+
+        self.thumb_executor.submit(_loader)
+
+    def on_unknown_bar_click(self, year):
+        """เมื่อคลิกแท่งกราฟปี ให้กรองแสดงเฉพาะรูปภาพกิจกรรมของปีนั้นในแกลเลอรี"""
+        self.unknown_gallery_filter_year = str(year)
+        self.lbl_unknown_gal_title.configure(text=f"🖼️ ภาพกิจกรรมที่พบบุคคลนี้ (เฉพาะปี {year})")
+        self.btn_reset_gal_filter.configure(state="normal")
+        if self.selected_unknown_cluster_id:
+            photos = self.db.get_unknown_cluster_member_photos(self.selected_unknown_cluster_id, filter_year=year)
+            self.render_unknown_gallery(self.selected_unknown_cluster_id, photos)
+
+    def reset_unknown_gallery_filter(self):
+        """รีเซ็ตตัวกรองปีของแกลเลอรีกลับเป็นแสดงรูปทั้งหมด"""
+        self.unknown_gallery_filter_year = None
+        self.lbl_unknown_gal_title.configure(text="🖼️ ภาพกิจกรรมที่พบบุคคลนี้")
+        self.btn_reset_gal_filter.configure(state="disabled")
+        if self.selected_unknown_cluster_id:
+            photos = self.db.get_unknown_cluster_member_photos(self.selected_unknown_cluster_id, filter_year=None)
+            self.render_unknown_gallery(self.selected_unknown_cluster_id, photos)
+
+    def render_unknown_gallery(self, cluster_id, photos):
+        """วาดการ์ดแสดงรูปภาพกิจกรรมในแกลเลอรีแบบ Grid Responsive"""
+        for widget in self.scr_unknown_gallery.winfo_children():
+            widget.destroy()
+
+        if not photos:
+            lbl_empty = ctk.CTkLabel(
+                self.scr_unknown_gallery,
+                text="ไม่พบรูปภาพกิจกรรมตามเงื่อนไขที่เลือก",
+                font=ctk.CTkFont(size=13), text_color="#A2B5CD"
+            )
+            lbl_empty.pack(pady=30)
+            return
+
+        cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
+        cols = 3
+        for c in range(cols):
+            self.scr_unknown_gallery.grid_columnconfigure(c, weight=1)
+
+        limit_photos = photos[:48]  # จำกัด 48 รูปแรกเพื่อความลื่นไหล
+        for idx, item in enumerate(limit_photos):
+            pid, f_idx, y, e_name, link, p_date, x1, y1, x2, y2 = item
+            r = idx // cols
+            c = idx % cols
+
+            card = ctk.CTkFrame(self.scr_unknown_gallery, fg_color="#142132", corner_radius=6)
+            card.grid(row=r, column=c, padx=5, pady=5, sticky="nsew")
+
+            # กล่องใส่รูป Thumbnail
+            target_thumb = os.path.join(cache_dir, f"{pid}.jpg")
+            lbl_thumb = ctk.CTkLabel(card, text="⌛ กำลังโหลด...", width=140, height=100, fg_color="#0A111A", corner_radius=4)
+            lbl_thumb.pack(padx=6, pady=(6, 2))
+
+            # ข้อมูลรหัสรูปและวันที่
+            txt_date = p_date if p_date else f"ปี {y}"
+            lbl_meta = ctk.CTkLabel(
+                card, text=f"{pid} | {txt_date}",
+                font=ctk.CTkFont(size=11, weight="bold"), text_color="#6CA6CD"
+            )
+            lbl_meta.pack(padx=6, pady=0)
+
+            short_event = e_name if len(e_name) <= 22 else e_name[:20] + "..."
+            lbl_event = ctk.CTkLabel(
+                card, text=short_event, font=ctk.CTkFont(size=10), text_color="#95A5A6"
+            )
+            lbl_event.pack(padx=6, pady=(0, 4))
+
+            # ผูกคลิกคู่เปิดลิงก์ Google Drive
+            def open_link(e, l=link, p=pid):
+                if l and l.startswith("http"):
+                    import webbrowser
+                    webbrowser.open(l)
+                else:
+                    self.open_drive_photo_link(p)
+
+            card.bind("<Double-1>", open_link)
+            lbl_thumb.bind("<Double-1>", open_link)
+
+            # โหลดรูปภาพ Thumbnail เข้าสู่การ์ดแบบ Background Worker
+            def load_card_thumb(p_path, label):
+                if os.path.exists(p_path):
+                    try:
+                        from PIL import Image
+                        im = Image.open(p_path)
+                        im.thumbnail((140, 100), Image.Resampling.LANCZOS)
+                        ctk_im = ctk.CTkImage(light_image=im, dark_image=im, size=im.size)
+                        self.after(0, lambda: label.configure(image=ctk_im, text=""))
+                        return
+                    except Exception:
+                        pass
+                self.after(0, lambda: label.configure(text="🖼️ ไม่มีรูปย่อ"))
+
+            self.thumb_executor.submit(load_card_thumb, target_thumb, lbl_thumb)
+
+    def export_cropped_unknown_face(self):
+        """ครอปภาพใบหน้าของบุคคลนิรนามที่เลือก พร้อมขอบ Padding Margin แล้วเปิด Dialog บันทึกไฟล์ภาพลงเครื่อง"""
+        if not self.selected_unknown_cluster_id or not self.selected_unknown_cluster_data:
+            messagebox.showwarning("คำเตือน", "กรุณาเลือกบุคคลนิรนามจากตารางก่อนทำการบันทึก")
+            return
+
+        cid = self.selected_unknown_cluster_id
+        cdata = self.selected_unknown_cluster_data
+        pid = cdata.get("rep_photo_id", "")
+        bbox = cdata.get("rep_bbox", [])
+        if isinstance(bbox, str):
+            try:
+                import json
+                bbox = json.loads(bbox)
+            except Exception:
+                bbox = []
+
+        cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
+        img_path = os.path.join(cache_dir, f"{pid}.jpg")
+
+        # ตรวจสอบหาไฟล์ในแคชหรือ drive_file_id
+        if not os.path.exists(img_path):
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_id = ? LIMIT 1", (pid,))
+                row = cursor.fetchone()
+                if row and row[0]:
+                    fid = row[0]
+                    alt1 = os.path.join(cache_dir, f"thumb_{fid}.jpg")
+                    alt2 = os.path.join(cache_dir, f"{fid}.jpg")
+                    if os.path.exists(alt1): img_path = alt1
+                    elif os.path.exists(alt2): img_path = alt2
+
+        if not os.path.exists(img_path):
+            messagebox.showerror("ไม่พบไฟล์รูปภาพ", f"ไม่พบไฟล์รูปถ่าย {pid} ในแคชเครื่อง")
+            return
+
+        try:
+            img = read_image_file(img_path)
+            if img is None:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถถอดรหัสรูปภาพ {img_path} ได้")
+                return
+
+            h, w = img.shape[:2]
+            if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]):
+                x1, y1, x2, y2 = bbox
+                bw = x2 - x1
+                bh = y2 - y1
+                pad_x = int(bw * 0.25)
+                pad_y = int(bh * 0.25)
+                cx1 = max(0, int(x1 - pad_x))
+                cy1 = max(0, int(y1 - pad_y))
+                cx2 = min(w, int(x2 + pad_x))
+                cy2 = min(h, int(y2 + pad_y))
+                cropped = img[cy1:cy2, cx1:cx2]
+            else:
+                cropped = img
+
+            from tkinter import filedialog
+            initial_filename = f"{cid}_{pid}_face.jpg"
+            save_path = filedialog.asksaveasfilename(
+                parent=self,
+                title="บันทึกรูปภาพใบหน้าลงเครื่อง (Save Cropped Face)",
+                defaultextension=".jpg",
+                initialfile=initial_filename,
+                filetypes=[("JPEG Image", "*.jpg"), ("PNG Image", "*.png"), ("All Files", "*.*")]
+            )
+            if not save_path:
+                return
+
+            import cv2
+            success, encoded_img = cv2.imencode('.jpg', cropped)
+            if success:
+                encoded_img.tofile(save_path)
+                logger.info(f"[UNKNOWN ANALYTICS] บันทึกรูปภาพครอปใบหน้า {cid} ไปยัง {save_path} เรียบร้อยแล้ว")
+                messagebox.showinfo("บันทึกสำเร็จ", f"บันทึกรูปภาพครอปใบหน้าของ {cid} เรียบร้อยแล้ว:\n{save_path}")
+            else:
+                messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถแปลงข้อมูลรูปภาพเพื่อบันทึกไฟล์ได้")
+
+        except Exception as ex:
+            logger.error(f"[UNKNOWN ANALYTICS] ข้อผิดพลาดในการครอปรูปภาพ: {ex}", exc_info=True)
+            messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการครอปรูปภาพ: {ex}")
+
+    def run_recluster_thread(self):
+        """ประมวลผลจัดกลุ่มสถิติบุคคลนิรนามบน Background Thread (ไม่บล็อก UI)"""
+        self.btn_run_recluster.configure(state="disabled", text="⏳ กำลังประมวลผล...")
+        self.lbl_unknown_summary.configure(text="⌛ กำลังวิเคราะห์ใบหน้านิรนาม...", text_color="#F39C12")
+
+        def worker():
+            try:
+                logger.info("[UNKNOWN ANALYTICS] 🔄 กำลังดึงเวกเตอร์ใบหน้านิรนามจากฐานข้อมูล...")
+                face_items = self.db.get_unmatched_face_embeddings()
+                if not face_items:
+                    logger.info("[UNKNOWN ANALYTICS] ไม่พบใบหน้านิรนามในฐานข้อมูล (อาจแมตช์ครบหมดแล้ว หรือยังไม่ได้สแกนรูปกิจกรรม)")
+                    self.after(0, lambda: messagebox.showinfo("แจ้งเตือน", "ไม่พบใบหน้านิรนามที่ต้องจัดกลุ่ม\n(อาจจับคู่ครบหมดแล้ว หรือยังไม่มีข้อมูลการสแกนรูปภาพกิจกรรม)"))
+                    return
+
+                logger.info(f"[UNKNOWN ANALYTICS] ดึงข้อมูลสำเร็จ {len(face_items):,} ใบหน้า กำลังทำการ Clustering...")
+                clusters_data, members_data, year_stats_data = unknown_analyzer.cluster_unknown_faces(
+                    face_items, sim_threshold=0.65, min_cluster_size=1
+                )
+
+                logger.info("[UNKNOWN ANALYTICS] บันทึกผลลัพธ์ลงตารางฐานข้อมูล SQLite...")
+                self.db.save_unknown_clusters_batch(clusters_data, members_data, year_stats_data)
+                logger.info(f"[UNKNOWN ANALYTICS] ✅ จัดกลุ่มเสร็จสมบูรณ์: {len(clusters_data):,} กลุ่ม")
+
+                def on_done():
+                    self.update_unknown_year_dropdown()
+                    self.load_unknown_clusters_list()
+                    messagebox.showinfo("ประมวลผลสำเร็จ", f"จัดกลุ่มและวิเคราะห์สถิติบุคคลนิรนามเสร็จสิ้น!\nพบทั้งหมด {len(clusters_data):,} กลุ่มบุคคล")
+
+                self.after(0, on_done)
+            except Exception as e:
+                logger.error(f"[UNKNOWN ANALYTICS] เกิดข้อผิดพลาดขณะจัดกลุ่ม: {e}", exc_info=True)
+                self.after(0, lambda err=e: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการประมวลผล: {err}"))
+            finally:
+                self.after(0, lambda: self.btn_run_recluster.configure(state="normal", text="🔄 ประมวลผลจัดกลุ่มสถิติใหม่"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
 
 if __name__ == "__main__":
     # บังคับระบบควบคุม Windows Scaling เพื่อความคมชัดของวิดเจ็ต

@@ -31,3 +31,11 @@ models/
 .vscode/
 .idea/
 *.zip
+
+# Cache and export directories
+data/thumbnail_cache/
+export_student/
+data/registered_students/
+data/registered_teachers/
+data/student_templates/
+

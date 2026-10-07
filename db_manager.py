@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import numpy as np
 import logging
 
@@ -289,8 +290,70 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create file_name/file_extension indexes: {e}")
 
+            # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
+        
+        self.create_unknown_tables()
         logger.info("SQLite database initialized successfully.")
+
+    def create_unknown_tables(self):
+        """สร้างตารางสำหรับระบบสถิติบุคคลนิรนาม (v6.20 Idempotent Method)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_clusters (
+                cluster_id TEXT PRIMARY KEY,
+                photo_count INTEGER DEFAULT 0,
+                event_count INTEGER DEFAULT 0,
+                rep_photo_id TEXT,
+                rep_face_index INTEGER,
+                rep_bbox TEXT,
+                first_seen_year TEXT,
+                last_seen_year TEXT,
+                active_years TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_cluster_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                photo_id TEXT NOT NULL,
+                face_index INTEGER NOT NULL,
+                year TEXT NOT NULL,
+                event_name TEXT,
+                confidence REAL,
+                FOREIGN KEY (cluster_id) REFERENCES unknown_clusters (cluster_id) ON DELETE CASCADE
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_cluster_year_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                year TEXT NOT NULL,
+                photo_count INTEGER DEFAULT 0,
+                rep_photo_id TEXT,
+                rep_face_index INTEGER,
+                FOREIGN KEY (cluster_id) REFERENCES unknown_clusters (cluster_id) ON DELETE CASCADE
+            )
+            """)
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_uc_photo_count ON unknown_clusters(photo_count DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_uc_last_year ON unknown_clusters(last_seen_year)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucm_cluster_id ON unknown_cluster_members(cluster_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucm_photo_id ON unknown_cluster_members(photo_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucm_year ON unknown_cluster_members(year)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucys_cluster_id ON unknown_cluster_year_stats(cluster_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucys_year ON unknown_cluster_year_stats(year)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ucys_photo_count ON unknown_cluster_year_stats(year, photo_count DESC)")
+                conn.commit()
+                logger.info("Executed database migration v6.20: created unknown_clusters, unknown_cluster_members, and unknown_cluster_year_stats tables and indexes.")
+            except Exception as e:
+                logger.warning(f"Could not create unknown analytics indexes: {e}")
 
     def purge_error_scanned_photos(self):
         """ลบรายการภาพที่เคยติด Error/Skipped ออกจาก scanned_photos เพื่อให้สามารถดึงมาสแกนใหม่ได้ทันที (v5.80)"""
@@ -1242,4 +1305,166 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 logger.error(f"[DATABASE] Error purging 0-face photos: {e}")
                 return []
+
+    # =========================================================================
+    # ระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown Faces Analytics)
+    # =========================================================================
+    def get_unmatched_face_embeddings(self):
+        """
+        ดึงเวกเตอร์ใบหน้าทั้งหมดจาก scanned_photo_faces ที่ยังไม่เคยถูกจับคู่ใน detected_faces
+        คืนค่า: ลิสต์ของดิกชันนารี [{photo_id, face_index, embedding, photo_date, event_name, bbox}]
+        """
+        results = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = """
+                SELECT pf.photo_id, pf.face_index, pf.bbox_x1, pf.bbox_y1, pf.bbox_x2, pf.bbox_y2, pf.embedding,
+                       p.photo_date, p.event_name
+                FROM scanned_photo_faces pf
+                JOIN scanned_photos p ON pf.photo_id = p.photo_id
+                WHERE pf.face_index >= 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM detected_faces df 
+                      WHERE df.photo_id = pf.photo_id
+                  )
+            """
+            cursor.execute(query)
+            for row in cursor.fetchall():
+                pid, f_idx, x1, y1, x2, y2, emb_blob, p_date, event = row
+                if emb_blob:
+                    results.append({
+                        "photo_id": pid,
+                        "face_index": f_idx,
+                        "bbox": [x1, y1, x2, y2],
+                        "embedding": emb_blob,
+                        "photo_date": p_date or "",
+                        "event_name": event or ""
+                    })
+        return results
+
+    def save_unknown_clusters_batch(self, clusters_data, members_data, year_stats_data):
+        """บันทึกผลการจัดกลุ่มสถิติบุคคลนิรนามแบบ Batch ใน 1 Transaction (ล้างของเก่าก่อนบันทึกใหม่)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM unknown_cluster_year_stats")
+                cursor.execute("DELETE FROM unknown_cluster_members")
+                cursor.execute("DELETE FROM unknown_clusters")
+
+                # 1. บันทึก unknown_clusters
+                if clusters_data:
+                    c_rows = [
+                        (c["cluster_id"], c["photo_count"], c["event_count"], c.get("rep_photo_id", ""),
+                         c.get("rep_face_index", 0), json.dumps(c.get("rep_bbox", [])),
+                         c.get("first_seen_year", ""), c.get("last_seen_year", ""), c.get("active_years", ""))
+                        for c in clusters_data
+                    ]
+                    cursor.executemany("""
+                        INSERT INTO unknown_clusters 
+                        (cluster_id, photo_count, event_count, rep_photo_id, rep_face_index, rep_bbox, first_seen_year, last_seen_year, active_years)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, c_rows)
+
+                # 2. บันทึก unknown_cluster_members
+                if members_data:
+                    m_rows = [
+                        (m["cluster_id"], m["photo_id"], m["face_index"], m["year"], m.get("event_name", ""), m.get("confidence", 0.0))
+                        for m in members_data
+                    ]
+                    cursor.executemany("""
+                        INSERT INTO unknown_cluster_members
+                        (cluster_id, photo_id, face_index, year, event_name, confidence)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, m_rows)
+
+                # 3. บันทึก unknown_cluster_year_stats
+                if year_stats_data:
+                    y_rows = [
+                        (y["cluster_id"], y["year"], y["photo_count"], y.get("rep_photo_id", ""), y.get("rep_face_index", 0))
+                        for y in year_stats_data
+                    ]
+                    cursor.executemany("""
+                        INSERT INTO unknown_cluster_year_stats
+                        (cluster_id, year, photo_count, rep_photo_id, rep_face_index)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, y_rows)
+
+                conn.commit()
+                logger.info(f"[DATABASE] Saved {len(clusters_data)} unknown clusters, {len(members_data)} members, {len(year_stats_data)} year stats.")
+                return True
+            except Exception as e:
+                logger.error(f"[DATABASE] Error saving unknown clusters batch: {e}", exc_info=True)
+                conn.rollback()
+                return False
+
+    def get_unknown_clusters_summary(self, selected_year="all", min_photos=1):
+        """ดึงรายการจัดอันดับบุคคลนิรนามตามเงื่อนไขปีและจำนวนรูปขั้นต่ำ"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if selected_year == "all":
+                query = """
+                    SELECT cluster_id, photo_count, event_count, rep_photo_id, rep_face_index, 
+                           rep_bbox, first_seen_year, last_seen_year, active_years
+                    FROM unknown_clusters
+                    WHERE photo_count >= ?
+                    ORDER BY photo_count DESC
+                """
+                cursor.execute(query, (min_photos,))
+            else:
+                query = """
+                    SELECT c.cluster_id, y.photo_count as year_photos, c.photo_count as total_photos,
+                           c.event_count, y.rep_photo_id, y.rep_face_index, c.rep_bbox,
+                           c.first_seen_year, c.last_seen_year, c.active_years
+                    FROM unknown_cluster_year_stats y
+                    JOIN unknown_clusters c ON y.cluster_id = c.cluster_id
+                    WHERE y.year = ? AND y.photo_count >= ?
+                    ORDER BY y.photo_count DESC
+                """
+                cursor.execute(query, (selected_year, min_photos))
+            return cursor.fetchall()
+
+    def get_unknown_cluster_yearly_breakdown(self, cluster_id):
+        """ดึงสถิติจำนวนรูปแยกตามปี พ.ศ. เรียงจากปัจจุบันไปหาอดีต"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT year, photo_count, rep_photo_id, rep_face_index
+                FROM unknown_cluster_year_stats
+                WHERE cluster_id = ?
+                ORDER BY CAST(year AS INTEGER) DESC
+            """, (cluster_id,))
+            return cursor.fetchall()
+
+    def get_unknown_cluster_member_photos(self, cluster_id, filter_year=None):
+        """ดึงรูปถ่ายกิจกรรมทั้งหมดที่มีบุคคลนิรนามนี้ปรากฏตัว"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if filter_year and filter_year != "all":
+                query = """
+                    SELECT m.photo_id, m.face_index, m.year, m.event_name, p.drive_link, p.photo_date, pf.bbox_x1, pf.bbox_y1, pf.bbox_x2, pf.bbox_y2
+                    FROM unknown_cluster_members m
+                    LEFT JOIN scanned_photos p ON m.photo_id = p.photo_id
+                    LEFT JOIN scanned_photo_faces pf ON m.photo_id = pf.photo_id AND m.face_index = pf.face_index
+                    WHERE m.cluster_id = ? AND m.year = ?
+                    ORDER BY p.photo_date DESC, m.photo_id DESC
+                """
+                cursor.execute(query, (cluster_id, filter_year))
+            else:
+                query = """
+                    SELECT m.photo_id, m.face_index, m.year, m.event_name, p.drive_link, p.photo_date, pf.bbox_x1, pf.bbox_y1, pf.bbox_x2, pf.bbox_y2
+                    FROM unknown_cluster_members m
+                    LEFT JOIN scanned_photos p ON m.photo_id = p.photo_id
+                    LEFT JOIN scanned_photo_faces pf ON m.photo_id = pf.photo_id AND m.face_index = pf.face_index
+                    WHERE m.cluster_id = ?
+                    ORDER BY p.photo_date DESC, m.photo_id DESC
+                """
+                cursor.execute(query, (cluster_id,))
+            return cursor.fetchall()
+
+    def get_unknown_available_years(self):
+        """ดึงรายชื่อปี พ.ศ. ทั้งหมดที่มีข้อมูลใน unknown_cluster_year_stats เรียงจากปัจจุบันไปหาอดีต"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT year FROM unknown_cluster_year_stats ORDER BY CAST(year AS INTEGER) DESC")
+            return [row[0] for row in cursor.fetchall() if row[0] and row[0] != "ไม่ระบุปี"]
 

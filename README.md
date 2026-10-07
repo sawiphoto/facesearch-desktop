@@ -1,3 +1,153 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.20 (Unknown Faces VIP & Yearly Analytics Dashboard)
+
+## 📋 Version 6.20 Changelog (Unknown Faces VIP Analytics & Yearly Gradient Bar Chart)
+
+**Date:** 8 ตุลาคม 2026 (03:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash (High Reasoning)  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ระบบจัดกลุ่มและสถิติใบหน้าบุคคลนิรนาม (Unknown Faces VIP Discovery):**
+   - ในรูปภาพกิจกรรมของโรงเรียนมีใบหน้าที่ยังไม่ได้จับคู่กับครูหรือนักเรียน (`scanned_photo_faces` ที่ไม่มีใน `detected_faces`) จำนวนมาก ผู้ใช้ต้องการดูสถิติว่ามีบุคคลนิรนามคนใดที่มีรูปเยอะเป็นพิเศษ (อาจเป็นบุคคลสำคัญ, ผู้บริหาร, ครูเกษียณอายุราชการ, หรือศิษย์เก่า)
+2. **ตัวกรองมุมมองทั้งแบบภาพรวมและแยกรายปี (Overall & Yearly Breakdown Filter):**
+   - ต้องการดูสถิติทั้งแบบภาพรวมสะสมทั้งหมด (Overall ทุกปี) และตัวกรองคัดแยกดูเฉพาะรายปี พ.ศ. (2569, 2568, 2567, 2566, 2565, 2563, ...)
+3. **กราฟแท่งเปรียบเทียบสถิติรายปีพร้อมการไล่เฉดสี (Yearly Gradient Bar Chart):**
+   - แสดงกราฟแท่งแนวโน้มจำนวนรูปของแต่ละบุคคล โดยต้อง **เรียงลำดับปีจากปัจจุบันไปหาอดีต** (เช่น 2569 ➔ 2568 ➔ 2567 ➔ ...)
+   - แท่งกราฟต้องมีการไล่เฉดสีตามจำนวนรูปอย่างสวยงาม: **ค่าน้อย = สีแดง (`#E74C3C`) ➔ ค่าปานกลาง = สีเหลือง/ส้ม (`#F1C40F`) ➔ ค่ามาก = สีเขียวสด (`#2ECC71`)**
+4. **ปุ่มบันทึกรูปภาพครอปใบหน้าลงเครื่อง (Save Cropped Face to Disk):**
+   - มีปุ่ม `💾 บันทึกรูปครอปใบหน้าลงเครื่อง (Save Cropped Face)` เพื่อตัดรูปใบหน้าความละเอียดสูงพร้อมขอบ Margin 25% และเปิดไดอะล็อกให้ผู้ใช้เซฟเป็นไฟล์ `.jpg`/`.png` ลงเครื่องคอมพิวเตอร์
+5. **ความปลอดภัยของระบบเดิม (Zero-Impact Guarantee):**
+   - ต้องจัดเก็บในตารางฐานข้อมูล SQLite ใหม่โดยเฉพาะ (`unknown_clusters`, `unknown_cluster_members`, `unknown_cluster_year_stats`) ไม่รบกวนตารางหลักเดิม และไม่แตะต้อง Google Drive JSON Index ใดๆ
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สร้างตารางใหม่ 3 ตารางใน [`db_manager.py`](db_manager.py):**
+   - `unknown_clusters`: เก็บรหัสกลุ่ม `UNK_xxxxx`, จำนวนรูปภาพ, จำนวนกิจกรรม, รูปตัวแทน และช่วงปีที่พบ
+   - `unknown_cluster_members`: เก็บสมาชิกใบหน้าแต่ละรูปภาพ ชี้ไปยังคลัสเตอร์ พร้อมปี พ.ศ. และค่าความคล้าย
+   - `unknown_cluster_year_stats`: เก็บสถิติแยกตามปี พ.ศ. สำหรับใช้วาดกราฟแท่งเปรียบเทียบ
+   - เพิ่มฟังก์ชัน `create_unknown_tables()`, `get_unmatched_face_embeddings()`, `save_unknown_clusters_batch()`, `get_unknown_clusters_summary()`, `get_unknown_cluster_yearly_breakdown()`, `get_unknown_cluster_member_photos()`, และ `get_unknown_available_years()`
+2. **สร้าง Clustering Engine ใหม่ใน [`unknown_analyzer.py`](unknown_analyzer.py):**
+   - ฟังก์ชัน `extract_thai_year(photo_date, event_name)` สกัดปี พ.ศ. จากวันที่ หรือชื่อโฟลเดอร์ Fallback
+   - ฟังก์ชัน `cluster_unknown_faces(face_items, sim_threshold=0.65)` ทำงานด้วย Greedy Leader Clustering บน Normalized Cosine Embeddings ป้องกัน Anti-Drift รวดเร็วระดับ $O(N \cdot K)$
+3. **สร้างวิดเจ็ตกราฟแท่งไล่เฉดสีใน [`gradient_chart.py`](gradient_chart.py):**
+   - คลาส `GradientBarChart` บน Tkinter Canvas เนทีฟ (ไม่ต้องพึ่ง matplotlib)
+   - ฟังก์ชัน `get_gradient_color(value, min_val, max_val)` คำนวณการไล่เฉดสีตามสัดส่วนค่าน้อย (แดง) ➔ ปานกลาง (เหลือง) ➔ มาก (เขียว)
+   - รองรับการคลิกที่แท่งปีเพื่อ Filter ภาพในแกลเลอรีอัตโนมัติ
+4. **ออกแบบหน้าต่าง UI ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มปุ่มเมนู Sidebar `👥 สถิติบุคคลนิรนาม (Unknowns)`
+   - แถบควบคุมด้านบน: Dropdown ปี, ช่องกรองจำนวนรูปขั้นต่ำ, ปุ่ม `🔄 ประมวลผลจัดกลุ่มสถิติใหม่` ทำงานบน Background Thread ไม่บล็อก GUI
+   - เลย์เอาต์แบ่ง 2 ฝั่ง: ฝั่งซ้ายเป็นตารางจัดอันดับ (Treeview) พร้อมช่องค้นหารหัสกลุ่ม, ฝั่งขวาเป็นการ์ดโปรไฟล์, ปุ่ม `💾 บันทึกรูปครอปใบหน้าลงเครื่อง`, กราฟแท่งเฉดสีรายปี, และแกลเลอรีรูปภาพกิจกรรม
+5. **ผ่านการทดสอบจริงตาม Test Cases Matrix (TC-01 ถึง TC-18) ครบถ้วน 100%:**
+   - ทดสอบ Schema, Idempotency, Filtering, Thai Year Extraction, Clustering, Anti-Drift, Batch DB, Gradient Colors, Year Sorting, Edge Cases, Image Cropping, Thai Unicode Export, และ Multi-Threading
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py` (เพิ่มโครงสร้างตารางใหม่และ Batch Save/Query Methods)
+```python
+# Before (v6.11):
+# ไม่มีตารางและเมธอดสำหรับระบบบุคคลนิรนาม (Unknown Analytics)
+
+# After (v6.20):
+    def create_unknown_tables(self):
+        """สร้างตารางสำหรับระบบสถิติบุคคลนิรนาม (v6.20 Idempotent Method)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_clusters (
+                cluster_id TEXT PRIMARY KEY,
+                photo_count INTEGER DEFAULT 0,
+                event_count INTEGER DEFAULT 0,
+                rep_photo_id TEXT,
+                rep_face_index INTEGER,
+                rep_bbox TEXT,
+                first_seen_year TEXT,
+                last_seen_year TEXT,
+                active_years TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_cluster_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                photo_id TEXT NOT NULL,
+                face_index INTEGER NOT NULL,
+                year TEXT NOT NULL,
+                event_name TEXT,
+                confidence REAL,
+                FOREIGN KEY (cluster_id) REFERENCES unknown_clusters (cluster_id) ON DELETE CASCADE
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_cluster_year_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                year TEXT NOT NULL,
+                photo_count INTEGER DEFAULT 0,
+                rep_photo_id TEXT,
+                rep_face_index INTEGER,
+                FOREIGN KEY (cluster_id) REFERENCES unknown_clusters (cluster_id) ON DELETE CASCADE
+            )
+            """)
+            conn.commit()
+```
+
+#### 2. `gradient_chart.py` (ระบบกราฟแท่งเฉดสีแดง-เหลือง-เขียว เรียงปัจจุบัน ➔ อดีต)
+```python
+# Before (v6.11):
+# ไม่มีโมดูล gradient_chart.py
+
+# After (v6.20):
+def get_gradient_color(value, min_val, max_val):
+    RED = (231, 76, 60)      # #E74C3C
+    YELLOW = (241, 196, 15)  # #F1C40F
+    GREEN = (46, 204, 113)   # #2ECC71
+
+    if max_val <= min_val:
+        return interpolate_color(GREEN, GREEN, 1.0)
+
+    ratio = max(0.0, min(1.0, (value - min_val) / (max_val - min_val)))
+    if ratio <= 0.5:
+        return interpolate_color(RED, YELLOW, ratio / 0.5)
+    else:
+        return interpolate_color(YELLOW, GREEN, (ratio - 0.5) / 0.5)
+
+class GradientBarChart(ctk.CTkFrame):
+    def set_data(self, yearly_stats):
+        # เรียงลำดับจากปัจจุบัน ➔ อดีต
+        self.bar_data.sort(key=lambda x: int(x[0]) if x[0].isdigit() else -1, reverse=True)
+        self.draw_chart()
+```
+
+#### 3. `app_gui.py` (เพิ่มเมนู Sidebar, หน้ารวมสถิติบุคคลนิรนาม และปุ่มครอปภาพ)
+```python
+# Before (v6.11):
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)")
+text="FACE MATCHING\nSYSTEM v6.11"
+
+# After (v6.20):
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.20 (Unknown Faces VIP & Yearly Analytics Dashboard)")
+text="FACE MATCHING\nSYSTEM v6.20"
+
+self.btn_unknown_analytics = ctk.CTkButton(
+    self.sidebar_frame, text="👥 สถิติบุคคลนิรนาม (Unknowns)", height=36, font=menu_font,
+    fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+    anchor="w", command=lambda: self.select_menu("unknown_analytics")
+)
+
+def export_cropped_unknown_face(self):
+    """ครอปภาพใบหน้าของบุคคลนิรนามที่เลือก พร้อมขอบ Padding Margin 25% แล้วเปิด Dialog บันทึกไฟล์ภาพลงเครื่อง"""
+    # ครอปและบันทึกไฟล์ภาพด้วย cv2.imencode('.jpg', cropped).tofile(save_path)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)
 
 ## 📋 Version 6.11 Changelog (Folder-Aware Logging, Auto P-Serial Recovery & Console Log Filters)
