@@ -875,6 +875,20 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else None
 
+    def get_next_photo_serial(self):
+        """ดึงเลขลำดับถัดไปของ photo_id แบบ Pxxxxx (เช่น P43682)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT photo_id FROM scanned_photos WHERE photo_id LIKE 'P%' ORDER BY CAST(SUBSTR(photo_id, 2) AS INTEGER) DESC LIMIT 1")
+            row = cursor.fetchone()
+            if row and row[0]:
+                try:
+                    num_part = int(row[0][1:])
+                    return num_part + 1
+                except ValueError:
+                    pass
+            return 1
+
     def has_cached_faces(self, photo_id):
         """ตรวจสอบว่ารูปนี้มีแคชใบหน้าบันทึกไว้ในตารางหรือไม่"""
         with self.get_connection() as conn:

@@ -672,7 +672,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.10 (Camera RAW Files Management & Separation)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -693,6 +693,8 @@ class FaceSearchApp(ctk.CTk):
         
         # คิวจัดการ Log เพื่อป้องกันหน้าจอค้าง
         self.log_queue = queue.Queue()
+        self.console_log_history = []  # v6.11: เก็บประวัติ Log (msg, tag) เพื่อใช้สลับตัวกรอง All / Warning / Error
+        self.console_filter_mode = "all"  # v6.11: โหมดตัวกรองปัจจุบัน ('all', 'warning', 'error')
         queue_handler = GUIQueueHandler(self.log_queue)
         formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', '%H:%M:%S')
         queue_handler.setFormatter(formatter)
@@ -756,7 +758,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.10",
+            text="FACE MATCHING\nSYSTEM v6.11",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2996,17 +2998,67 @@ class FaceSearchApp(ctk.CTk):
                     tag = "magenta"
 
                 
-                self.console_text.insert("end", msg + "\n", tag)
-                self.console_text.see("end")
-                
-                # จำกัดจำนวนบรรทัดของ Console เพื่อป้องกันค้าง (เช่น เก็บ 5000 บรรทัดล่าสุด)
-                num_lines = float(self.console_text.index('end-1c').split('.')[0])
-                if num_lines > 5000:
-                    self.console_text.delete('1.0', '100.0')
+                # เก็บเข้าประวัติ Log ในหน่วยความจำ (จำกัด 6000 บรรทัด)
+                if not hasattr(self, 'console_log_history'):
+                    self.console_log_history = []
+                self.console_log_history.append((msg, tag))
+                if len(self.console_log_history) > 6000:
+                    self.console_log_history.pop(0)
+
+                # ตรวจสอบตัวกรองปัจจุบันว่าต้องแสดงบรรทัดนี้หรือไม่
+                current_mode = getattr(self, 'console_filter_mode', 'all')
+                should_display = True
+                if current_mode == "warning":
+                    should_display = (tag == "orange_red" or "WARNING" in msg_upper or "⚠️" in msg)
+                elif current_mode == "error":
+                    should_display = (tag == "red" or "ERROR" in msg_upper or "❌" in msg)
+
+                if should_display:
+                    self.console_text.insert("end", msg + "\n", tag)
+                    self.console_text.see("end")
+                    
+                    # จำกัดจำนวนบรรทัดของ Console เพื่อป้องกันค้าง (เช่น เก็บ 5000 บรรทัดล่าสุด)
+                    num_lines = float(self.console_text.index('end-1c').split('.')[0])
+                    if num_lines > 5000:
+                        self.console_text.delete('1.0', '100.0')
             except queue.Empty:
                 break
         # เช็คซ้ำทุก 100 มิลลิวินาที
         self.after(100, self.check_log_queue)
+
+    def set_console_log_filter(self, mode):
+        """สลับตัวกรอง Console Log ('all', 'warning', 'error') (v6.11)"""
+        self.console_filter_mode = mode
+        
+        # อัปเดตสีปุ่มไฮไลต์สถานะการเลือก
+        if hasattr(self, 'btn_filter_all'):
+            if mode == "all":
+                self.btn_filter_all.configure(fg_color="#2ECC71", hover_color="#27AE60", text_color="black")
+                self.btn_filter_warning.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#FFA726")
+                self.btn_filter_error.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#FF5252")
+            elif mode == "warning":
+                self.btn_filter_all.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#ECEFF1")
+                self.btn_filter_warning.configure(fg_color="#FFA726", hover_color="#FB8C00", text_color="black")
+                self.btn_filter_error.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#FF5252")
+            elif mode == "error":
+                self.btn_filter_all.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#ECEFF1")
+                self.btn_filter_warning.configure(fg_color="#1F3A60", hover_color="#20334F", text_color="#FFA726")
+                self.btn_filter_error.configure(fg_color="#FF5252", hover_color="#E53935", text_color="white")
+
+        # เรนเดอร์ข้อความใน Console Textbox ใหม่จากประวัติ
+        self.console_text.delete('1.0', 'end')
+        history = getattr(self, 'console_log_history', [])
+        for m, t in history:
+            m_upper = m.upper()
+            show = True
+            if mode == "warning":
+                show = (t == "orange_red" or "WARNING" in m_upper or "⚠️" in m)
+            elif mode == "error":
+                show = (t == "red" or "ERROR" in m_upper or "❌" in m)
+            
+            if show:
+                self.console_text.insert("end", m + "\n", t)
+        self.console_text.see("end")
 
     def toggle_scanning(self):
         if self.is_scanning:
@@ -4289,26 +4341,48 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD"
         ).grid(row=0, column=0, sticky="w")
 
+        # กลุ่มปุ่มคัดกรอง Log (v6.11: All / Warning / Error)
+        self.btn_filter_all = ctk.CTkButton(
+            log_header, text="🌐 ทั้งหมด", width=75, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#2ECC71", hover_color="#27AE60", text_color="black",
+            command=lambda: self.set_console_log_filter("all")
+        )
+        self.btn_filter_all.grid(row=0, column=1, padx=(0, 4), sticky="e")
+
+        self.btn_filter_warning = ctk.CTkButton(
+            log_header, text="⚠️ Warning", width=85, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", text_color="#FFA726",
+            command=lambda: self.set_console_log_filter("warning")
+        )
+        self.btn_filter_warning.grid(row=0, column=2, padx=(0, 4), sticky="e")
+
+        self.btn_filter_error = ctk.CTkButton(
+            log_header, text="❌ Error", width=75, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", text_color="#FF5252",
+            command=lambda: self.set_console_log_filter("error")
+        )
+        self.btn_filter_error.grid(row=0, column=3, padx=(0, 8), sticky="e")
+
         btn_copy_log = ctk.CTkButton(
-            log_header, text="📋 คัดลอกที่เลือก", width=125, height=28, 
+            log_header, text="📋 คัดลอกที่เลือก", width=110, height=28, 
             font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.copy_console_selection
         )
-        btn_copy_log.grid(row=0, column=1, padx=(0, 5), sticky="e")
+        btn_copy_log.grid(row=0, column=4, padx=(0, 4), sticky="e")
 
         btn_copy_all = ctk.CTkButton(
-            log_header, text="📋 คัดลอกทั้งหมด", width=120, height=28, 
+            log_header, text="📋 คัดลอกทั้งหมด", width=110, height=28, 
             font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.copy_all_console_log
         )
-        btn_copy_all.grid(row=0, column=2, padx=(0, 5), sticky="e")
+        btn_copy_all.grid(row=0, column=5, padx=(0, 4), sticky="e")
 
         btn_clear_log = ctk.CTkButton(
-            log_header, text="🧹 ล้าง Log", width=90, height=28, 
+            log_header, text="🧹 ล้าง Log", width=80, height=28, 
             font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
             command=self.clear_console_log
         )
-        btn_clear_log.grid(row=0, column=3, sticky="e")
+        btn_clear_log.grid(row=0, column=6, sticky="e")
 
         # กล่อง Textbox แสดง Log สีขาวพื้นฐานบนพื้นดำสไตล์ Terminal (ฟอนต์ขนาด 12pt อ่านง่าย)
         self.console_text = ctk.CTkTextbox(
@@ -4384,6 +4458,7 @@ class FaceSearchApp(ctk.CTk):
 
     def clear_console_log(self):
         self.console_text.delete('1.0', 'end')
+        self.console_log_history = []
 
     # ==================== (4) หน้าดูฐานข้อมูล SQLite ====================
     def setup_database_ui(self):

@@ -878,7 +878,7 @@ class SchedulerTask:
                     # 📷 ตรวจจับไฟล์ RAW กล้องดิจิทัล (Sony .ARW, Canon .CR2/.CR3, Nikon .NEF, Fuji .RAF, etc.) (v6.10)
                     camera_brand = RAW_EXTENSIONS_MAP.get(f_ext)
                     if camera_brand:
-                        logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📷 ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {f_name} (บันทึกลง raw_camera_photos โดยอัตโนมัติ ข้ามการดาวน์โหลด)")
+                        logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) 📷 ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {f_name} (บันทึกลง raw_camera_photos โดยอัตโนมัติ ข้ามการดาวน์โหลด)")
                         raw_photos_data.append({
                             "photo_id": f_id,
                             "drive_file_id": f_id,
@@ -892,7 +892,7 @@ class SchedulerTask:
                         processed_count += 1
                         continue
 
-                    logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
+                    logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
                     
                     try:
                         # 1. ดาวน์โหลดรูปภาพจาก Drive (Single Thread - Safe Google API Call)
@@ -902,7 +902,7 @@ class SchedulerTask:
                         t_dl = time.time() - t_dl_start
                         
                         if not img_bytes:
-                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
+                            logger.warning(f"[AI SCAN] [{folder_name}] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_DOWNLOAD_EMPTY"))
                             processed_count += 1
                             continue
@@ -911,7 +911,7 @@ class SchedulerTask:
                         img = decode_image_bytes(img_bytes)
                         
                         if img is None:
-                            logger.warning(f"[AI SCAN] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
+                            logger.warning(f"[AI SCAN] [{folder_name}] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_UNREADABLE_IMAGE"))
                             processed_count += 1
                             continue
@@ -951,7 +951,7 @@ class SchedulerTask:
                                         })
 
                         match_str = f"-> [MATCH_OK] เจอ: {', '.join(match_names)}" if match_names else "-> ไม่พบคนในระบบ"
-                        logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) ✅ {f_name} | DL: {t_dl:.2f}s | AI: {t_ai:.2f}s | พบ {len(faces) if faces else 0} ใบหน้า {match_str}")
+                        logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) ✅ {f_name} | DL: {t_dl:.2f}s | AI: {t_ai:.2f}s | พบ {len(faces) if faces else 0} ใบหน้า {match_str}")
                         
                         # Save Thumbnail Cache (รองรับ Encoding โฟลเดอร์ภาษาไทยบน Windows)
                         try:
@@ -966,10 +966,18 @@ class SchedulerTask:
                                 if success:
                                     encoded_img.tofile(thumb_path)
                         except Exception as thumb_err:
-                            logger.error(f"[AI SCAN] ⚠️ บันทึก Thumbnail Cache ล้มเหลวสำหรับ {f_id}: {thumb_err}")
+                            logger.error(f"[AI SCAN] [{folder_name}] ⚠️ บันทึก Thumbnail Cache ล้มเหลวสำหรับ {f_id}: {thumb_err}")
+
+                        # สร้าง photo_id รูปแบบ Pxxxxx ต่อเนื่อง (v6.11) หรือใช้ ID เดิมหากมี
+                        existing_photo_id = self.db.get_photo_id_by_drive_id(f_id)
+                        if existing_photo_id:
+                            photo_id = existing_photo_id
+                        else:
+                            photo_serial = self.db.get_next_photo_serial() + len(results_data)
+                            photo_id = f"P{photo_serial:05d}"
 
                         results_data.append({
-                            "photo_id": f_id,
+                            "photo_id": photo_id,
                             "drive_file_id": f_id,
                             "event_name": folder_name,
                             "drive_link": f_link,
@@ -983,7 +991,7 @@ class SchedulerTask:
                         processed_count += 1
                             
                     except Exception as e:
-                        logger.error(f"[AI SCAN] ❌ Error analyzing faces for {f_name}: {e} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
+                        logger.error(f"[AI SCAN] [{folder_name}] ❌ Error analyzing faces for {f_name}: {e} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                         skipped_files.append((f_id, f_name, f"ERROR_{e}"))
                         processed_count += 1
 

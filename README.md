@@ -1,4 +1,114 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)
+
+## 📋 Version 6.11 Changelog (Folder-Aware Logging, Auto P-Serial Recovery & Console Log Filters)
+
+**Date:** 8 ตุลาคม 2026 (02:25 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **แสดงชื่อโฟลเดอร์ใน Log การสแกนภาพ (Folder-Aware AI Scan Logging):**
+   - ข้อความบันทึกเหตุการณ์การสแกน `[AI SCAN]` เดิมไม่ได้ระบุชื่อโฟลเดอร์ เช่น `[AI SCAN] (18/48) 📥 โหลดรูปภาพจาก Drive: ...` ทำให้ผู้ใช้ติดตามได้ยากว่ากำลังประมวลผลโฟลเดอร์กิจกรรมใดอยู่
+2. **กู้คืนรูปแบบ `photo_id` ให้เป็นรหัสจำง่ายต่อเนื่อง (`Pxxxxx`):**
+   - ใน Scheduler Task หลังบ้าน มีการกำหนด `photo_id` เป็น Google Drive File ID (`f_id`) โดยตรง ทำให้รูปภาพใหม่มีรหัสยาวไม่เป็นระเบียบ ขณะที่หน้า GUI มีการรันรหัส `P00001` - `P43681` ผู้ใช้ต้องการให้รูปภาพใหม่ต่อจากนี้สร้างรหัสต่อเป็น `Pxxxxx` ตามลำดับ โดยคงรูปภาพเดิมไว้ไม่ให้กระทบต่อผลการค้นหา
+3. **เพิ่มปุ่มตัวกรองเฉพาะ Error และ Warning ใน Console:**
+   - ในหน้าต่าง Console Debug logs มีข้อความ Log ไหลต่อเนื่องจำนวนมาก ผู้ใช้ต้องการปุ่มคัดกรองเฉพาะคำเตือน (Warning) และข้อผิดพลาด (Error) เพื่อให้ตรวจสอบปัญหาการทำงานได้อย่างรวดเร็ว
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **เพิ่มเมธอด `get_next_photo_serial()` ใน [`db_manager.py`](db_manager.py):**
+   - รองรับการสืบค้นหาเลขลำดับล่าสุดของรหัส `P%` จาก SQLite (`MAX(CAST(SUBSTR(photo_id, 2) AS INTEGER))`) เพื่อให้ทุกส่วนของระบบดึงรหัสถัดไปมาใช้ได้อย่าง Thread-Safe
+2. **ปรับปรุงกระบวนการสแกนใน [`scheduler_task.py`](scheduler_task.py):**
+   - เพิ่ม `[{folder_name}]` ในข้อความ Log ของ `[AI SCAN]` ทุกจุด (ตรวจพบ RAW, กำลังดาวน์โหลด, โหลดไม่สำเร็จ, ดีโค้ดไม่สำเร็จ, สแกนสำเร็จ, และ Error)
+   - ปรับการตั้งค่า `photo_id` ของรูปใหม่ที่สแกนสำเร็จ ให้สร้างเป็น `P{photo_serial:05d}` รันต่อเนื่องกันอัตโนมัติ (ต่อจาก `P43681` เป็น `P43682`, `P43683`, ...)
+3. **เพิ่มชุดปุ่มตัวกรอง Log บน Console และระบบเก็บ Log History ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มปุ่มใน `log_header`:
+     - 🌐 **ทั้งหมด (All)** (สีเขียว Active เริ่มต้น)
+     - ⚠️ **Warning** (ตัวหนังสือสีส้ม)
+     - ❌ **Error** (ตัวหนังสือสีแดง)
+   - เพิ่มตัวแปร `self.console_log_history` ในหน่วยความจำ และฟังก์ชัน `set_console_log_filter(mode)` ที่สามารถสลับกรองการแสดงผลได้ทันที
+   - ปรับฟังก์ชัน `clear_console_log()` ให้ล้างทั้ง Textbox และ Buffer ประวัติ
+4. **อัปเดตเวอร์ชันโปรแกรมเป็น `v6.11`:**
+   - Window Title: `ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.11 (Folder Logging, Auto P-Serial & Console Log Filter)`
+   - Sidebar Logo: `FACE MATCHING\nSYSTEM v6.11`
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py` (เพิ่มส่วนกลาง `get_next_photo_serial`)
+```python
+# Before (v6.10):
+# ไม่มีฟังก์ชัน get_next_photo_serial() ใน db_manager.py (มีเฉพาะใน app_gui.py)
+
+# After (v6.11):
+    def get_next_photo_serial(self):
+        """ดึงเลขลำดับถัดไปของ photo_id แบบ Pxxxxx (เช่น P43682)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT photo_id FROM scanned_photos WHERE photo_id LIKE 'P%' ORDER BY CAST(SUBSTR(photo_id, 2) AS INTEGER) DESC LIMIT 1")
+            row = cursor.fetchone()
+            if row and row[0]:
+                try:
+                    num_part = int(row[0][1:])
+                    return num_part + 1
+                except ValueError:
+                    pass
+            return 1
+```
+
+#### 2. `scheduler_task.py` (แสดง Folder ใน Log และสร้าง `Pxxxxx` ให้รูปใหม่)
+```python
+# Before (v6.10):
+logger.info(f"[AI SCAN] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
+...
+results_data.append({
+    "photo_id": f_id,
+    "drive_file_id": f_id,
+    ...
+})
+
+# After (v6.11):
+logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) 📥 โหลดรูปภาพจาก Drive: {f_name} (ID: {f_id})")
+...
+existing_photo_id = self.db.get_photo_id_by_drive_id(f_id)
+if existing_photo_id:
+    photo_id = existing_photo_id
+else:
+    photo_serial = self.db.get_next_photo_serial() + len(results_data)
+    photo_id = f"P{photo_serial:05d}"
+
+results_data.append({
+    "photo_id": photo_id,
+    "drive_file_id": f_id,
+    "event_name": folder_name,
+    ...
+})
+```
+
+#### 3. `app_gui.py` (เพิ่มปุ่มกรอง Error / Warning ใน Console Debug logs)
+```python
+# Before (v6.10):
+btn_copy_log = ctk.CTkButton(log_header, text="📋 คัดลอกที่เลือก", ...)
+btn_copy_all = ctk.CTkButton(log_header, text="📋 คัดลอกทั้งหมด", ...)
+btn_clear_log = ctk.CTkButton(log_header, text="🧹 ล้าง Log", ...)
+
+# After (v6.11):
+self.btn_filter_all = ctk.CTkButton(log_header, text="🌐 ทั้งหมด", command=lambda: self.set_console_log_filter("all"))
+self.btn_filter_warning = ctk.CTkButton(log_header, text="⚠️ Warning", command=lambda: self.set_console_log_filter("warning"))
+self.btn_filter_error = ctk.CTkButton(log_header, text="❌ Error", command=lambda: self.set_console_log_filter("error"))
+btn_copy_log = ctk.CTkButton(log_header, text="📋 คัดลอกที่เลือก", ...)
+btn_copy_all = ctk.CTkButton(log_header, text="📋 คัดลอกทั้งหมด", ...)
+btn_clear_log = ctk.CTkButton(log_header, text="🧹 ล้าง Log", ...)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.10 (Camera RAW Files Management & Separation)
+
 
 ## 📋 Version 6.10 Changelog (Camera RAW Files Management & Dedicated Table Separation)
 
