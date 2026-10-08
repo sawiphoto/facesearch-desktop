@@ -674,7 +674,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.21 (High-Performance Vectorized Unknown Analytics)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.22 (High-Precision Anti-Drift Unknown Analytics)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -767,7 +767,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.21",
+            text="FACE MATCHING\nSYSTEM v6.22",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -7923,34 +7923,56 @@ class FaceSearchApp(ctk.CTk):
         def _loader():
             cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
             img_path = os.path.join(cache_dir, f"{photo_id}.jpg")
-            if not os.path.exists(img_path):
+            drive_fid = None
+            if not os.path.exists(img_path) or os.path.getsize(img_path) == 0:
                 with self.db.get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT drive_file_id FROM scanned_photos WHERE photo_id = ? LIMIT 1", (photo_id,))
                     row = cursor.fetchone()
                     if row and row[0]:
-                        fid = row[0]
-                        alt1 = os.path.join(cache_dir, f"thumb_{fid}.jpg")
-                        alt2 = os.path.join(cache_dir, f"{fid}.jpg")
-                        if os.path.exists(alt1): img_path = alt1
-                        elif os.path.exists(alt2): img_path = alt2
+                        drive_fid = row[0]
+                        alt1 = os.path.join(cache_dir, f"thumb_{drive_fid}.jpg")
+                        alt2 = os.path.join(cache_dir, f"{drive_fid}.jpg")
+                        if os.path.exists(alt1) and os.path.getsize(alt1) > 0: img_path = alt1
+                        elif os.path.exists(alt2) and os.path.getsize(alt2) > 0: img_path = alt2
 
-            if os.path.exists(img_path):
+            # ถ้ายังไม่มีไฟล์ในแคช ให้ลองดาวน์โหลดจาก Google Drive
+            if (not os.path.exists(img_path) or os.path.getsize(img_path) == 0) and drive_fid:
+                if hasattr(self, 'sync_manager') and self.sync_manager:
+                    try:
+                        img_bytes, _, _ = self.sync_manager.download_image_bytes_with_stats(drive_fid, f"rep_{drive_fid}")
+                        if img_bytes:
+                            target_p = os.path.join(cache_dir, f"{photo_id}.jpg")
+                            with open(target_p, "wb") as f_out:
+                                f_out.write(img_bytes)
+                            img_path = target_p
+                    except Exception as dl_err:
+                        logger.debug(f"Rep face auto-download failed: {dl_err}")
+
+            if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
                 try:
                     img = read_image_file(img_path)
-                    if img is not None:
+                    if img is not None and img.size > 0:
                         h, w = img.shape[:2]
                         if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]):
                             x1, y1, x2, y2 = bbox
+                            # ตรวจสอบสเกลกรณี img เป็น thumbnail ที่ถูกย่อขนาด แต่ bbox เป็นพิกัดภาพเดิม
+                            if (x2 > w or y2 > h) and w > 0 and h > 0:
+                                orig_max = max(x2 * 1.05, y2 * 1.05, max(w, h))
+                                scale_f = max(w, h) / orig_max
+                                x1, y1, x2, y2 = x1 * scale_f, y1 * scale_f, x2 * scale_f, y2 * scale_f
+
                             bw = x2 - x1
                             bh = y2 - y1
                             pad_x = int(bw * 0.25)
                             pad_y = int(bh * 0.25)
-                            cx1 = max(0, int(x1 - pad_x))
-                            cy1 = max(0, int(y1 - pad_y))
-                            cx2 = min(w, int(x2 + pad_x))
-                            cy2 = min(h, int(y2 + pad_y))
+                            cx1 = max(0, min(w - 1, int(x1 - pad_x)))
+                            cy1 = max(0, min(h - 1, int(y1 - pad_y)))
+                            cx2 = max(cx1 + 1, min(w, int(x2 + pad_x)))
+                            cy2 = max(cy1 + 1, min(h, int(y2 + pad_y)))
                             cropped = img[cy1:cy2, cx1:cx2]
+                            if cropped is None or cropped.size == 0 or cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                                cropped = img
                         else:
                             cropped = img
 
@@ -8108,15 +8130,22 @@ class FaceSearchApp(ctk.CTk):
             h, w = img.shape[:2]
             if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]):
                 x1, y1, x2, y2 = bbox
+                if (x2 > w or y2 > h) and w > 0 and h > 0:
+                    orig_max = max(x2 * 1.05, y2 * 1.05, max(w, h))
+                    scale_f = max(w, h) / orig_max
+                    x1, y1, x2, y2 = x1 * scale_f, y1 * scale_f, x2 * scale_f, y2 * scale_f
+
                 bw = x2 - x1
                 bh = y2 - y1
                 pad_x = int(bw * 0.25)
                 pad_y = int(bh * 0.25)
-                cx1 = max(0, int(x1 - pad_x))
-                cy1 = max(0, int(y1 - pad_y))
-                cx2 = min(w, int(x2 + pad_x))
-                cy2 = min(h, int(y2 + pad_y))
+                cx1 = max(0, min(w - 1, int(x1 - pad_x)))
+                cy1 = max(0, min(h - 1, int(y1 - pad_y)))
+                cx2 = max(cx1 + 1, min(w, int(x2 + pad_x)))
+                cy2 = max(cy1 + 1, min(h, int(y2 + pad_y)))
                 cropped = img[cy1:cy2, cx1:cx2]
+                if cropped is None or cropped.size == 0 or cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                    cropped = img
             else:
                 cropped = img
 
@@ -8133,6 +8162,8 @@ class FaceSearchApp(ctk.CTk):
                 return
 
             import cv2
+            if cropped is None or cropped.size == 0:
+                cropped = img
             success, encoded_img = cv2.imencode('.jpg', cropped)
             if success:
                 encoded_img.tofile(save_path)
@@ -8168,7 +8199,7 @@ class FaceSearchApp(ctk.CTk):
                     ))
 
                 clusters_data, members_data, year_stats_data = unknown_analyzer.cluster_unknown_faces(
-                    face_items, sim_threshold=0.65, min_cluster_size=1, progress_callback=on_progress
+                    face_items, sim_threshold=0.70, min_cluster_size=1, min_face_size=35, progress_callback=on_progress
                 )
 
                 logger.info("[UNKNOWN ANALYTICS] บันทึกผลลัพธ์ลงตารางฐานข้อมูล SQLite...")

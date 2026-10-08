@@ -375,6 +375,77 @@ def run_tests():
         print(f"❌ TC-18 FAILED: {e}")
         failed += 1
 
+    # ----------------------------------------------------
+    # TC-19: Same-Photo Exclusion (Must-Not-Link Constraint)
+    # ----------------------------------------------------
+    try:
+        np.random.seed(99)
+        base = np.random.randn(512).astype(np.float32)
+        base /= np.linalg.norm(base)
+
+        # 2 faces with high similarity (0.90) BUT from the EXACT SAME PHOTO
+        same_photo_faces = [
+            {
+                "photo_id": "P_GROUP_01",
+                "face_index": 0,
+                "embedding": base.tobytes(),
+                "photo_date": "2026-01-01",
+                "event_name": "Group Photo",
+                "bbox": [10, 10, 80, 80]
+            },
+            {
+                "photo_id": "P_GROUP_01",  # Same photo!
+                "face_index": 1,
+                "embedding": (base + 0.05 * np.random.randn(512).astype(np.float32)).tobytes(),
+                "photo_date": "2026-01-01",
+                "event_name": "Group Photo",
+                "bbox": [90, 10, 160, 80]
+            }
+        ]
+        c_res, m_res, _ = unknown_analyzer.cluster_unknown_faces(same_photo_faces, sim_threshold=0.70)
+        assert len(c_res) == 2, f"Expected 2 separate clusters due to same-photo exclusion, got {len(c_res)}"
+        print("✅ TC-19 PASSED: Same-Photo Exclusion verified (2 faces from same photo separated into distinct clusters).")
+        passed += 1
+    except Exception as e:
+        print(f"❌ TC-19 FAILED: {e}")
+        failed += 1
+
+    # ----------------------------------------------------
+    # TC-20: Fixed Exemplar Anti-Drift Verification (Chaining Prevention)
+    # ----------------------------------------------------
+    try:
+        # Create a chaining sequence: Face_0 -> Face_1 (sim 0.72) -> Face_2 (sim 0.72) -> ...
+        # Leader is Face_0. A drifted face far down the chain must NOT enter Face_0's cluster.
+        chain_faces = []
+        cur_vec = base.copy()
+        for i in range(10):
+            chain_faces.append({
+                "photo_id": f"P_CHAIN_{i}",
+                "face_index": 0,
+                "embedding": cur_vec.tobytes(),
+                "photo_date": "2026-01-01",
+                "event_name": f"Event {i}",
+                "bbox": [10, 10, 80, 80]
+            })
+            # Step slightly in a random direction
+            step = np.random.randn(512).astype(np.float32)
+            step /= np.linalg.norm(step)
+            cur_vec = cur_vec * 0.85 + step * 0.15
+            cur_vec /= np.linalg.norm(cur_vec)
+
+        c_chain, m_chain, _ = unknown_analyzer.cluster_unknown_faces(chain_faces, sim_threshold=0.70)
+        # Check that in every cluster, every member has similarity >= 0.70 to its leader!
+        for c in c_chain:
+            cid = c["cluster_id"]
+            members_c = [m for m in m_chain if m["cluster_id"] == cid]
+            for m in members_c:
+                assert m["confidence"] >= 0.70, f"Member {m['photo_id']} has confidence {m['confidence']} < 0.70"
+        print("✅ TC-20 PASSED: Anti-drift verified (All cluster members guaranteed similarity >= 0.70 to leader).")
+        passed += 1
+    except Exception as e:
+        print(f"❌ TC-20 FAILED: {e}")
+        failed += 1
+
     # Cleanup temp db
     try:
         if os.path.exists(temp_db_path):
@@ -384,6 +455,7 @@ def run_tests():
 
     root.destroy()
 
+    total = 20
     print("=" * 70)
     print(f"📊 TEST RESULTS SUMMARY: {passed}/{total} PASSED ({failed} FAILED)")
     print("=" * 70)

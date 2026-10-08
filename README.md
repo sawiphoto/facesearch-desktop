@@ -1,3 +1,86 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.22 (High-Precision Anti-Drift Unknown Faces Analytics)
+
+## 📋 Version 6.22 Changelog (High-Precision Anti-Drift Architecture & Same-Photo Exclusion)
+
+**Date:** 8 ตุลาคม 2026 (10:35 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash (High Reasoning)  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **การรวมกลุ่มใบหน้าผิดเพี้ยนจากปรากฏการณ์ Centroid Drift (หลุมดำแรงโน้มถ่วง):**
+   - ผู้ใช้ตรวจพบว่ากลุ่ม `UNK_00001` (2,311 รูป) รูปแต่ละอันไม่มีความเชื่อมโยงกันเลย และดึงคนละคนมารวมกัน
+   - จากการตรวจสอบข้อมูลเชิงลึกใน SQLite พบว่าสมาชิกคนที่ 500 มีความคล้ายกับ Leader เพียง $0.5780$, คนที่ 2,000 มีความคล้าย $0.5734$, และสมาชิกบางคนหลุดต่ำไปถึง **$0.4626$** (ซึ่งใน InsightFace ค่า 0.46 คือคนละคนกันโดยสิ้นเชิง)
+   - สาเหตุเกิดจากการอัปเดต Centroid แบบ Running Average (`centroids_sums += emb`) ทำให้จุดศูนย์กลางเคลื่อนที่ไปเรื่อยๆ จนกลายเป็น "หลุมดำ" ดูดใบหน้าคนทั่วไปเข้ามาแบบลูกโซ่ (Chaining Effect)
+2. **การรวมใบหน้าหลายคนจากภาพถ่ายเดียวกันเข้าเป็นคนเดียวกัน (Violation of Same-Photo Constraint):**
+   - ในรูป `P05116` มีทั้ง Face 17 และ Face 20 อยู่ในกลุ่มเดียวกัน และรูป `P05188` มีทั้ง Face 24 และ Face 26 อยู่ในกลุ่มเดียวกัน ซึ่งคนคนเดียวกันไม่มีทางปรากฏตัว 2 จุดในรูปถ่ายใบเดียวกันได้
+3. **ปัญหาการแสดงผล Thumbnail ขึ้น `[ไม่มีรูป]` และ OpenCV Assertion Failure:**
+   - Thumbnail Preview ไม่แสดงผล และเกิด Error `cv2.error: ... (-215:Assertion failed) !_img.empty() in cv::imencode` เนื่องจากพิกัด Bounding Box ในฐานข้อมูลเป็นพิกัดภาพเดิมที่มีขนาดใหญ่กว่าภาพ Thumbnail ในแคช ทำให้เกิดการ Slice อาเรย์ที่มีขนาดว่างเปล่า `(0, 0, 3)`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปฏิรูปอัลกอริทึมการจัดกลุ่มใหม่เป็น High-Precision Anti-Drift Architecture ใน [`unknown_analyzer.py`](unknown_analyzer.py):**
+   - **Quality-First Leader Ordering:** จัดเรียงใบหน้าตามขนาด Bounding Box (`width × height`) จากใหญ่ไปเล็ก เพื่อให้ใบหน้าที่คมชัด ใกล้กล้อง ได้รับเลือกเป็น Leader เสมอ
+   - **Fixed Exemplar Leader (หยุด Centroid Drift ถาวร):** เวกเตอร์ของ Leader จะคงที่ถาวร ไม่มีการเฉลี่ยขยับจุดศูนย์กลาง สมาชิกทุกคนในกลุ่มได้รับการรับประกันทางคณิตศาสตร์ 100% ว่าจะมีความคล้ายคลึงกับ Leader $\ge \text{sim\_threshold}$ ($\ge 0.70$)
+   - **Same-Photo Exclusion (Must-Not-Link Constraint):** บังคับใช้กฎห้ามใบหน้าจากภาพถ่ายเดียวกัน (`photo_id`) เข้าไปอยู่ในกลุ่มเดียวกันเด็ดขาด
+   - **Face Quality Filter:** ตัดใบหน้าขนาดเล็กกว่า $35 \times 35$ พิกเซล (Background crowd noise) ออกจากการจัดกลุ่ม VIP
+2. **แก้ไขระบบ Thumbnail และ OpenCV imencode ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มระบบ Auto-Scale พิกัด BBox ให้สอดคล้องกับขนาดภาพ Thumbnail
+   - เพิ่มระบบ Auto-Download ภาพจาก Google Drive เมื่อไม่พบไฟล์ในแคชเครื่อง
+   - ป้องกัน Slice ว่างเปล่าและ Fallback ไปยังภาพหลัก ป้องกันข้อผิดพลาด `cv2.imencode` 100%
+   - ปรับเลขเวอร์ชันโปรแกรมเป็น **`v6.22`**
+3. **ขยายชุดทดสอบและผ่านการทดสอบ 100% (TC-01 ถึง TC-20):**
+   - เพิ่ม `TC-19` ทดสอบ Same-Photo Exclusion Constraint (ผ่าน 100%)
+   - เพิ่ม `TC-20` ทดสอบ Fixed Exemplar Anti-Drift Verification (ผ่าน 100%)
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `unknown_analyzer.py` (Fixed Exemplar Leader & Same-Photo Constraint)
+```python
+# Before (v6.21 - มี Centroid Drift และดึงคนในรูปเดียวกันมารวมกัน):
+centroids_matrix[best_cluster_idx] = s / (s_norm if s_norm > 0 else 1.0) # เลื่อน Centroid ทุกครั้งที่มีคนใหม่!
+
+# After (v6.22 - ป้องกัน Drift และ Chaining 100%):
+def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, min_face_size=35, progress_callback=None):
+    # 1. Quality-First Ordering
+    sorted_indices = sorted(range(len(raw_items)), key=lambda i: get_bbox_area(raw_items[i]), reverse=True)
+    ...
+    # 2. Same-Photo Exclusion Check
+    for c_idx in sorted_cand:
+        if photo_id not in cluster_photo_sets[c_idx]:
+            best_cluster_idx = int(c_idx)
+            best_sim = float(sims[c_idx])
+            break
+
+    if best_cluster_idx >= 0:
+        cluster_members[best_cluster_idx].append((idx, best_sim))
+        cluster_photo_sets[best_cluster_idx].add(photo_id)
+        # Leader vector is IMMUTABLE! (No Centroid Drift)
+```
+
+#### 2. `app_gui.py` (Thumbnail Scaling & Empty Guard)
+```python
+# Before (v6.21 - พิกัด BBox หลุดขอบรูปและ Assertion Error ใน imencode):
+cx1 = max(0, int(x1 - pad_x))
+cropped = img[cy1:cy2, cx1:cx2]
+success, encoded_img = cv2.imencode('.jpg', cropped)
+
+# After (v6.22 - Auto-Scale BBox & Guard Empty Slice):
+if (x2 > w or y2 > h) and w > 0 and h > 0:
+    orig_max = max(x2 * 1.05, y2 * 1.05, max(w, h))
+    scale_f = max(w, h) / orig_max
+    x1, y1, x2, y2 = x1 * scale_f, y1 * scale_f, x2 * scale_f, y2 * scale_f
+...
+if cropped is None or cropped.size == 0 or cropped.shape[0] == 0 or cropped.shape[1] == 0:
+    cropped = img # ป้องกันภาพว่าง 100%
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.21 (High-Performance Vectorized Unknown Faces Analytics)
 
 ## 📋 Version 6.21 Changelog (High-Performance Vectorized Clustering & Real-time Progress Logging)

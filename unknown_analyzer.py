@@ -33,12 +33,18 @@ def extract_thai_year(photo_date, event_name=""):
 
     return "ไม่ระบุปี"
 
-def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, progress_callback=None):
+def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, min_face_size=35, progress_callback=None):
     """
-    จัดกลุ่มใบหน้านิรนามด้วย High-Performance Vectorized C/BLAS Clustering
+    จัดกลุ่มใบหน้านิรนามด้วย High-Precision Anti-Drift Vectorized Clustering
+    1. Quality-First Ordering: เรียงตามขนาด Bounding Box ใหญ่ไปเล็ก ให้ใบหน้าชัดเจนที่สุดเป็น Leader
+    2. Fixed Exemplar Leader: เวกเตอร์ของ Leader จะคงที่ถาวร ไม่มีการเลื่อน Centroid เพื่อป้องกัน Drift/Chaining 100%
+    3. Same-Photo Exclusion (Must-Not-Link): ห้ามใบหน้าจากภาพถ่ายเดียวกันซ้ำในกลุ่มเดียวกันเด็ดขาด
+    4. Face Quality Filter: ตัดใบหน้าเบลอขนาดเล็กกว่า min_face_size พิกเซล
+    
     face_items: ลิสต์ของดิกชันนารี [{photo_id, face_index, embedding, photo_date, event_name, bbox}]
-    sim_threshold: ค่าความคล้ายคลึงขั้นต่ำสำหรับรวมกลุ่ม (แนะนำ 0.65 ขึ้นไปเพื่อป้องกัน Drift)
+    sim_threshold: ค่าความคล้ายคลึงขั้นต่ำสำหรับรวมกลุ่ม (แนะนำ 0.70 ขึ้นไปเพื่อความปลอดภัยสูงสุด)
     min_cluster_size: ขนาดกลุ่มขั้นต่ำที่จะนำไปบันทึก
+    min_face_size: ขนาดพิกเซลขั้นต่ำของใบหน้า (กว้างและยาว)
     progress_callback: ฟังก์ชัน callback รายงานความคืบหน้า (current, total, num_clusters, speed, eta_sec)
     คืนค่า: (clusters_data, members_data, year_stats_data)
     """
@@ -46,35 +52,51 @@ def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, pr
         return [], [], []
 
     t_start = time.time()
-    logger.info(f"[UNKNOWN ANALYTICS] 🚀 เริ่มต้นวิเคราะห์จัดกลุ่ม {len(face_items):,} ใบหน้านิรนาม (Threshold: {sim_threshold})...")
+    logger.info(f"[UNKNOWN ANALYTICS] 🚀 เริ่มต้นวิเคราะห์จัดกลุ่ม {len(face_items):,} ใบหน้านิรนาม (Threshold: {sim_threshold}, MinSize: {min_face_size}px)...")
 
-    # แปลง embedding bytes เป็น numpy matrix
-    embeddings = []
-    valid_items = []
+    # แปลง embedding bytes เป็น numpy matrix และคัดกรองคุณภาพเบื้องต้น
+    raw_embeddings = []
+    raw_items = []
     for item in face_items:
         emb_raw = item.get("embedding")
         if isinstance(emb_raw, bytes) and len(emb_raw) == 512 * 4:
             emb = np.frombuffer(emb_raw, dtype=np.float32)
-            # Normalize เวกเตอร์ล่วงหน้าเพื่อให้ dot product กลายเป็น Cosine Similarity ทันที
             norm = np.linalg.norm(emb)
             if norm > 0:
-                embeddings.append(emb / norm)
-                valid_items.append(item)
+                bbox = item.get("bbox", [])
+                # Face Quality Filter: กรองใบหน้าที่มีขนาดเล็กเกินไป (Background crowd noise)
+                if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]) and min_face_size > 0:
+                    bw = bbox[2] - bbox[0]
+                    bh = bbox[3] - bbox[1]
+                    if bw < min_face_size or bh < min_face_size:
+                        continue
+                raw_embeddings.append(emb / norm)
+                raw_items.append(item)
 
-    if not embeddings:
-        logger.warning("[UNKNOWN ANALYTICS] ⚠️ ไม่พบเวกเตอร์ใบหน้าที่ถูกต้อง")
+    if not raw_embeddings:
+        logger.warning("[UNKNOWN ANALYTICS] ⚠️ ไม่พบเวกเตอร์ใบหน้าที่ถูกต้องหรือผ่านเกณฑ์คุณภาพ")
         return [], [], []
+
+    # Quality-First Ordering: คำนวณขนาด Bounding Box เพื่อให้ใบหน้าที่ใหญ่ ชัด คม ได้รับการพิจารณาเป็น Leader ก่อน
+    def get_bbox_area(it):
+        b = it.get("bbox", [])
+        if b and len(b) == 4 and (b[2] > b[0]) and (b[3] > b[1]):
+            return float(b[2] - b[0]) * float(b[3] - b[1])
+        return 0.0
+
+    sorted_indices = sorted(range(len(raw_items)), key=lambda i: get_bbox_area(raw_items[i]), reverse=True)
+    valid_items = [raw_items[i] for i in sorted_indices]
+    embeddings = [raw_embeddings[i] for i in sorted_indices]
 
     emb_matrix = np.ascontiguousarray(np.array(embeddings, dtype=np.float32)) # Shape: (N, 512)
     num_faces = len(valid_items)
-    logger.info(f"[UNKNOWN ANALYTICS] Matrix Shape: {emb_matrix.shape} | พร้อมเริ่มกระบวนการจัดกลุ่มด้วย Vectorized C-Engine...")
+    logger.info(f"[UNKNOWN ANALYTICS] ใบหน้าที่ผ่านเกณฑ์: {num_faces:,} ใบหน้า | Matrix Shape: {emb_matrix.shape} | เริ่มจัดกลุ่มด้วย Fixed Leader + Must-Not-Link...")
 
-    # Fast Vectorized Pre-allocated Centroid Matrix
-    # จองพื้นที่ล่วงหน้าเพื่อหลีกเลี่ยงการ allocate ใหม่ในลูป
+    # Fast Vectorized Pre-allocated Leader Matrix (Fixed Exemplar - NO DRIFT)
     init_capacity = min(max(num_faces // 10, 2048), 65536)
     centroids_matrix = np.zeros((init_capacity, 512), dtype=np.float32)
-    centroids_sums = np.zeros((init_capacity, 512), dtype=np.float32)
     cluster_members = [] # list of lists of (face_idx, sim)
+    cluster_photo_sets = [] # list of sets of photo_id for Same-Photo Exclusion
     num_clusters = 0
 
     log_interval = 10000
@@ -82,39 +104,43 @@ def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, pr
 
     for idx in range(num_faces):
         emb = emb_matrix[idx]
+        item = valid_items[idx]
+        photo_id = item.get("photo_id", "")
         best_cluster_idx = -1
         best_sim = -1.0
 
         if num_clusters > 0:
-            # คำนวณ Cosine Similarity ผ่าน BLAS Matrix-Vector Dot Product โดยตรง
+            # คำนวณ Cosine Similarity เทียบกับ Leader ของทุกคลัสเตอร์พร้อมกันผ่าน BLAS Dot Product
             sims = np.dot(centroids_matrix[:num_clusters], emb)
-            max_idx = int(np.argmax(sims))
-            if sims[max_idx] >= sim_threshold:
-                best_cluster_idx = max_idx
-                best_sim = float(sims[max_idx])
+            # คัดกรองเฉพาะกลุ่มที่มีความคล้ายคลึง >= sim_threshold
+            candidate_indices = np.where(sims >= sim_threshold)[0]
+            if len(candidate_indices) > 0:
+                # เรียงลำดับจากกลุ่มที่คล้ายที่สุดลงมา
+                sorted_cand = candidate_indices[np.argsort(-sims[candidate_indices])]
+                for c_idx in sorted_cand:
+                    # Same-Photo Exclusion (Must-Not-Link Constraint):
+                    # คนคนเดียวกัน ไม่มีทางปรากฏตัวซ้ำในรูปเดียวกันได้!
+                    if photo_id not in cluster_photo_sets[c_idx]:
+                        best_cluster_idx = int(c_idx)
+                        best_sim = float(sims[c_idx])
+                        break
 
         if best_cluster_idx >= 0:
+            # เข้ากลุ่มเดิมที่ผ่านเกณฑ์ทั้งความคล้ายและ Same-photo constraint
             cluster_members[best_cluster_idx].append((idx, best_sim))
-            # อัปเดต running sum และ normalize centroid ใหม่
-            centroids_sums[best_cluster_idx] += emb
-            s = centroids_sums[best_cluster_idx]
-            s_norm = np.linalg.norm(s)
-            centroids_matrix[best_cluster_idx] = s / (s_norm if s_norm > 0 else 1.0)
+            cluster_photo_sets[best_cluster_idx].add(photo_id)
+            # ไม่เลื่อน Centroid! Leader ยังคงเป็นตัวแทนคงที่ถาวร (Anti-Drift 100%)
         else:
-            # ตรวจสอบว่าต้องขยายความจุ Matrix หรือไม่
+            # สถาปนาเป็น Leader คลัสเตอร์ใหม่
             if num_clusters >= centroids_matrix.shape[0]:
                 new_cap = centroids_matrix.shape[0] * 2
                 new_centroids = np.zeros((new_cap, 512), dtype=np.float32)
                 new_centroids[:num_clusters] = centroids_matrix
                 centroids_matrix = new_centroids
 
-                new_sums = np.zeros((new_cap, 512), dtype=np.float32)
-                new_sums[:num_clusters] = centroids_sums
-                centroids_sums = new_sums
-
-            centroids_matrix[num_clusters] = emb
-            centroids_sums[num_clusters] = emb.copy()
+            centroids_matrix[num_clusters] = emb # Fixed Leader Vector
             cluster_members.append([(idx, 1.0)])
+            cluster_photo_sets.append({photo_id})
             num_clusters += 1
 
         # รายงานความคืบหน้า (Real-time Progress Logging)
