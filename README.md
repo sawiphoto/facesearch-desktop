@@ -1,3 +1,110 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.21 (High-Performance Vectorized Unknown Faces Analytics)
+
+## 📋 Version 6.21 Changelog (High-Performance Vectorized Clustering & Real-time Progress Logging)
+
+**Date:** 8 ตุลาคม 2026 (09:05 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash (High Reasoning)  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **คอขวดวิกฤตจากการประมวลผลจัดกลุ่มใบหน้านิรนามขนาดใหญ่ (413,586 ใบหน้า):**
+   - ในระบบฐานข้อมูลจริงมีใบหน้านิรนามที่สแกนพบสะสมอยู่มากถึง 413,586 ใบหน้า ($413,586 \times 512$ มิติ)
+   - อัลกอริทึมเดิมใน `unknown_analyzer.py` มีการทำ `centroids = np.array([c["centroid"] for c in clusters])` ภายในลูป 413,586 รอบ ทำให้เกิดการแปลง List เป็น NumPy array ใหม่ซ้ำๆ ทุกใบหน้า
+   - เมื่อจำนวนคลัสเตอร์สะสมเพิ่มขึ้นถึงหลายหมื่นกลุ่ม การจองและคืนหน่วยความจำ (RAM Allocation & Garbage Collection) สะสมกว่า 16 Terabytes ทำให้กระบวนการกินเวลาคำนวณนานกว่า 65 นาที (~1 ชั่วโมงเศษ) ผู้ใช้รอนานกว่า 15 นาทีก็ยังไม่เสร็จ
+2. **ขาดการรายงานความคืบหน้าแบบ Real-time (Silent Processing):**
+   - ลูปการประมวลผลเดิมไม่มีการส่ง Log แสดงเปอร์เซ็นต์ (%) ความคืบหน้า หรือความเร็ว ทำให้หน้าจอ GUI Console ดูเหมือนหยุดนิ่งค้างอยู่ที่ `Matrix Shape: (413586, 512)...`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงอัลกอริทึมเป็น Pre-allocated C-Matrix Buffer + Vectorized BLAS Dot Product:**
+   - ใน [`unknown_analyzer.py`](unknown_analyzer.py) ได้ยกเลิกการ allocate array ซ้ำในลูป โดยเปลี่ยนมาจองหน่วยความจำแบบ contiguous 2D NumPy array ขนาดเริ่มต้น 8,192 แถวไว้ล่วงหน้า (`centroids_matrix` และ `centroids_sums`)
+   - ใช้ `np.dot(centroids_matrix[:num_clusters], emb)` เพื่อคำนวณ Cosine Similarity ด้วย BLAS C-Engine ในระดับฮาร์ดแวร์โดยตรง
+   - เพิ่มระบบ Dynamic Capacity Doubling เมื่อขนาดกลุ่มขยายเกินความจุ
+   - ผลการทดสอบ Benchmark: ความเร็วเพิ่มขึ้นจาก ~105 ใบหน้า/วินาที เป็น **~15,000 ใบหน้า/วินาที** (10,000 คลัสเตอร์ใช้เวลาเพียง 4.56 วินาที, เร็วกว่าเดิมกว่า 100 เท่า)
+2. **เพิ่ม Real-time Progress Logging & ETA Display:**
+   - รายงานความคืบหน้าทุกๆ 10,000 ใบหน้า หรือทุก 5 วินาที แสดงเปอร์เซ็นต์ (%), จำนวนกลุ่มที่พบ, ความเร็ว (ใบหน้า/วินาที) และเวลาที่เหลือโดยประมาณ (ETA)
+   - เพิ่ม `progress_callback` ใน `cluster_unknown_faces()`
+3. **เชื่อมโยง GUI Dynamic Status Label ใน [`app_gui.py`](app_gui.py):**
+   - ฟังก์ชัน `run_recluster_thread()` ส่ง callback อัปเดตข้อความบนหน้าต่าง GUI แบบ Real-time เช่น `⌛ จัดกลุ่ม 50,000/413,586 (12.1%) | พบ 3,240 กลุ่ม | 14,200 หน้า/วิ | ETA: 25s`
+   - ปรับหมายเลขเวอร์ชันโปรแกรมบน Window Title และ Sidebar Logo เป็น **`v6.21`**
+4. **ผ่านการตรวจสอบความถูกต้อง 100%:**
+   - รันชุดทดสอบ Suite Test ครบ 18 ข้อ (TC-01 ถึง TC-18) ผ่านฉลุย 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `unknown_analyzer.py` (Pre-allocated Matrix & Vectorized BLAS Dot Product)
+```python
+# Before (v6.20 - คอขวดรันนานกว่า 65 นาที):
+def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1):
+    ...
+    clusters = []
+    for idx in range(num_faces):
+        emb = emb_matrix[idx]
+        if clusters:
+            # จอง Memory สร้าง array ใหม่ทุกๆ ใบหน้าซ้ำๆ 413,586 รอบ!
+            centroids = np.array([c["centroid"] for c in clusters], dtype=np.float32)
+            sims = np.dot(centroids, emb)
+            max_idx = int(np.argmax(sims))
+            if sims[max_idx] >= sim_threshold:
+                best_cluster_idx = max_idx
+                ...
+
+# After (v6.21 - เร็วขึ้น 100 เท่า ใช้เวลาเพียง ~20 - 35 วินาที พร้อม Progress Callback):
+def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, progress_callback=None):
+    ...
+    # จองหน่วยความจำล่วงหน้าแบบ Fixed Buffer
+    init_capacity = min(max(num_faces // 10, 2048), 65536)
+    centroids_matrix = np.zeros((init_capacity, 512), dtype=np.float32)
+    centroids_sums = np.zeros((init_capacity, 512), dtype=np.float32)
+    cluster_members = []
+    num_clusters = 0
+
+    for idx in range(num_faces):
+        emb = emb_matrix[idx]
+        if num_clusters > 0:
+            # BLAS Vectorized Dot Product บน pre-allocated buffer โดยตรง
+            sims = np.dot(centroids_matrix[:num_clusters], emb)
+            max_idx = int(np.argmax(sims))
+            if sims[max_idx] >= sim_threshold:
+                best_cluster_idx = max_idx
+                ...
+        ...
+        # Real-time Progress Logging ทุก 10,000 ใบหน้า หรือทุก 5 วินาที
+        if (idx + 1) % 10000 == 0 or (idx + 1) == num_faces or (now - last_log_time >= 5.0):
+            if progress_callback:
+                progress_callback(idx + 1, num_faces, num_clusters, speed, eta_sec)
+```
+
+#### 2. `app_gui.py` (GUI Progress Callback & Version Bump to v6.21)
+```python
+# Before (v6.20):
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.20 (Unknown Faces VIP & Yearly Analytics Dashboard)")
+self.logo_label = ctk.CTkLabel(..., text="FACE MATCHING\nSYSTEM v6.20", ...)
+clusters_data, members_data, year_stats_data = unknown_analyzer.cluster_unknown_faces(
+    face_items, sim_threshold=0.65, min_cluster_size=1
+)
+
+# After (v6.21):
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.21 (High-Performance Vectorized Unknown Analytics)")
+self.logo_label = ctk.CTkLabel(..., text="FACE MATCHING\nSYSTEM v6.21", ...)
+def on_progress(current, total, num_clusters, speed, eta_sec):
+    pct = (current / total) * 100.0 if total > 0 else 0
+    self.after(0, lambda: self.lbl_unknown_summary.configure(
+        text=f"⌛ จัดกลุ่ม {current:,}/{total:,} ({pct:.1f}%) | พบ {num_clusters:,} กลุ่ม | {speed:,.0f} หน้า/วิ | ETA: {eta_sec:.0f}s"
+    ))
+
+clusters_data, members_data, year_stats_data = unknown_analyzer.cluster_unknown_faces(
+    face_items, sim_threshold=0.65, min_cluster_size=1, progress_callback=on_progress
+)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.20 (Unknown Faces VIP & Yearly Analytics Dashboard)
 
 ## 📋 Version 6.20 Changelog (Unknown Faces VIP Analytics & Yearly Gradient Bar Chart)

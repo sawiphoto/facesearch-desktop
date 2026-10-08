@@ -33,11 +33,13 @@ def extract_thai_year(photo_date, event_name=""):
 
     return "ไม่ระบุปี"
 
-def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1):
+def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, progress_callback=None):
     """
-    จัดกลุ่มใบหน้านิรนามด้วย Cosine Similarity Matrix Clustering
+    จัดกลุ่มใบหน้านิรนามด้วย High-Performance Vectorized C/BLAS Clustering
     face_items: ลิสต์ของดิกชันนารี [{photo_id, face_index, embedding, photo_date, event_name, bbox}]
     sim_threshold: ค่าความคล้ายคลึงขั้นต่ำสำหรับรวมกลุ่ม (แนะนำ 0.65 ขึ้นไปเพื่อป้องกัน Drift)
+    min_cluster_size: ขนาดกลุ่มขั้นต่ำที่จะนำไปบันทึก
+    progress_callback: ฟังก์ชัน callback รายงานความคืบหน้า (current, total, num_clusters, speed, eta_sec)
     คืนค่า: (clusters_data, members_data, year_stats_data)
     """
     if not face_items:
@@ -63,43 +65,84 @@ def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1):
         logger.warning("[UNKNOWN ANALYTICS] ⚠️ ไม่พบเวกเตอร์ใบหน้าที่ถูกต้อง")
         return [], [], []
 
-    emb_matrix = np.array(embeddings, dtype=np.float32) # Shape: (N, 512)
+    emb_matrix = np.ascontiguousarray(np.array(embeddings, dtype=np.float32)) # Shape: (N, 512)
     num_faces = len(valid_items)
-    logger.info(f"[UNKNOWN ANALYTICS] Matrix Shape: {emb_matrix.shape} | พร้อมเริ่มกระบวนการจัดกลุ่ม...")
+    logger.info(f"[UNKNOWN ANALYTICS] Matrix Shape: {emb_matrix.shape} | พร้อมเริ่มกระบวนการจัดกลุ่มด้วย Vectorized C-Engine...")
 
-    # Greedy Leader Clustering (ทำงานเร็วระดับ O(N*K) โดย K คือจำนวน Cluster ไม่ต้องคำนวณ O(N^2) เต็ม)
-    # เหมาะมากสำหรับข้อมูลหมื่นถึงแสนใบหน้า
-    clusters = [] # แต่ละคลัสเตอร์: {"centroid": vec, "items": [idx1, idx2, ...]}
+    # Fast Vectorized Pre-allocated Centroid Matrix
+    # จองพื้นที่ล่วงหน้าเพื่อหลีกเลี่ยงการ allocate ใหม่ในลูป
+    init_capacity = min(max(num_faces // 10, 2048), 65536)
+    centroids_matrix = np.zeros((init_capacity, 512), dtype=np.float32)
+    centroids_sums = np.zeros((init_capacity, 512), dtype=np.float32)
+    cluster_members = [] # list of lists of (face_idx, sim)
+    num_clusters = 0
+
+    log_interval = 10000
+    last_log_time = time.time()
 
     for idx in range(num_faces):
         emb = emb_matrix[idx]
         best_cluster_idx = -1
         best_sim = -1.0
 
-        if clusters:
-            # คำนวณความคล้ายกับ Centroid ของทุก Cluster ในครั้งเดียว
-            centroids = np.array([c["centroid"] for c in clusters], dtype=np.float32)
-            sims = np.dot(centroids, emb)
+        if num_clusters > 0:
+            # คำนวณ Cosine Similarity ผ่าน BLAS Matrix-Vector Dot Product โดยตรง
+            sims = np.dot(centroids_matrix[:num_clusters], emb)
             max_idx = int(np.argmax(sims))
             if sims[max_idx] >= sim_threshold:
                 best_cluster_idx = max_idx
                 best_sim = float(sims[max_idx])
 
         if best_cluster_idx >= 0:
-            c = clusters[best_cluster_idx]
-            c["items"].append((idx, best_sim))
-            # อัปเดต Centroid ด้วย Running Average
-            count = len(c["items"])
-            new_centroid = (c["centroid"] * (count - 1) + emb) / count
-            c["centroid"] = new_centroid / np.linalg.norm(new_centroid)
+            cluster_members[best_cluster_idx].append((idx, best_sim))
+            # อัปเดต running sum และ normalize centroid ใหม่
+            centroids_sums[best_cluster_idx] += emb
+            s = centroids_sums[best_cluster_idx]
+            s_norm = np.linalg.norm(s)
+            centroids_matrix[best_cluster_idx] = s / (s_norm if s_norm > 0 else 1.0)
         else:
-            # สร้าง Cluster ใหม่โดยมีใบหน้านี้เป็น Leader
-            clusters.append({
-                "centroid": emb.copy(),
-                "items": [(idx, 1.0)]
-            })
+            # ตรวจสอบว่าต้องขยายความจุ Matrix หรือไม่
+            if num_clusters >= centroids_matrix.shape[0]:
+                new_cap = centroids_matrix.shape[0] * 2
+                new_centroids = np.zeros((new_cap, 512), dtype=np.float32)
+                new_centroids[:num_clusters] = centroids_matrix
+                centroids_matrix = new_centroids
 
-    logger.info(f"[UNKNOWN ANALYTICS] จัดกลุ่มเสร็จสิ้นใน {time.time()-t_start:.2f}s ได้ทั้งหมด {len(clusters)} กลุ่ม")
+                new_sums = np.zeros((new_cap, 512), dtype=np.float32)
+                new_sums[:num_clusters] = centroids_sums
+                centroids_sums = new_sums
+
+            centroids_matrix[num_clusters] = emb
+            centroids_sums[num_clusters] = emb.copy()
+            cluster_members.append([(idx, 1.0)])
+            num_clusters += 1
+
+        # รายงานความคืบหน้า (Real-time Progress Logging)
+        now = time.time()
+        if (idx + 1) % log_interval == 0 or (idx + 1) == num_faces or (now - last_log_time >= 5.0):
+            last_log_time = now
+            elapsed = now - t_start
+            speed = (idx + 1) / elapsed if elapsed > 0 else 0
+            rem_faces = num_faces - (idx + 1)
+            eta_sec = rem_faces / speed if speed > 0 else 0
+            pct = ((idx + 1) / num_faces) * 100.0
+
+            logger.info(
+                f"[UNKNOWN ANALYTICS] ⏳ ความคืบหน้า: {idx+1:,} / {num_faces:,} ใบหน้า ({pct:.1f}%) "
+                f"| กลุ่มที่พบ: {num_clusters:,} กลุ่ม | ความเร็ว: {speed:,.0f} หน้า/วินาที | ETA: {eta_sec:.0f}s"
+            )
+            if progress_callback:
+                try:
+                    progress_callback(idx + 1, num_faces, num_clusters, speed, eta_sec)
+                except Exception:
+                    pass
+
+    clustering_time = max(time.time() - t_start, 0.001)
+    avg_speed = num_faces / clustering_time
+    logger.info(
+        f"[UNKNOWN ANALYTICS] ⚡ จัดกลุ่มเสร็จสิ้นใน {clustering_time:.2f}s "
+        f"ได้ทั้งหมด {num_clusters:,} กลุ่ม (ความเร็วเฉลี่ย: {avg_speed:,.0f} หน้า/วินาที)"
+    )
 
     # กรองเฉพาะ Cluster ที่มีขนาดตามเงื่อนไข และจัดทำโครงสร้างข้อมูลสำหรับบันทึก DB
     clusters_data = []
@@ -107,11 +150,10 @@ def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1):
     year_stats_data = []
 
     # เรียงลำดับกลุ่มจากคนที่รูปเยอะสุดไปหาน้อยสุด
-    clusters.sort(key=lambda c: len(c["items"]), reverse=True)
+    cluster_members.sort(key=len, reverse=True)
 
     cluster_serial = 1
-    for c in clusters:
-        members_indices = c["items"]
+    for members_indices in cluster_members:
         if len(members_indices) < min_cluster_size:
             continue
 
