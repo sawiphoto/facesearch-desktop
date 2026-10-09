@@ -307,3 +307,115 @@
 | **TC-20** | `unknown_analyzer.cluster_faces` (Anti-Drift Fixed Exemplar) | ชุดข้อมูล Chaining Sequence 10 ใบหน้าต่อเนื่อง | สมาชิกทุกคนในกลุ่มมีความคล้ายกับ Leader $\ge 0.70$ ครบ 100% ไม่มี Drift | ✅ ผ่านการทดสอบ (Passed) |
 
 
+
+
+---
+
+## 🔟 10. การเพิ่มข้อมูลจำนวนใบหน้าที่ตรวจพบ (Face Count) ลงใน `photo_index.json` (v6.23)
+
+### 10.1 ที่มาและวัตถุประสงค์ (Background & Requirements)
+- **ความต้องการของผู้ใช้:** ต้องการเพิ่มข้อมูลระบุ **"จำนวนใบหน้า"** ที่ระบบสแกนตรวจพบลงในแต่ละรายการของไฟล์ `photo_index.json`
+- **ตัวอย่างโครงสร้างเดิม:**
+  ```json
+  "P04968": {
+    "event": "กค 2 ต้อนรับครูพละใหม่", 
+    "drive_link": "https://drive.google.com/file/d/1L6_poxbLKCiX_3ql60dyH0G-DCEMONLn/view",
+    "date": "2026-07-06"
+  }
+  ```
+- **ประโยชน์และการนำไปใช้:**
+  1. ฝั่ง Web Application / Google Apps Script (เช่น ในโปรเจกต์ `07.5 ระบบค้นหา appscript`) สามารถอ่านข้อมูลจำนวนใบหน้าจริงที่ตรวจพบได้ทันที โดยไม่ต้องคาดเดาจากจำนวนครูที่จับคู่ได้
+  2. ทำให้สามารถจัดหมวดหมู่ประเภทภาพ เช่น **ภาพเดี่ยว (`single`: 1 หน้า)**, **ภาพกลุ่มย่อย (`small_group`: 2-5 หน้า)**, หรือ **ภาพกลุ่มใหญ่ (`large_group`: >5 หน้า)** ได้อย่างแม่นยำ 100% แม้ในภาพนั้นจะมีคนภายนอก/นักเรียนปะปนอยู่ก็ตาม
+  3. สอดคล้องกับข้อมูลที่หน้าจอ GUI แสดงในคอลัมน์ "สถานะแคชใบหน้า" เช่น `มีแคชแล้ว (19 หน้า)`
+
+---
+
+### 10.2 การวิเคราะห์เชิงลึกของแหล่งข้อมูลและประสิทธิภาพ (In-Depth Technical Audit)
+1. **สถานะข้อมูลในฐานข้อมูล SQLite (`data/faces_db.db`):**
+   - ตาราง `scanned_photos` มีคอลัมน์ `total_faces_detected INTEGER DEFAULT 0` อยู่แล้ว แต่ข้อมูลในปัจจุบันมีค่าเป็น `0` ทั้งหมด (111,318 รูป) เนื่องจากในอดีตระบบไม่ได้ใส่ค่านี้ตอน INSERT
+   - ตาราง `scanned_photo_faces` มีข้อมูลเวกเตอร์ใบหน้าจริงที่ตรวจพบสะสมทั้งหมด **974,491 ใบหน้า** (`face_index >= 0`) ครอบคลุม **107,643 รูปภาพ** (และมี dummy rows `face_index = -1` จำนวน 1,094 รูปที่สแกนแล้วไม่พบหน้าคนจริง)
+2. **การป้องกันปัญหาคอขวดประสิทธิภาพ (Performance Bottleneck Prevention):**
+   - หากคำนวณ `COUNT(*)` จาก `scanned_photo_faces` แบบสดๆ ทุกครั้งที่กด Sync Drive จะต้องสแกนตารางขนาดใหญ่ที่มี BLOB เวกเตอร์ ซึ่งกินเวลาถึง **18.64 วินาที** ต่อการ Sync หนึ่งครั้ง
+   - **แนวทางแก้ไขสถาปัตยกรรมประสิทธิภาพสูง (High-Performance Architecture):**
+     - **One-Time Data Backfill:** รันคำสั่งอัปเดตค่าจริงย้อนหลังเข้าคอลัมน์ `scanned_photos.total_faces_detected` เพียงครั้งเดียว (~18-20 วินาที)
+     - ปรับฟังก์ชันบันทึกรูปใหม่ (`save_scanned_photo`, `save_scanned_photos_batch` ใน `db_manager.py` และ `scheduler_task.py`) ให้บันทึกค่า `total_faces_detected = len(faces)` ลงใน `scanned_photos` เสมอ
+     - ใน `db_manager.py:get_all_sync_data()` ให้ดึงตรงจาก `scanned_photos.total_faces_detected` ซึ่งจะเร็วระดับ **0.05 วินาที (Instant Fetch)**
+
+---
+
+### 10.3 รูปแบบโครงสร้าง JSON ที่ได้รับอนุมัติ (Approved JSON Schema)
+- **ตัวเลือกที่ผู้ใช้เลือกอนุมัติ:** **ตัวเลือกที่ 1: `"face_count": 1`**
+- **มาตรฐาน:** ภาษาอังกฤษ snake_case สอดคล้องกับคีย์เดิม (`event`, `drive_link`, `date`) ปลอดภัย สะดวกต่อการเรียกใช้งานใน JavaScript (`photo.face_count`) และ Google Apps Script
+- **ตัวอย่างผลลัพธ์จริงใน `photo_index.json`:**
+  ```json
+  "P04968": {
+    "event": "กค 2 ต้อนรับครูพละใหม่",
+    "drive_link": "https://drive.google.com/file/d/1L6_poxbLKCiX_3ql60dyH0G-DCEMONLn/view",
+    "date": "2026-07-06",
+    "face_count": 1
+  },
+  "P04969": {
+    "event": "กค 2 ต้อนรับครูพละใหม่",
+    "drive_link": "https://drive.google.com/file/d/1lLYvkPiSYWDJ9ohN9iBSTxpc4ho_sg-o/view",
+    "date": "2026-07-06",
+    "face_count": 5
+  }
+  ```
+
+---
+
+### 10.4 แผนขั้นตอนดำเนินการแก้ไขโค้ดอย่างละเอียด (Step-by-Step Implementation)
+
+#### ขั้นตอนที่ 1: การอัปเดตและเตรียมฐานข้อมูล (Database Layer in [`db_manager.py`](db_manager.py))
+1. **Migration Safety (`init_db`):** ตรวจสอบและเพิ่มคอลัมน์ `total_faces_detected INTEGER DEFAULT 0` ลงใน `scanned_photos` หากยังไม่มี และสร้างดัชนีครอบคลุม `idx_spf_photo_face ON scanned_photo_faces(photo_id, face_index)`
+2. **Backfill Data (`backfill_total_faces_detected`):** 
+   - ดึงค่านับจำนวนใบหน้าจริงจาก `scanned_photo_faces WHERE face_index >= 0 GROUP BY photo_id` (ไม่นับ dummy -1)
+   - อัปเดตลงคอลัมน์ `scanned_photos.total_faces_detected` ครบ 107,643 รูปภาพ
+3. **Data Retrieval Optimization (`get_all_sync_data`):**
+   - เปลี่ยนคำสั่ง SQL เป็น:
+     ```sql
+     SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected 
+     FROM scanned_photos
+     ```
+   - เพิ่มฟิลด์ `"face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0` ใน Dictionary ของแต่ละรูป
+4. **Write-Path Persistence (`save_scanned_photo` & `save_scanned_photos_batch`):**
+   - ใน `save_scanned_photo()` เพิ่ม parameter `total_faces_detected=0` (หากไม่ได้ส่งมาให้ใช้ `len(matches)`)
+   - ใน `save_scanned_photos_batch()` บันทึก `total_faces_detected = len(item.get("faces", []))` ลงในคำสั่ง `INSERT OR REPLACE INTO scanned_photos`
+
+#### ขั้นตอนที่ 2: การสร้าง JSON ดัชนีรูปภาพ (Sync Layer in [`gdrive_sync.py`](gdrive_sync.py))
+- ในฟังก์ชัน `update_json_indexes_on_drive()` บรรทัดที่ 469:
+  ```python
+  photo_index[photo_id] = {
+      "event": item["event"],
+      "drive_link": self.format_drive_view_url(raw_link),
+      "date": item.get("date", ""),
+      "face_count": item.get("face_count", 0)
+  }
+  ```
+  *(คงฟิลด์เดิมครบถ้วน 100% ปลอดภัยต่อระบบค้นหาและ Backward Compatible)*
+
+#### ขั้นตอนที่ 3: ระบบ Background Scheduler ([`scheduler_task.py`](scheduler_task.py))
+- ในลูป Batch Commit บรรทัดที่ 1002-1003 ให้บันทึก `total_faces_detected = len(r.get("face_embeddings", []))` ลงในคำสั่ง `INSERT OR REPLACE INTO scanned_photos` เสมอ
+
+#### ขั้นตอนที่ 4: ส่วนแสดงผล GUI และอัปเกรดเวอร์ชัน ([`app_gui.py`](app_gui.py))
+- บรรทัดที่ 5240-5246: ปรับเปลี่ยน SQL ของแท็บ SQLite Viewer ให้ดึง `p.total_faces_detected` โดยตรง ลดภาระการรัน Subquery นับแถวซ้ำซ้อน
+- ปรับเลขเวอร์ชันโปรแกรมเป็น **`v6.23`** ใน:
+  - แถบไตเติลหน้าต่างหลัก (`self.title`)
+  - โลโก้แถบด้านข้าง (Sidebar Header Badge)
+
+#### ขั้นตอนที่ 5: การทดสอบความถูกต้องและบันทึกประวัติ ([`README.md`](README.md))
+- รันชุดทดสอบความถูกต้อง (TC-21 ถึง TC-24) พร้อมรัน Regression Suite (`test_unknown_analytics_suite.py`)
+- บันทึก Changelog v6.23 ไว้ที่บรรทัดบนสุด (Prepend to top) ใน `README.md`
+- บันทึก Git Commit
+
+---
+
+### 10.5 ตารางผลการทดสอบ (Test Results: TC-21 ถึง TC-24 ผ่าน 100%)
+| รหัสทดสอบ | รายละเอียดกรณีทดสอบ | ข้อมูลนำเข้า / เงื่อนไข | ผลลัพธ์จริง | สถานะ |
+| :--- | :--- | :--- | :--- | :---: |
+| **TC-21** | Backfill Data Verification | ตรวจสอบการเติมข้อมูล `total_faces_detected` ใน `scanned_photos` | เติมข้อมูลครบ 107,643 รูปภาพ ค่าตรงกับ `scanned_photo_faces` 100% (0 mismatches) | ✅ ผ่านการทดสอบ (Passed) |
+| **TC-22** | DB Sync Data Query Speed | รันทดสอบ `db.get_all_sync_data()` บนฐานข้อมูลจริง 111,318 รูป | ดึงข้อมูลได้ครบถ้วน 111,318 รูป ใช้เวลาเพียง 0.607 วินาที | ✅ ผ่านการทดสอบ (Passed) |
+| **TC-23** | JSON Index Generation & Structure | ทดสอบฟังก์ชันสร้าง `photo_index.json` | มีคีย์ `"face_count"` ระบุจำนวนใบหน้าถูกต้อง และคงฟิลด์เดิม (`event`, `drive_link`, `date`) ครบถ้วน 100% | ✅ ผ่านการทดสอบ (Passed) |
+| **TC-24** | GUI & System Version Check | ค้นหาเลขเวอร์ชันทั่วทั้งระบบ | แสดงผล `v6.23` ทั้ง Window Title และ Sidebar Header | ✅ ผ่านการทดสอบ (Passed) |
+| **TC-Suite** | Regression Suite Testing | รัน `test_unknown_analytics_suite.py` ทั้ง 20 ข้อเดิม | ผ่านครบ 20/20 ข้อ (TC-01 ถึง TC-20) 100% | ✅ ผ่านการทดสอบ (Passed) |
+

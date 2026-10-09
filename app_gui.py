@@ -674,7 +674,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.22 (High-Precision Anti-Drift Unknown Analytics)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.23 (Face Count Index & High-Performance Cache)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -767,7 +767,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.22",
+            text="FACE MATCHING\nSYSTEM v6.23",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -5239,7 +5239,7 @@ class FaceSearchApp(ctk.CTk):
 
                     query_sql = f"""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension,
-                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) as face_cache_count
+                               COALESCE(p.total_faces_detected, 0) as face_cache_count
                         FROM scanned_photos p
                         {order_by}
                         LIMIT ? OFFSET ?

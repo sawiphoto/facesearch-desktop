@@ -461,7 +461,7 @@ class GoogleSyncManager:
                     if photo_id not in person_index[person]:
                         person_index[person].append(photo_id)
 
-            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ)
+            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ และรวม face_count v6.23)
             photo_index = {}
             for item in sync_data["photos"]:
                 photo_id = item["photo_id"]
@@ -469,7 +469,8 @@ class GoogleSyncManager:
                 photo_index[photo_id] = {
                     "event": item["event"],
                     "drive_link": self.format_drive_view_url(raw_link),
-                    "date": item.get("date", "")
+                    "date": item.get("date", ""),
+                    "face_count": item.get("face_count", 0)
                 }
 
             # พิจารณาการอัปโหลดตามโหมดสแกน

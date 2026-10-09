@@ -290,6 +290,19 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create file_name/file_extension indexes: {e}")
 
+            # Migration v6.23: เพิ่มคอลัมน์ total_faces_detected และดัชนีครอบคลุม idx_spf_photo_face
+            try:
+                cursor.execute("ALTER TABLE scanned_photos ADD COLUMN total_faces_detected INTEGER DEFAULT 0")
+                logger.info("Executed database migration v6.23: added total_faces_detected to scanned_photos.")
+            except Exception:
+                pass
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_total_faces ON scanned_photos(total_faces_detected)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_spf_photo_face ON scanned_photo_faces(photo_id, face_index)")
+            except Exception as e:
+                logger.warning(f"Could not create total_faces/photo_face indexes: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -369,6 +382,30 @@ class DatabaseManager:
             deleted_cnt = cursor.rowcount
             conn.commit()
             return deleted_cnt
+
+    def backfill_total_faces_detected(self):
+        """
+        อัปเดตจำนวนใบหน้าที่ตรวจพบจริง (face_index >= 0) จาก scanned_photo_faces
+        ย้อนหลังลงในคอลัมน์ total_faces_detected ของตาราง scanned_photos (v6.23)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            logger.info("[MIGRATION v6.23] Calculating face counts per photo from scanned_photo_faces...")
+            cursor.execute("""
+                SELECT photo_id, COUNT(*) 
+                FROM scanned_photo_faces 
+                WHERE face_index >= 0 
+                GROUP BY photo_id
+            """)
+            counts = cursor.fetchall()
+            logger.info(f"[MIGRATION v6.23] Found {len(counts)} photos with valid detected faces. Backfilling to scanned_photos...")
+            cursor.executemany(
+                "UPDATE scanned_photos SET total_faces_detected = ? WHERE photo_id = ?",
+                [(cnt, pid) for pid, cnt in counts]
+            )
+            conn.commit()
+            logger.info(f"[MIGRATION v6.23] Successfully backfilled total_faces_detected for {len(counts)} photos.")
+            return len(counts)
 
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
@@ -714,20 +751,25 @@ class DatabaseManager:
             cursor.execute("SELECT photo_id FROM raw_camera_photos WHERE drive_file_id = ? LIMIT 1", (drive_file_id,))
             return cursor.fetchone() is not None
 
-    def save_scanned_photo(self, photo_id, drive_file_id, event_name, drive_link, matches, photo_date="", file_name="", file_extension=""):
+    def save_scanned_photo(self, photo_id, drive_file_id, event_name, drive_link, matches, photo_date="", file_name="", file_extension="", total_faces_detected=None):
         """
-        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วและรายชื่อใบหน้าที่ตรวจพบ (v6.00 เพิ่ม file_name และ file_extension)
+        บันทึกข้อมูลรูปภาพที่สแกนเสร็จแล้วและรายชื่อใบหน้าที่ตรวจพบ (v6.00 เพิ่ม file_name และ file_extension, v6.23 เพิ่ม total_faces_detected)
         matches: list ของ tuple (staff_id, confidence)
         """
         if not file_extension and file_name:
             file_extension = os.path.splitext(file_name)[1].lower()
+        if total_faces_detected is None:
+            total_faces = len(matches) if matches else 0
+        else:
+            total_faces = int(total_faces_detected)
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # บันทึกรูปภาพ (ใช้ INSERT OR REPLACE เพื่อป้องกัน drive_file_id ซ้ำซ้อน)
                 cursor.execute(
-                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension)
+                    "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces)
                 )
                 
                 # บันทึกคนในรูป
@@ -779,11 +821,12 @@ class DatabaseManager:
                         fext = os.path.splitext(fname)[1].lower()
                     matches = item.get("matches", [])
                     faces = item.get("faces", [])
+                    total_faces = len(faces) if faces else (len(matches) if matches else 0)
                     
                     # 1. บันทึก scanned_photos
                     cursor.execute(
-                        "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (pid, fid, event, link, pdate, fname, fext)
+                        "INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (pid, fid, event, link, pdate, fname, fext, total_faces)
                     )
                     
                     # 2. บันทึก detected_faces
@@ -879,12 +922,12 @@ class DatabaseManager:
                 return False
 
     def get_all_sync_data(self):
-        """ดึงข้อมูลทั้งหมดในฐานข้อมูลเพื่อพร้อมอัปเดตลง Google Sheets"""
+        """ดึงข้อมูลทั้งหมดในฐานข้อมูลเพื่อพร้อมอัปเดตลง Google Sheets และ Google Drive JSON Index (v6.23 เพิ่ม face_count)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # ข้อมูลชีท photos (ดึง photo_date มาด้วย)
-            cursor.execute("SELECT photo_id, event_name, drive_link, photo_date FROM scanned_photos")
+            # ข้อมูลชีท photos (ดึง photo_date และ total_faces_detected มาด้วย)
+            cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected FROM scanned_photos")
             photos = cursor.fetchall()
             
             # ข้อมูลชีท faces (ดึงชื่อคนแทนไอดีเพื่อบันทึกลงชีท พร้อมดึงไอดีแถวการสแกนเป็น face_id)
@@ -896,8 +939,26 @@ class DatabaseManager:
             faces = cursor.fetchall()
             
             return {
-                "photos": [{"photo_id": p[0], "event": p[1], "drive_link": p[2], "date": p[3] if p[3] else ""} for p in photos],
-                "faces": [{"face_id": f[0], "person": f[1], "photo_id": f[2], "role": f[3] if f[3] else "teacher", "student_id": f[4] if f[4] else ""} for f in faces]
+                "photos": [
+                    {
+                        "photo_id": p[0],
+                        "event": p[1],
+                        "drive_link": p[2],
+                        "date": p[3] if p[3] else "",
+                        "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
+                    }
+                    for p in photos
+                ],
+                "faces": [
+                    {
+                        "face_id": f[0],
+                        "person": f[1],
+                        "photo_id": f[2],
+                        "role": f[3] if f[3] else "teacher",
+                        "student_id": f[4] if f[4] else ""
+                    }
+                    for f in faces
+                ]
             }
 
     def clear_scan_history(self):

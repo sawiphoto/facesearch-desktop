@@ -999,8 +999,8 @@ class SchedulerTask:
                 if results_data:
                     with self.db.get_connection() as conn:
                         c = conn.cursor()
-                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"], r.get("file_name", ""), r.get("file_extension", "")) for r in results_data]
-                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension) VALUES (?, ?, ?, ?, ?, ?, ?)", scanned_rows)
+                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"], r.get("file_name", ""), r.get("file_extension", ""), len(r.get("face_embeddings", []))) for r in results_data]
+                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
                         
                         photo_ids_batch = [r["photo_id"] for r in results_data]
                         if photo_ids_batch:
