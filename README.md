@@ -1,3 +1,142 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.24 (Scan Session Report Summary & Exporter)
+
+## 📋 Version 6.24 Changelog (Scan Session Summary Popup, Real-Time Accounting & Report Exporter)
+
+**Date:** 11 ตุลาคม 2026 (04:45 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash (High Reasoning)  
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ความต้องการรายงานสรุปผลเมื่อหยุดหรือสิ้นสุดการสแกน (Stop Schedule Task Summary Report):**
+   - เมื่อผู้ใช้กดปุ่ม **"🛑 Stop Schedule Task"** (หรือเมื่อการสแกนสิ้นสุดลง) และหลังจากกระบวนการอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive (`_sync_all_json_to_drive()`) ไฟล์สุดท้ายเสร็จสิ้น:
+   - ผู้ใช้ต้องการให้แสดง **Popup Report Summary** บนหน้าต่างโปรแกรม GUI เพื่อดูผลการทำงานทันที ประกอบด้วย:
+     - สแกนโฟลเดอร์ไหนไปบ้าง และโฟลเดอร์ละกี่ภาพ (แยกภาพ AI, ภาพไฟล์ดิบ RAW, และภาพที่เกิดปัญหา)
+     - รวมรูปภาพที่ประมวลผลทั้งหมดกี่ภาพ
+     - ภาพใครปรากฏเยอะสุด **Top 10** (ชื่อบุคคลและจำนวนภาพที่พบ)
+     - มีปัญหาที่ภาพไหนบ้าง (ชื่อไฟล์, โฟลเดอร์, สาเหตุ, และลิงก์ Drive)
+2. **การบันทึกจัดเก็บประวัติรายงานอัตโนมัติ (Automated Report Archiving):**
+   - ต้องการให้ระบบเซฟไฟล์รายงานสรุปผลไว้ในโฟลเดอร์ `report_summary/` ภายในไดเรกทอรีโปรเจกต์นี้ด้วยเสมอ ทั้งในรูปแบบ Markdown (`.md`) ที่อ่านง่าย และ JSON (`.json`) สำหรับนำไปใช้งานต่อ
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สร้างคลาส `ScanSessionTracker` สำหรับติดตามสถิติการสแกนแบบ Real-Time ([`scheduler_task.py`](scheduler_task.py)):**
+   - พัฒนาโครงสร้างการนับสถิติแบบเรียลไทม์:
+     - `record_folder_start(folder_name, year_name, total_files)`: บันทึกข้อมูลโฟลเดอร์ที่เริ่มสแกน
+     - `record_raw_photo(folder_name, f_name, f_id)`: บันทึกไฟล์ภาพดิบ RAW กล้องดิจิทัล
+     - `record_ai_photo(folder_name, f_name, f_id, faces_count, match_names)`: บันทึกภาพที่ผ่าน AI พร้อมอัปเดตสถิติบุคคลด้วย `collections.Counter`
+     - `record_skipped(folder_name, f_name, f_id, reason, f_link)`: บันทึกภาพที่มีปัญหา ไม่สามารถดาวน์โหลด หรือ Decode ไม่ผ่าน
+     - `record_folder_finish(folder_name, is_completed)`: บันทึกสถานะการสแกนของโฟลเดอร์
+   - เพิ่มฟังก์ชัน `generate_markdown()` และ `save_report_to_disk()` ส่งออกรายงานเข้าโฟลเดอร์ `report_summary/` อัตโนมัติ
+2. **ระบบ Safe & Idempotent Drive JSON Sync เมื่อกดหยุดทำงาน ([`scheduler_task.py`](scheduler_task.py)):**
+   - เพิ่มตัวแปรแฟล็ก `self._stopped_json_synced` และเมธอด `_safe_sync_json_on_stop()` เพื่อรับประกันว่าการกด Stop จะอัปเดตไฟล์ JSON ขึ้น Google Drive เพียงครั้งเดียวอย่างปลอดภัย ไม่เกิดการเรียกซ้ำซ้อน
+   - ในบล็อก `finally` ของ `run_scheduled_tasks()`: สรุปผล Tracker, บันทึกรายงานลงดิสก์ และสั่งเปิดหน้าต่าง Popup บน GUI ผ่าน Thread-Safe `self.app_gui.after(0, ...)`
+3. **ออกแบบและพัฒนาหน้าต่าง Popup รายงานผลสถิติสุดทันสมัย ([`app_gui.py`](app_gui.py)):**
+   - พัฒนาเมธอด `show_scan_report_popup(self, report_data, saved_path)`:
+     - **Header Frame & Badges:** แสดงช่วงวัน-เวลา, ระยะเวลาการทำงาน, สถานะการหยุด (`🛑 Stop Requested` หรือ `✅ Completed`), สถานะการซิงค์ Drive JSON, และชื่อไฟล์รายงานที่บันทึก
+     - **4 KPI Metric Cards:** แสดงตัวเลขสถิติหลัก 4 ด้าน (📁 โฟลเดอร์ที่สแกน, 📸 ภาพที่ประมวลผลทั้งหมดแยกย่อย AI/RAW/ข้าม, 👤 จำนวนใบหน้าที่ตรวจพบสะสม, 🎯 ตรวจพบบุคคลสะสม)
+     - **Modern Tabview 4 แท็บ:**
+       - *แท็บ 1 (Folders Breakdown):* ตารางแจกแจงโฟลเดอร์ พร้อมสถานะสำเร็จ/บางส่วน
+       - *แท็บ 2 (Top 10 People):* อันดับบุคคลที่ปรากฏมากสุด 1-10 พร้อมเหรียญรางวัลและจำนวนภาพ
+       - *แท็บ 3 (Skipped & Issues):* รายการภาพที่มีปัญหา พร้อมแสดงสาเหตุและปุ่มคลิกเปิดดูบน Drive ทันที
+       - *แท็บ 4 (Markdown Full Text):* แสดงเนื้อหารายงาน Markdown ฉบับเต็ม
+     - **Bottom Action Bar:** ปุ่มเปิดโฟลเดอร์เก็บรายงาน (`os.startfile`), ปุ่มคัดลอก Markdown เข้า Clipboard, และปุ่มปิดหน้าต่าง
+4. **อัปเกรดเลขเวอร์ชัน UI ทั้งระบบเป็น `v6.24` ([`app_gui.py`](app_gui.py)):**
+   - ปรับ Window Title เป็น `v6.24 (Scan Session Report Summary & Exporter)`
+   - ปรับ Sidebar Logo Header เป็น `FACE MATCHING\nSYSTEM v6.24`
+5. **ผ่านชุดทดสอบ Suite Test ครบ 100% (TC-01 ถึง TC-29):**
+   - TC-25: Session Tracker Accounting & Top 10 Metrics (Passed, 100% accuracy)
+   - TC-26: Report File Persistence in `report_summary/` (Passed, `.md` & `.json` created)
+   - TC-27: Stop Flow & Idempotent Drive JSON Sync (Passed)
+   - TC-28: Popup Modal GUI & Version v6.24 (Passed)
+   - TC-29: Zero Regression Suite TC-21 ถึง TC-24 (Passed 100%)
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py`: เพิ่มคลาส `ScanSessionTracker` และการสร้างรายงานสรุปผล
+**ก่อนแก้ไข (Before):**
+```python
+# ไม่มีการติดตามสถิติระหว่างรอบการสแกน (No Session Tracker)
+def run_scheduled_tasks(self):
+    ...
+    self._task_1_scan_new_photos_fast()
+    self._sync_all_json_to_drive()
+    ...
+    finally:
+        self.is_running = False
+        self.stop_requested = False
+```
+
+**หลังแก้ไข (After):**
+```python
+# เพิ่ม ScanSessionTracker ติดตามสถิติทุกรูป และบันทึกรายงานพร้อมส่ง popup เมื่อเสร็จสิ้นหรือหยุด
+def run_scheduled_tasks(self):
+    self.is_running = True
+    self.stop_requested = False
+    self._stopped_json_synced = False
+    if hasattr(self, 'tracker') and self.tracker:
+        self.tracker.reset()
+    try:
+        ...
+        self._task_1_scan_new_photos_fast()
+        if not self._stopped_json_synced:
+            self._sync_all_json_to_drive()
+            self._stopped_json_synced = True
+        ...
+    finally:
+        was_stopped = self.stop_requested
+        if was_stopped:
+            self._safe_sync_json_on_stop()
+
+        if hasattr(self, 'tracker') and self.tracker and (self.tracker.has_scanned_items() or was_stopped):
+            try:
+                summary = self.tracker.finalize(stopped_by_user=was_stopped, json_synced=self._stopped_json_synced)
+                project_root = get_project_root()
+                saved_path = self.tracker.save_report_to_disk(project_root)
+                if hasattr(self.app_gui, 'show_scan_report_popup'):
+                    self.app_gui.after(0, lambda s=summary, p=saved_path: self.app_gui.show_scan_report_popup(s, p))
+            except Exception as rep_err:
+                logger.error(f"[SCHEDULE] ❌ Error generating scan report summary: {rep_err}", exc_info=True)
+
+        self.is_running = False
+        self.stop_requested = False
+        self._stopped_json_synced = False
+```
+
+#### 2. `app_gui.py`: เพิ่มเมธอด `show_scan_report_popup` และอัปเกรดเวอร์ชัน `v6.24`
+**ก่อนแก้ไข (Before):**
+```python
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.23 (Face Count Index & High-Performance Cache)")
+self.logo_label = ctk.CTkLabel(
+    self.sidebar_frame,
+    text="FACE MATCHING\nSYSTEM v6.23",
+    ...
+)
+# ไม่มีเมธอด show_scan_report_popup
+```
+
+**หลังแก้ไข (After):**
+```python
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.24 (Scan Session Report Summary & Exporter)")
+self.logo_label = ctk.CTkLabel(
+    self.sidebar_frame,
+    text="FACE MATCHING\nSYSTEM v6.24",
+    ...
+)
+
+def show_scan_report_popup(self, report_data, saved_path):
+    """แสดง Popup สรุปผลรายงานรอบการสแกนภาพถ่าย (Scan Session Summary Report v6.24)"""
+    dialog = ctk.CTkToplevel(self)
+    dialog.title("📊 สรุปผลรอบการสแกนภาพถ่าย (Scan Session Summary Report) v6.24")
+    ... # 4 KPI Cards, 4 Tabs (Folders, Top 10, Issues, Markdown), Open Report Folder & Copy buttons
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.23 (Face Count Index & High-Performance Cache)
 
 ## 📋 Version 6.23 Changelog (Total Faces Detected in JSON Index & Instant Database Sync)

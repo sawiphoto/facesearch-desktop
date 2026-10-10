@@ -9,14 +9,241 @@ import traceback
 import schedule
 import cv2
 import numpy as np
+import collections
 from datetime import datetime
-from face_analyzer import decode_image_bytes, read_image_file
+from face_analyzer import decode_image_bytes, read_image_file, get_project_root
 from db_manager import RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
 
 logger = logging.getLogger("FaceSearchApp")
 
 # เปิดใช้งานโหมด Debug การซิงค์นักเรียน
 DEBUG_SYNC_MODE = True
+
+
+class ScanSessionTracker:
+    """
+    คลาสติดตามสถิติการสแกนภาพถ่ายในรอบการทำงานแบบ Real-time และสรุปผลรายงาน (v6.24)
+    บันทึกรายชื่อโฟลเดอร์, จำนวนรูป, Top 10 บุคคลที่พบ, ปัญหา และส่งออกเป็น Markdown & JSON
+    """
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.start_time = datetime.now()
+        self.end_time = None
+        self.duration_seconds = 0
+        self.stopped_by_user = False
+        self.json_sync_completed = False
+        self.current_folder = ""
+        self.folders = {}
+        self.person_counts = collections.Counter()
+        self.skipped_files = []
+        self.total_faces_detected = 0
+        self.total_ai_photos = 0
+        self.total_raw_photos = 0
+        self.total_skipped_photos = 0
+
+    def record_folder_start(self, folder_name, year_name, total_files):
+        self.current_folder = folder_name
+        if folder_name not in self.folders:
+            self.folders[folder_name] = {
+                "year": year_name,
+                "ai_count": 0,
+                "raw_count": 0,
+                "skipped_count": 0,
+                "total_files": total_files,
+                "status": "กำลังสแกน (In Progress)"
+            }
+
+    def record_raw_photo(self, folder_name, f_name, f_id):
+        self.total_raw_photos += 1
+        if folder_name in self.folders:
+            self.folders[folder_name]["raw_count"] += 1
+
+    def record_ai_photo(self, folder_name, f_name, f_id, faces_count, match_names):
+        self.total_ai_photos += 1
+        self.total_faces_detected += faces_count
+        if folder_name in self.folders:
+            self.folders[folder_name]["ai_count"] += 1
+        if match_names:
+            for name in set(match_names):
+                self.person_counts[name] += 1
+
+    def record_skipped(self, folder_name, f_name, f_id, reason, f_link=""):
+        self.total_skipped_photos += 1
+        if folder_name in self.folders:
+            self.folders[folder_name]["skipped_count"] += 1
+        self.skipped_files.append({
+            "folder": folder_name,
+            "file_name": f_name,
+            "file_id": f_id,
+            "reason": str(reason),
+            "drive_link": f_link
+        })
+
+    def record_folder_finish(self, folder_name, is_completed):
+        if folder_name in self.folders:
+            self.folders[folder_name]["status"] = "เสร็จสมบูรณ์ 100%" if is_completed else "สแกนบางส่วน (Partial)"
+
+    def has_scanned_items(self):
+        return (self.total_ai_photos > 0 or self.total_raw_photos > 0 or 
+                self.total_skipped_photos > 0 or len(self.folders) > 0)
+
+    def finalize(self, stopped_by_user=False, json_synced=True):
+        self.end_time = datetime.now()
+        self.stopped_by_user = stopped_by_user
+        self.json_sync_completed = json_synced
+        self.duration_seconds = max(1, int((self.end_time - self.start_time).total_seconds()))
+        return self.get_summary()
+
+    def get_summary(self):
+        end_time_val = self.end_time or datetime.now()
+        duration = self.duration_seconds if self.duration_seconds > 0 else max(1, int((end_time_val - self.start_time).total_seconds()))
+        mins, secs = divmod(duration, 60)
+        hours, mins = divmod(mins, 60)
+        if hours > 0:
+            duration_str = f"{hours} ชม. {mins} นาที {secs} วิ"
+        elif mins > 0:
+            duration_str = f"{mins} นาที {secs} วิ"
+        else:
+            duration_str = f"{secs} วินาที"
+
+        top_10 = self.person_counts.most_common(10)
+        top_10_list = [{"rank": idx + 1, "name": name, "count": count} for idx, (name, count) in enumerate(top_10)]
+        total_all_images = self.total_ai_photos + self.total_raw_photos + self.total_skipped_photos
+
+        return {
+            "start_time_str": self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time_str": end_time_val.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration_str": duration_str,
+            "duration_seconds": duration,
+            "stopped_by_user": self.stopped_by_user,
+            "json_sync_completed": self.json_sync_completed,
+            "total_folders": len(self.folders),
+            "total_all_images": total_all_images,
+            "total_ai_photos": self.total_ai_photos,
+            "total_raw_photos": self.total_raw_photos,
+            "total_skipped_photos": self.total_skipped_photos,
+            "total_faces_detected": self.total_faces_detected,
+            "total_matched_appearances": sum(self.person_counts.values()),
+            "folders_breakdown": self.folders,
+            "top_10_people": top_10_list,
+            "skipped_files": self.skipped_files
+        }
+
+    def generate_markdown(self, summary=None):
+        if summary is None:
+            summary = self.get_summary()
+
+        status_badge = "🛑 หยุดทำงานตามคำร้องขอ (Stop Requested)" if summary["stopped_by_user"] else "✅ เสร็จสมบูรณ์ (Completed)"
+        drive_badge = "✅ อัปเดต Drive JSON สำเร็จเรียบร้อยแล้ว" if summary["json_sync_completed"] else "⚠️ ยังไม่ได้อัปเดต Drive JSON"
+
+        lines = [
+            "# 📊 รายงานสรุปผลการสแกนภาพถ่ายกิจกรรม (Scan Session Summary Report)",
+            "",
+            f"**วัน-เวลาเริ่มสแกน:** {summary['start_time_str']}  ",
+            f"**วัน-เวลาสิ้นสุด:** {summary['end_time_str']}  ",
+            f"**ระยะเวลาทั้งหมด:** {summary['duration_str']}  ",
+            f"**สถานะการทำงาน:** {status_badge}  ",
+            f"**สถานะ Drive JSON:** {drive_badge}  ",
+            "",
+            "---",
+            "",
+            "## 📈 ภาพรวมตัวเลขสถิติ (Executive Summary)",
+            "",
+            "| หมวดหมู่สถิติ | จำนวน | หน่วย |",
+            "| :--- | :---: | :---: |",
+            f"| 📁 โฟลเดอร์ที่สแกน | **{summary['total_folders']}** | โฟลเดอร์ |",
+            f"| 📸 ภาพที่ประมวลผลทั้งหมด | **{summary['total_all_images']}** | ภาพ |",
+            f"| 🤖 ภาพที่สแกนด้วย AI (InsightFace) | **{summary['total_ai_photos']}** | ภาพ |",
+            f"| 📷 ภาพถ่ายไฟล์ดิบ RAW จากกล้อง | **{summary['total_raw_photos']}** | ภาพ |",
+            f"| ⚠️ ภาพที่มีปัญหา / ข้าม | **{summary['total_skipped_photos']}** | ภาพ |",
+            f"| 👤 จำนวนใบหน้าที่ตรวจพบสะสม | **{summary['total_faces_detected']}** | ใบหน้า |",
+            f"| 🎯 ตรวจพบบุคคลในระบบสะสม | **{summary['total_matched_appearances']}** | ครั้ง |",
+            "",
+            "---",
+            "",
+            "## 📁 รายละเอียดโฟลเดอร์ที่สแกนไป (Folders Breakdown)",
+            "",
+            "| ลำดับ | ชื่องาน / โฟลเดอร์ | ปีการศึกษา | สำเร็จ (AI) | ไฟล์ RAW | ปัญหา | รวม | สถานะ |",
+            "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :--- |"
+        ]
+
+        if summary["folders_breakdown"]:
+            for idx, (f_name, f_data) in enumerate(summary["folders_breakdown"].items(), start=1):
+                total_f = f_data.get("ai_count", 0) + f_data.get("raw_count", 0) + f_data.get("skipped_count", 0)
+                lines.append(
+                    f"| {idx} | {f_name} | {f_data.get('year', '-')} | "
+                    f"{f_data.get('ai_count', 0)} | {f_data.get('raw_count', 0)} | "
+                    f"{f_data.get('skipped_count', 0)} | {total_f} | {f_data.get('status', '-')} |"
+                )
+        else:
+            lines.append("| - | *ไม่พบข้อมูลโฟลเดอร์* | - | 0 | 0 | 0 | 0 | - |")
+
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## 🏆 ภาพใครปรากฏเยอะสุด Top 10 (Most Recognized People)",
+            "",
+            "| อันดับ | ชื่อ-นามสกุล บุคลากร / นักเรียน | จำนวนภาพถ่ายที่พบ |",
+            "| :---: | :--- | :---: |"
+        ])
+
+        if summary["top_10_people"]:
+            for item in summary["top_10_people"]:
+                lines.append(f"| {item['rank']} | **{item['name']}** | {item['count']} ภาพ |")
+        else:
+            lines.append("| - | *ไม่พบบุคคลที่จับคู่ได้ในรอบนี้* | 0 ภาพ |")
+
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## ⚠️ รายการภาพที่มีปัญหา / ข้าม (Issues & Skipped Files)",
+            ""
+        ])
+
+        if summary["skipped_files"]:
+            lines.extend([
+                "| ลำดับ | โฟลเดอร์ | ชื่อไฟล์ภาพ | สาเหตุที่เกิดปัญหา | รหัส Drive ID |",
+                "| :---: | :--- | :--- | :--- | :--- |"
+            ])
+            for idx, item in enumerate(summary["skipped_files"], start=1):
+                lines.append(
+                    f"| {idx} | {item.get('folder', '-')} | {item.get('file_name', '-')} | "
+                    f"{item.get('reason', '-')} | `{item.get('file_id', '-')}` |"
+                )
+        else:
+            lines.append("✅ **ไม่พบภาพที่มีปัญหาในรอบการสแกนนี้ (ประมวลผลสมบูรณ์ 100%)**")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def save_report_to_disk(self, project_root):
+        if self.end_time is None:
+            self.finalize()
+        summary = self.get_summary()
+        report_dir = os.path.join(project_root, "report_summary")
+        os.makedirs(report_dir, exist_ok=True)
+
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        md_filename = f"scan_report_{timestamp_str}.md"
+        json_filename = f"scan_report_{timestamp_str}.json"
+
+        md_path = os.path.join(report_dir, md_filename)
+        json_path = os.path.join(report_dir, json_filename)
+
+        md_content = self.generate_markdown(summary)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"[REPORT] Saved scan summary report to: {md_path}")
+        return md_path
+
 
 class SchedulerTask:
     def __init__(self, db_manager, sync_manager, face_analyzer, app_gui):
@@ -26,6 +253,8 @@ class SchedulerTask:
         self.app_gui = app_gui
         self.is_running = False
         self.stop_requested = False
+        self._stopped_json_synced = False
+        self.tracker = ScanSessionTracker()
         self.gpu_lock = threading.Lock()
         
         # Schedule midnight trigger
@@ -34,6 +263,12 @@ class SchedulerTask:
         # Start background thread
         self.thread = threading.Thread(target=self._scheduler_loop, daemon=True)
         self.thread.start()
+
+    def _safe_sync_json_on_stop(self):
+        """ช่วยอัปเดตไฟล์ JSON บน Drive เมื่อหยุดทำงาน โดยป้องกันการรันซ้ำซ้อน (v6.24)"""
+        if not self._stopped_json_synced:
+            self._sync_all_json_to_drive()
+            self._stopped_json_synced = True
 
     def request_stop(self):
         if self.is_running:
@@ -111,9 +346,13 @@ class SchedulerTask:
             
         self.is_running = True
         self.stop_requested = False
+        self._stopped_json_synced = False
+        if hasattr(self, 'tracker') and self.tracker:
+            self.tracker.reset()
+
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v5.30 - High Speed & Multi-Task)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.24 - High Speed & Report Summary)")
             logger.info("="*50)
             
             # Ensure Google API is connected
@@ -127,8 +366,10 @@ class SchedulerTask:
             self._task_1_scan_new_photos_fast()
             
             # 1. Sync JSON บน Drive ทันทีหลังจบ Task 1 (ก่อนขึ้น Task 2)
-            logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive หลังจบ Task 1...")
-            self._sync_all_json_to_drive()
+            if not self._stopped_json_synced:
+                logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive หลังจบ Task 1...")
+                self._sync_all_json_to_drive()
+                self._stopped_json_synced = True
 
             if not self.stop_requested:
                 # Task 2: Sync New Students (Bulk)
@@ -139,7 +380,7 @@ class SchedulerTask:
                 self._task_3_sync_new_teachers_bulk()
             else:
                 logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
-                self._sync_all_json_to_drive()
+                self._safe_sync_json_on_stop()
             
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
@@ -151,10 +392,26 @@ class SchedulerTask:
             logger.error(f"[SCHEDULE] เกิดข้อผิดพลาดระหว่างทำงาน: {e}", exc_info=True)
             if self.stop_requested:
                 logger.info("[SCHEDULE] 🛑 ปิดท้ายด้วยการอัปเดตไฟล์ JSON ขึ้น Google Drive...")
-                self._sync_all_json_to_drive()
+                self._safe_sync_json_on_stop()
         finally:
+            was_stopped = self.stop_requested
+            if was_stopped:
+                self._safe_sync_json_on_stop()
+
+            # สรุปผลและส่งออกรายงาน พร้อมแจ้งเตือน Popup สรุปผลบน GUI (v6.24)
+            if hasattr(self, 'tracker') and self.tracker and (self.tracker.has_scanned_items() or was_stopped):
+                try:
+                    summary = self.tracker.finalize(stopped_by_user=was_stopped, json_synced=self._stopped_json_synced)
+                    project_root = get_project_root()
+                    saved_path = self.tracker.save_report_to_disk(project_root)
+                    if hasattr(self.app_gui, 'show_scan_report_popup'):
+                        self.app_gui.after(0, lambda s=summary, p=saved_path: self.app_gui.show_scan_report_popup(s, p))
+                except Exception as rep_err:
+                    logger.error(f"[SCHEDULE] ❌ Error generating scan report summary: {rep_err}", exc_info=True)
+
             self.is_running = False
             self.stop_requested = False
+            self._stopped_json_synced = False
 
     def _sync_all_json_to_drive(self):
         """ช่วยอัปเดตไฟล์ JSON สรุปย่อ 3 ไฟล์ขึ้น Google Drive (ทำงานเหมือนปุ่ม GUI เป๊ะ)"""
@@ -859,6 +1116,8 @@ class SchedulerTask:
                 total_files = len(files_to_process)
                 
                 logger.info(f"[FULLSCAN] 🚀 [{year_name}] ({idx+1}/{total_in_year}) สแกนโฟลเดอร์: {folder_name} ({total_files} รูป)")
+                if hasattr(self, 'tracker') and self.tracker:
+                    self.tracker.record_folder_start(folder_name, year_name, total_files)
                 
                 results_data = []
                 raw_photos_data = []
@@ -879,6 +1138,8 @@ class SchedulerTask:
                     camera_brand = RAW_EXTENSIONS_MAP.get(f_ext)
                     if camera_brand:
                         logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) 📷 ตรวจพบไฟล์ RAW กล้อง ({camera_brand} {f_ext}): {f_name} (บันทึกลง raw_camera_photos โดยอัตโนมัติ ข้ามการดาวน์โหลด)")
+                        if hasattr(self, 'tracker') and self.tracker:
+                            self.tracker.record_raw_photo(folder_name, f_name, f_id)
                         raw_photos_data.append({
                             "photo_id": f_id,
                             "drive_file_id": f_id,
@@ -904,6 +1165,8 @@ class SchedulerTask:
                         if not img_bytes:
                             logger.warning(f"[AI SCAN] [{folder_name}] ⚠️ ไม่สามารถดาวน์โหลดไฟล์ได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_DOWNLOAD_EMPTY"))
+                            if hasattr(self, 'tracker') and self.tracker:
+                                self.tracker.record_skipped(folder_name, f_name, f_id, "ไม่สามารถดาวน์โหลดไฟล์ได้ (Empty Bytes)", f_link)
                             processed_count += 1
                             continue
 
@@ -913,6 +1176,8 @@ class SchedulerTask:
                         if img is None:
                             logger.warning(f"[AI SCAN] [{folder_name}] ⚠️ ไม่สามารถ Decode ไฟล์ภาพได้: {f_name} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                             skipped_files.append((f_id, f_name, "SKIPPED_UNREADABLE_IMAGE"))
+                            if hasattr(self, 'tracker') and self.tracker:
+                                self.tracker.record_skipped(folder_name, f_name, f_id, "ไม่สามารถ Decode ไฟล์ภาพได้ (Unreadable Image)", f_link)
                             processed_count += 1
                             continue
 
@@ -952,6 +1217,8 @@ class SchedulerTask:
 
                         match_str = f"-> [MATCH_OK] เจอ: {', '.join(match_names)}" if match_names else "-> ไม่พบคนในระบบ"
                         logger.info(f"[AI SCAN] [{folder_name}] ({processed_count+1}/{total_files}) ✅ {f_name} | DL: {t_dl:.2f}s | AI: {t_ai:.2f}s | พบ {len(faces) if faces else 0} ใบหน้า {match_str}")
+                        if hasattr(self, 'tracker') and self.tracker:
+                            self.tracker.record_ai_photo(folder_name, f_name, f_id, len(faces) if faces else 0, match_names)
                         
                         # Save Thumbnail Cache (รองรับ Encoding โฟลเดอร์ภาษาไทยบน Windows)
                         try:
@@ -993,6 +1260,8 @@ class SchedulerTask:
                     except Exception as e:
                         logger.error(f"[AI SCAN] [{folder_name}] ❌ Error analyzing faces for {f_name}: {e} (ข้ามเพื่อรอสแกนซ้ำรอบถัดไป)")
                         skipped_files.append((f_id, f_name, f"ERROR_{e}"))
+                        if hasattr(self, 'tracker') and self.tracker:
+                            self.tracker.record_skipped(folder_name, f_name, f_id, f"เกิดข้อผิดพลาด: {e}", f_link)
                         processed_count += 1
 
                 # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 / v6.00 with file_name & file_extension)
@@ -1033,14 +1302,18 @@ class SchedulerTask:
                     if hasattr(self.app_gui, 'record_matched_folder'):
                         self.app_gui.record_matched_folder(folder_id, folder_name)
                         completed_folder_ids.add(folder_id)
+                    if hasattr(self, 'tracker') and self.tracker:
+                        self.tracker.record_folder_finish(folder_name, is_completed=True)
                 else:
                     logger.warning(f"[FULLSCAN] ⚠️ โฟลเดอร์ '{folder_name}' สแกนสำเร็จ {len(results_data) + len(raw_photos_data)}/{total_files} รูป (มี {len(skipped_files)} รูปค้างเนื่องจากเน็ตหลุด/ผิดพลาด จะไม่บันทึกว่าเสร็จเพื่อให้สแกนซ้ำ)")
+                    if hasattr(self, 'tracker') and self.tracker:
+                        self.tracker.record_folder_finish(folder_name, is_completed=False)
 
                 for r in results_data: scanned_ids.add(r["photo_id"])
                 
                 if self.stop_requested:
                     logger.info(f"[SCHEDULE] 🛑 หยุดการทำงานในโฟลเดอร์ '{folder_name}' ตามคำร้องขอ (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
-                    self._sync_all_json_to_drive()
+                    self._safe_sync_json_on_stop()
                     break
                 
             logger.info(f"[SCHEDULE] 🎉 เสร็จสิ้นการทำ Full Scan สำหรับโฟลเดอร์หลัก: '{year_name}'")

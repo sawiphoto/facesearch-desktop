@@ -1,0 +1,33 @@
+{
+  "start_time_str": "2026-10-11 04:46:03",
+  "end_time_str": "2026-10-11 04:46:03",
+  "duration_str": "0 วินาที",
+  "duration_seconds": 0,
+  "stopped_by_user": false,
+  "json_sync_completed": false,
+  "total_folders": 1,
+  "total_all_images": 1,
+  "total_ai_photos": 1,
+  "total_raw_photos": 0,
+  "total_skipped_photos": 0,
+  "total_faces_detected": 1,
+  "total_matched_appearances": 1,
+  "folders_breakdown": {
+    "อบรมคอมพิวเตอร์": {
+      "year": "2567",
+      "ai_count": 1,
+      "raw_count": 0,
+      "skipped_count": 0,
+      "total_files": 2,
+      "status": "เสร็จสมบูรณ์ 100%"
+    }
+  },
+  "top_10_people": [
+    {
+      "rank": 1,
+      "name": "อาจารย์ประเสริฐ",
+      "count": 1
+    }
+  ],
+  "skipped_files": []
+}

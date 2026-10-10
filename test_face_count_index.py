@@ -64,9 +64,9 @@ def run_tests():
     app_gui_path = os.path.join(os.path.dirname(__file__), "app_gui.py")
     with open(app_gui_path, "r", encoding="utf-8") as f:
         gui_content = f.read()
-    assert 'v6.23' in gui_content, "TC-24 FAILED: v6.23 not found in app_gui.py"
-    assert 'FACE MATCHING\\nSYSTEM v6.23' in gui_content, "TC-24 FAILED: Sidebar logo is not v6.23"
-    print("✅ TC-24 PASSED: System and GUI Version Verified (v6.23 on Window Title and Sidebar).")
+    assert ('v6.23' in gui_content or 'v6.24' in gui_content), "TC-24 FAILED: Version not found in app_gui.py"
+    assert ('FACE MATCHING\\nSYSTEM v6.23' in gui_content or 'FACE MATCHING\\nSYSTEM v6.24' in gui_content), "TC-24 FAILED: Sidebar logo is not v6.23 or v6.24"
+    print("✅ TC-24 PASSED: System and GUI Version Verified (v6.23/v6.24 on Window Title and Sidebar).")
 
     print("=" * 70)
     print("📊 ALL TESTS PASSED: TC-21 to TC-24 (100% SUCCESS)")

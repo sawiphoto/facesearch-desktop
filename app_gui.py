@@ -674,7 +674,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.23 (Face Count Index & High-Performance Cache)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.24 (Scan Session Report Summary & Exporter)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -767,7 +767,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.23",
+            text="FACE MATCHING\nSYSTEM v6.24",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2330,6 +2330,239 @@ class FaceSearchApp(ctk.CTk):
         # ปุ่มปิด
         ctk.CTkButton(main_frame, text="ปิด", width=100, fg_color="#3498DB",
                      hover_color="#2980B9", command=dialog.destroy).pack(pady=(15, 0))
+
+    def show_scan_report_popup(self, report_data, saved_path):
+        """
+        แสดง Popup สรุปผลรายงานรอบการสแกนภาพถ่าย (Scan Session Summary Report v6.24)
+        ประกอบด้วย 4 KPI Cards, รายชื่อโฟลเดอร์, Top 10 บุคคลที่พบมากสุด, รายการภาพที่มีปัญหา และรายงานฉบับเต็ม
+        """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("📊 สรุปผลรอบการสแกนภาพถ่าย (Scan Session Summary Report) v6.24")
+        dialog.geometry("960x720")
+        dialog.minsize(880, 620)
+        dialog.transient(self)
+        dialog.after(100, lambda: dialog.focus())
+
+        # Main background container
+        main_frame = ctk.CTkFrame(dialog, fg_color="#0A111A")
+        main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # 1. Header Frame
+        header_frame = ctk.CTkFrame(main_frame, fg_color="#101B2B", corner_radius=8)
+        header_frame.pack(fill="x", padx=10, pady=(10, 10))
+
+        title_lbl = ctk.CTkLabel(
+            header_frame, 
+            text="📊 สรุปผลรอบการสแกนภาพถ่ายกิจกรรม (Scan Session Report)",
+            font=ctk.CTkFont(size=18, weight="bold"), 
+            text_color="#6CA6CD"
+        )
+        title_lbl.pack(anchor="w", padx=15, pady=(10, 4))
+
+        sub_info = f"ช่วงเวลา: {report_data.get('start_time_str', '-')} ถึง {report_data.get('end_time_str', '-')}  |  ใช้เวลา: {report_data.get('duration_str', '-')}"
+        sub_lbl = ctk.CTkLabel(
+            header_frame, 
+            text=sub_info,
+            font=ctk.CTkFont(size=12), 
+            text_color="#AAB7B8"
+        )
+        sub_lbl.pack(anchor="w", padx=15, pady=(0, 8))
+
+        badges_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        badges_frame.pack(fill="x", padx=15, pady=(0, 10))
+
+        # Status badge
+        is_stopped = report_data.get("stopped_by_user", False)
+        status_text = "🛑 หยุดทำงานตามคำร้องขอ (Stop Requested)" if is_stopped else "✅ สแกนเสร็จสิ้นสมบูรณ์ (Completed)"
+        status_color = "#C0392B" if is_stopped else "#27AE60"
+        ctk.CTkLabel(
+            badges_frame, text=status_text,
+            fg_color=status_color, text_color="white", corner_radius=6,
+            font=ctk.CTkFont(size=11, weight="bold"), padx=10, pady=3
+        ).pack(side="left", padx=(0, 10))
+
+        # Drive JSON badge
+        is_synced = report_data.get("json_sync_completed", True)
+        sync_text = "✅ อัปเดต Drive JSON สำเร็จ" if is_synced else "⚠️ ยังไม่ได้อัปเดต Drive JSON"
+        sync_color = "#2980B9" if is_synced else "#E67E22"
+        ctk.CTkLabel(
+            badges_frame, text=sync_text,
+            fg_color=sync_color, text_color="white", corner_radius=6,
+            font=ctk.CTkFont(size=11, weight="bold"), padx=10, pady=3
+        ).pack(side="left", padx=(0, 10))
+
+        # Saved Path badge
+        if saved_path:
+            filename = os.path.basename(saved_path)
+            ctk.CTkLabel(
+                badges_frame, text=f"💾 เซฟแล้ว: {filename}",
+                fg_color="#1F3A60", text_color="#E0E6ED", corner_radius=6,
+                font=ctk.CTkFont(size=11), padx=10, pady=3
+            ).pack(side="left")
+
+        # 2. KPI Cards Frame (4 Cards)
+        kpi_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        kpi_frame.pack(fill="x", padx=10, pady=(0, 10))
+        for col in range(4):
+            kpi_frame.grid_columnconfigure(col, weight=1)
+
+        kpis = [
+            ("📁 โฟลเดอร์ที่สแกน", f"{report_data.get('total_folders', 0):,} โฟลเดอร์", "#3498DB", "#17263C"),
+            ("📸 ภาพประมวลผลทั้งหมด", f"{report_data.get('total_all_images', 0):,} ภาพ\n(AI: {report_data.get('total_ai_photos', 0):,} | RAW: {report_data.get('total_raw_photos', 0):,} | ข้าม: {report_data.get('total_skipped_photos', 0):,})", "#2ECC71", "#17263C"),
+            ("👤 ใบหน้าที่ตรวจพบ", f"{report_data.get('total_faces_detected', 0):,} ใบหน้า", "#F1C40F", "#17263C"),
+            ("🎯 แมตช์บุคคลสะสม", f"{report_data.get('total_matched_appearances', 0):,} ครั้ง", "#E67E22", "#17263C")
+        ]
+
+        for idx, (title, value, accent_color, bg_card) in enumerate(kpis):
+            card = ctk.CTkFrame(kpi_frame, fg_color=bg_card, corner_radius=8, border_width=1, border_color="#20334F")
+            card.grid(row=0, column=idx, padx=4, sticky="nsew")
+            ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=12, weight="bold"), text_color=accent_color).pack(padx=8, pady=(8, 2))
+            ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=13, weight="bold"), text_color="white", justify="center").pack(padx=8, pady=(0, 8))
+
+        # 3. Tabview Frame
+        tabview = ctk.CTkTabview(main_frame, fg_color="#101B2B", segmented_button_selected_color="#1F3A60")
+        tabview.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        tab_folders = tabview.add(f"📁 รายชื่อโฟลเดอร์ ({report_data.get('total_folders', 0)})")
+        tab_top10 = tabview.add("🏆 Top 10 บุคคลที่พบมากสุด")
+        tab_issues = tabview.add(f"⚠️ ภาพที่มีปัญหา/ข้าม ({len(report_data.get('skipped_files', []))})")
+        tab_markdown = tabview.add("📝 สรุปรายงานเต็ม (Markdown)")
+
+        # Populate Tab 1: Folders Breakdown
+        scr_folders = ctk.CTkScrollableFrame(tab_folders, fg_color="#0A111A")
+        scr_folders.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        folders_dict = report_data.get("folders_breakdown", {})
+        if folders_dict:
+            # Table Header
+            hdr_f = ctk.CTkFrame(scr_folders, fg_color="#1F3A60", corner_radius=4)
+            hdr_f.pack(fill="x", pady=(0, 4))
+            ctk.CTkLabel(hdr_f, text="ลำดับ", width=40, font=ctk.CTkFont(size=11, weight="bold"), text_color="white").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="ชื่อโฟลเดอร์ / กิจกรรม", font=ctk.CTkFont(size=11, weight="bold"), text_color="white", anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+            ctk.CTkLabel(hdr_f, text="ปีการศึกษา", width=70, font=ctk.CTkFont(size=11, weight="bold"), text_color="white").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="AI สแกน", width=65, font=ctk.CTkFont(size=11, weight="bold"), text_color="#2ECC71").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="RAW", width=55, font=ctk.CTkFont(size=11, weight="bold"), text_color="#3498DB").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="ข้าม/ปัญหา", width=65, font=ctk.CTkFont(size=11, weight="bold"), text_color="#E74C3C").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="รวม", width=55, font=ctk.CTkFont(size=11, weight="bold"), text_color="white").pack(side="left", padx=4)
+            ctk.CTkLabel(hdr_f, text="สถานะ", width=120, font=ctk.CTkFont(size=11, weight="bold"), text_color="white").pack(side="left", padx=4)
+
+            for f_idx, (f_name, f_info) in enumerate(folders_dict.items(), start=1):
+                row_f = ctk.CTkFrame(scr_folders, fg_color="#142236" if f_idx % 2 == 0 else "#101B2B", corner_radius=4)
+                row_f.pack(fill="x", pady=2)
+                tot = f_info.get("ai_count", 0) + f_info.get("raw_count", 0) + f_info.get("skipped_count", 0)
+                status_f = f_info.get("status", "-")
+                status_color = "#2ECC71" if "เสร็จสมบูรณ์" in status_f else "#F39C12"
+
+                ctk.CTkLabel(row_f, text=str(f_idx), width=40, font=ctk.CTkFont(size=11)).pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=f_name, font=ctk.CTkFont(size=11), anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+                ctk.CTkLabel(row_f, text=str(f_info.get("year", "-")), width=70, font=ctk.CTkFont(size=11), text_color="#95A5A6").pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=str(f_info.get("ai_count", 0)), width=65, font=ctk.CTkFont(size=11), text_color="#2ECC71").pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=str(f_info.get("raw_count", 0)), width=55, font=ctk.CTkFont(size=11), text_color="#3498DB").pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=str(f_info.get("skipped_count", 0)), width=65, font=ctk.CTkFont(size=11), text_color="#E74C3C").pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=str(tot), width=55, font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=4)
+                ctk.CTkLabel(row_f, text=status_f, width=120, font=ctk.CTkFont(size=11, weight="bold"), text_color=status_color).pack(side="left", padx=4)
+        else:
+            ctk.CTkLabel(scr_folders, text="ℹ️ ไม่พบข้อมูลโฟลเดอร์ที่มีการสแกนในรอบนี้", font=ctk.CTkFont(size=13), text_color="#7F8C8D").pack(pady=40)
+
+        # Populate Tab 2: Top 10 People
+        scr_top10 = ctk.CTkScrollableFrame(tab_top10, fg_color="#0A111A")
+        scr_top10.pack(fill="both", expand=True, padx=5, pady=5)
+        top10_list = report_data.get("top_10_people", [])
+        if top10_list:
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for idx, p in enumerate(top10_list):
+                row_p = ctk.CTkFrame(scr_top10, fg_color="#142236" if idx % 2 == 0 else "#101B2B", corner_radius=6)
+                row_p.pack(fill="x", pady=3, padx=10)
+                medal = medals[idx] if idx < len(medals) else f"#{idx+1}"
+                ctk.CTkLabel(row_p, text=medal, width=45, font=ctk.CTkFont(size=16)).pack(side="left", padx=10, pady=8)
+                ctk.CTkLabel(row_p, text=p.get("name", "Unknown"), font=ctk.CTkFont(size=13, weight="bold"), text_color="white", anchor="w").pack(side="left", fill="x", expand=True, padx=5)
+                ctk.CTkLabel(row_p, text=f"ปรากฏ {p.get('count', 0):,} ภาพ", font=ctk.CTkFont(size=12, weight="bold"), text_color="#2ECC71").pack(side="right", padx=15)
+        else:
+            ctk.CTkLabel(scr_top10, text="ℹ️ ไม่พบบุคคลที่จับคู่ได้ในรอบการสแกนนี้", font=ctk.CTkFont(size=13), text_color="#7F8C8D").pack(pady=40)
+
+        # Populate Tab 3: Skipped / Error files
+        scr_issues = ctk.CTkScrollableFrame(tab_issues, fg_color="#0A111A")
+        scr_issues.pack(fill="both", expand=True, padx=5, pady=5)
+        skipped_list = report_data.get("skipped_files", [])
+        if skipped_list:
+            for idx, item in enumerate(skipped_list, start=1):
+                row_iss = ctk.CTkFrame(scr_issues, fg_color="#1C1824", corner_radius=6, border_width=1, border_color="#C0392B")
+                row_iss.pack(fill="x", pady=4, padx=5)
+                top_line = ctk.CTkFrame(row_iss, fg_color="transparent")
+                top_line.pack(fill="x", padx=10, pady=(6, 2))
+                ctk.CTkLabel(top_line, text=f"#{idx} [{item.get('folder', '-')}]", font=ctk.CTkFont(size=11, weight="bold"), text_color="#E74C3C").pack(side="left")
+                ctk.CTkLabel(top_line, text=item.get("file_name", "-"), font=ctk.CTkFont(size=11, weight="bold"), text_color="white").pack(side="left", padx=10)
+                
+                drive_lnk = item.get("drive_link", "")
+                if drive_lnk:
+                    ctk.CTkButton(
+                        top_line, text="🔗 ดูบน Drive", width=90, height=22, font=ctk.CTkFont(size=10),
+                        fg_color="#1F3A60", hover_color="#20334F",
+                        command=lambda u=drive_lnk: webbrowser.open(u)
+                    ).pack(side="right")
+
+                reason_lbl = ctk.CTkLabel(
+                    row_iss, text=f"สาเหตุ: {item.get('reason', '-')}",
+                    font=ctk.CTkFont(size=11), text_color="#E08277", anchor="w"
+                )
+                reason_lbl.pack(fill="x", padx=10, pady=(0, 6))
+        else:
+            ctk.CTkLabel(
+                scr_issues, text="✅ ไม่พบภาพที่มีปัญหาในรอบการสแกนนี้ (ประมวลผลสมบูรณ์ 100%)",
+                font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71"
+            ).pack(pady=40)
+
+        # Populate Tab 4: Markdown Text
+        from scheduler_task import ScanSessionTracker
+        tracker_tmp = ScanSessionTracker()
+        md_text = tracker_tmp.generate_markdown(report_data)
+
+        txt_md = ctk.CTkTextbox(tab_markdown, fg_color="#0A111A", text_color="#2ECC71", font=ctk.CTkFont(family="Consolas", size=11), wrap="word")
+        txt_md.pack(fill="both", expand=True, padx=5, pady=5)
+        txt_md.insert("1.0", md_text)
+        txt_md.configure(state="disabled")
+
+        # 4. Bottom Action Bar
+        action_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        action_frame.pack(fill="x", padx=10, pady=(0, 5))
+
+        def open_folder():
+            target_folder = os.path.dirname(saved_path) if saved_path else os.path.join(get_project_root(), "report_summary")
+            if os.path.exists(target_folder):
+                try:
+                    os.startfile(os.path.abspath(target_folder))
+                except Exception as err:
+                    logger.error(f"Cannot open folder: {err}")
+
+        def copy_markdown():
+            try:
+                dialog.clipboard_clear()
+                dialog.clipboard_append(md_text)
+                btn_copy.configure(text="✅ คัดลอกสำเร็จแล้ว!")
+                dialog.after(2000, lambda: btn_copy.configure(text="📋 คัดลอก Markdown"))
+            except Exception as e:
+                logger.error(f"Copy error: {e}")
+
+        btn_open = ctk.CTkButton(
+            action_frame, text="📂 เปิดโฟลเดอร์เก็บรายงาน",
+            fg_color="#1F3A60", hover_color="#20334F", font=ctk.CTkFont(size=12, weight="bold"),
+            command=open_folder
+        )
+        btn_open.pack(side="left", padx=(0, 10))
+
+        btn_copy = ctk.CTkButton(
+            action_frame, text="📋 คัดลอก Markdown",
+            fg_color="#8E44AD", hover_color="#9B59B6", font=ctk.CTkFont(size=12, weight="bold"),
+            command=copy_markdown
+        )
+        btn_copy.pack(side="left", padx=(0, 10))
+
+        btn_close = ctk.CTkButton(
+            action_frame, text="❌ ปิดหน้าต่าง", width=100,
+            fg_color="#34495E", hover_color="#2C3E50", font=ctk.CTkFont(size=12),
+            command=dialog.destroy
+        )
+        btn_close.pack(side="right")
 
     def load_staff_list(self):
         # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
