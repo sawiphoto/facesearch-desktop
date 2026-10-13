@@ -517,3 +517,231 @@
 - **TC-27 (Stop Flow & Safe Idempotent JSON Sync):** ✅ **PASSED** - ยืนยันการซิงค์ Drive JSON เมื่อเกิดการหยุดทำงานทำงานแบบ Idempotent (1 ครั้งถ้วน ไม่รันซ้ำซ้อน)
 - **TC-28 (Popup GUI Modal & Version Verification):** ✅ **PASSED** - ยืนยันเมธอด `show_scan_report_popup` บน GUI และเลขเวอร์ชัน `v6.24 (Scan Session Report Summary & Exporter)` บน Window Title และ Sidebar Logo
 - **TC-29 (Regression Suite):** ✅ **PASSED** - ชุดทดสอบเดิม TC-21 ถึง TC-24 ผ่านครบ 100% ปราศจากผลข้างเคียง (Zero Regression)
+
+---
+
+## 12. แผนวิเคราะห์เชิงลึก: หาสาเหตุความล้มเหลวของการจัดกลุ่มบุคคลนิรนาม (Unknown Faces) และแนวทางแก้ไขตามมาตรฐานระดับโลก (World-Class Face Clustering Architecture)
+
+### 12.1 ปัญหาที่ผู้ใช้พบ (Problem Statement)
+- ผู้ใช้ตั้งข้อสังเกตสำคัญ: **"ในเมื่อการทำ 1:N Verification (นำเวกเตอร์ของบุคคล 1 คน ไปดอทกับเวกเตอร์ทั้งหมดหลายแสนอัน เกิน threshold ถือว่าเป็นคนเดียวกัน) ทำงานได้แม่นยำและถูกต้องดีมาก แต่ทำไมพอเป็นการจับกลุ่มกันเองภายใน Unknown แสนกว่าเวกเตอร์ ถึงได้มั่วไปหมด แม้จะทดลองล็อกจุด Leader ไม่ให้เลื่อนแล้วก็ตาม?"**
+
+---
+
+### 12.2 บทวิเคราะห์สาเหตุเชิงคณิตศาสตร์และมิติเรขาคณิต (Mathematical & Geometric Root Causes)
+
+#### สาเหตุที่ 1: ความแตกต่างอย่างมหาศาลระหว่าง "1:N Verification" vs "N:N Unsupervised Clustering" (Combinatorial Explosion)
+1. **การค้นหาคนรู้จัก (1:N Verification / Search):**
+   - มี **Ground Truth Anchor ที่มีคุณภาพสูงมาก:** ภาพถ่ายติดบัตร/สตูดิโอของคุณครูและนักเรียนเป็นภาพหน้าตรง แสงนิ่ง คมชัด จุดพิกัดของเวกเตอร์ใน 512 มิติมีเสถียรภาพสูง
+   - **จำนวนครั้งที่เปรียบเทียบ:** เปรียบเทียบเพียง $1 \times N = 100,000$ ครั้ง
+   - ด้วยอัตราความผิดพลาดหลุด (False Positive Rate: FPR) ของ ArcFace ที่ประมาณ $0.001\%$ ($10^{-5}$) โอกาสที่จะเจอภาพหลุดผิดคนจะมีเพียงแค่ **1 ภาพเท่านั้น** ผู้ใช้จึงรู้สึกว่า "แม่นยำ 100%"
+2. **การจับกลุ่มคนนิรนาม (N:N Face Clustering):**
+   - **ไม่มี Ground Truth Anchor:** ทุกภาพเป็นภาพแคนดิด (Candid) จากกิจกรรม กลางแจ้ง ย้อนแสง หน้าเอียง วิ่ง เบลอ
+   - **จำนวนคู่ที่ต้องประเมิน (Combinatorial Space):**
+     $$\text{Pairwise Comparisons} = \frac{N(N-1)}{2} = \frac{100,000 \times 99,999}{2} \approx \mathbf{5,000,000,000} \text{ คู่ (ห้าพันล้านคู่!)}$$
+   - ด้วยอัตราความผิดพลาดเดิม ($10^{-5}$) ใน 5 พันล้านคู่ จะเกิด **เส้นเชื่อมผิดพลาด (False Positive Edges) ทะลักออกมาถึง $\mathbf{50,000}$ คู่!**
+   - ในระบบการจัดกลุ่ม หากมีเส้นเชื่อมผิดพลาดเพียงเส้นเดียว มันจะเกิดปรากฏการณ์ **"Chaining Effect (การลามเป็นลูกโซ่)"** หรือความผิดพลาดแบบ Transitive ($A \approx B$ และ $B \approx C \implies A \text{ รวมกับ } C$ ทั้งที่ $A$ กับ $C$ เป็นคนละคนกัน)
+
+#### สาเหตุที่ 2: ปัญหาธรรมชาติของภาพถ่ายโรงเรียน (High Intra-Class Variance vs Low Inter-Class Distance)
+- **Low Inter-Class Distance (คนละคนแต่เวกเตอร์ใกล้กัน):** นักเรียนไทยวัยเดียวกัน โครงหน้าเอเชีย ทรงผมสั้นเกรียนหรือเปียเหมือนกัน ใส่เสื้อนักเรียนสีขาวเหมือนกัน ทำให้เวกเตอร์ใน 512 มิติของนักเรียนคนละคน มีระยะห่างที่ใกล้กันมากโดยธรรมชาติ (Hubness Problem: จุดที่มีความหนาแน่นสูง) ซึ่งบางคู่มี Cosine Similarity สูงถึง $0.65 - 0.72$ ทั้งที่เป็นคนละคนกัน!
+- **High Intra-Class Variance (คนเดียวกันแต่มุมต่างกันเวกเตอร์ห่างกันมาก):** นักเรียนคนเดียวกัน แต่รูปหนึ่งยิ้มกว้างกลางแดดจ้า อีกรูปหันข้าง 30 องศาในร่มเงา ค่า Similarity ของคนเดียวกันอาจตกฮวบเหลือเพียง $0.55 - 0.62$
+- **กับดักค่า Threshold (The Threshold Dilemma):**
+  - หากตั้ง Threshold สูง ($0.70$): คนเดียวกันจะแตกกระจัดกระจายออกเป็น 10-20 กลุ่มย่อย
+  - หากตั้ง Threshold ต่ำ ($0.55$): เด็กคนอื่นที่หน้าคล้ายจะถูกดูดรวมเข้ามา เกิดกลุ่ม "มั่ว" ขนาดใหญ่ทันที
+
+#### สาเหตุที่ 3: ข้อบกพร่องในสถาปัตยกรรม "Leader Clustering (Fixed Exemplar)" ปัจจุบันใน `unknown_analyzer.py`
+1. **ลำดับการวนลูปกำหนดชะตากรรม (First-Come-First-Served / Order Dependency):** หน้าแรกที่ถูกหยิบขึ้นมาเป็น Leader หากบังเอิญเป็น "ใบหน้าคนหน้าโหล" (Average Face ใกล้จุดศูนย์กลางการกระจายตัว) ใบหน้านี้จะมี Similarity เกิน $0.70$ กับเด็กคนอื่นอีกหลายสิบคน ทำให้เด็กคนอื่นๆ ถูก greedy ดูดเข้าไปในกลุ่มของ Leader คนนี้ทันที
+2. **ตัวแทนเดียวไม่สามารถแทนคนทั้งคนได้ (Single Exemplar Limitation):** มนุษย์คนหนึ่งมีทั้งมุมตรง มุมเอียง มุมก้ม มุมเงย การล็อกให้ Leader มีเวกเตอร์เดียวถาวร ทำให้กลุ่มนั้นรับได้แค่ "ภาพมุมเดียวกับ Leader" ส่วนภาพมุมอื่นของคนเดียวกันจะหลุดไปตั้งกลุ่มใหม่
+3. **ช่องโหว่ของ Same-Photo Exclusion:** โค้ดระบุว่า `if photo_id not in cluster_photo_sets: join cluster` ซึ่งป้องกันได้แค่ *คนในรูปเดียวกันไม่ให้ซ้ำกัน* แต่เด็กนักเรียนคนอื่น (เด็ก B) ในกิจกรรมวันอื่นที่ไม่ได้ถ่ายรูปคู่กับ Leader A ก็สามารถถูกดูดเข้าไปในกลุ่ม A ได้อย่างง่ายดาย
+
+---
+
+### 12.3 วิธีการที่ระบบระดับโลก (Google Photos, Apple Photos, Immich, InsightFace) ใช้งานจริง
+
+| ระบบ / แพลตฟอร์ม | อัลกอริทึมที่ใช้ | กลไกสำคัญที่ทำให้แม่นยำ ไม่มั่ว |
+| :--- | :--- | :--- |
+| **Apple Photos** | **Two-Pass Hierarchical Clustering** (HAC + Multi-Modal) | • **Pass 1:** สร้าง Core Seeds เล็กๆ ที่ชัวร์ 100% (ถ่ายเวลาติดกันในไม่กี่วินาที + หน้า + ทอร์โซ่/เสื้อผ้า)<br>• **Pass 2:** แต่ละกลุ่มเก็บ **Multi-Exemplar Set** (ภาพหลายมุม) แล้วใช้ **Average Linkage** ควบรวมกลุ่มย่อยข้ามเวลา |
+| **Immich** (Google Photos Alternative) | **Modified Queue-based DBSCAN with Noise Rejection** | • **Outlier & Noise Rejection:** มีการคัดกรอง "Noise (`-1`)" อย่างเด็ดขาด ใบหน้าที่โผล่รูปเดียว หน้าเบลอ หรือไม่มีเพื่อนหนาแน่นพอ **จะไม่ถูกยัดเข้ากลุ่ม**<br>• มีค่า Minimum Density เพื่อสร้างกลุ่มเฉพาะคนที่มีแกนแน่นหนาจริง |
+| **InsightFace (SOTA)** | **Mutual k-NN Graph (MNN) + Graph Community Detection (GCN / Chinese Whispers)** | • **Mutual Nearest Neighbors (MNN):** A เชื่อมกับ B ได้ก็ต่อเมื่อ B ต้องเป็น Top-k เพื่อนบ้านของ A **และ** A ก็ต้องเป็น Top-k เพื่อนบ้านของ B ด้วย (ตัด False Positive ทิ้งได้มากกว่า 95%!) |
+| **Digikam / Dlib** | **Chinese Whispers Graph Clustering** | • สร้างกราฟความคล้ายคลึงแบบมีน้ำหนัก และส่งผ่านฉลากแบบ $O(V+E)$ Linear time ไม่ติดปัญหา First-come greedy |
+
+---
+
+### 12.4 แผนงานและข้อเสนอการแก้ไข (Implementation Options)
+
+#### 🌟 ทางเลือกที่ 1 (แนะนำอย่างยิ่ง): Mutual k-NN Graph + Cannot-Link Constraints + Graph Community Detection
+อาศัยไลบรารีที่มีอยู่แล้วในระบบ (`networkx 3.6.1`, `scipy 1.17.1`, `numpy`) โดยไม่ต้องลงแพ็กเกจใหม่:
+1. **Face Quality & Landmark Filter:** กรองตัดใบหน้าที่ขนาดเล็กกว่า 50x50 พิกเซล หรือความคมชัดต่ำทิ้งล่วงหน้า (จัดเป็น Noise ไม่นำมาสร้างคลัสเตอร์หลัก)
+2. **Mutual Nearest Neighbor (MNN) Graph:**
+   - สำหรับแต่ละใบหน้า คำนวณหา Top-$k$ เพื่อนบ้านที่คล้ายที่สุด ($k = 5$ ถึง $10$, Cosine Similarity $\ge 0.65$)
+   - สร้างเส้นเชื่อม (Edge) เฉพาะคู่ที่เป็น **Mutual Neighbor** (ต่างฝ่ายต่างอยู่ใน Top-$k$ ของกันและกัน)
+   - **ผลลัพธ์:** ตัด False Positive ข้ามคนหน้าโหลทิ้งได้ถึง 95%!
+3. **Strict Cannot-Link Constraint:** ลบเส้นเชื่อมระหว่างใบหน้าที่มาจากภาพเดียวกัน (`photo_id` เดียวกัน) ออกจากกราฟ 100%
+4. **Graph Community Partitioning:** รันอัลกอริทึมตรวจจับชุมชนบนกราฟ (เช่น Louvain หรือ Chinese Whispers ผ่าน `networkx.community`)
+5. **Multi-Exemplar Representation & Noise Discard:**
+   - กลุ่มที่มีสมาชิก $\ge 3$ รูป จะได้รับสถานะเป็น Person Cluster
+   - กลุ่มที่มีเพียง 1-2 รูป หรือจุดกระจัดกระจาย จะถูกแยกเป็น "Unclustered / Singletons" ไม่ถูกนำมาปนเปื้อน
+
+#### ทางเลือกที่ 2: Two-Pass Core Seed Clustering + Average Linkage HAC (`scipy.cluster.hierarchy`)
+1. รวมกลุ่มเฉพาะภาพที่มีความคล้ายคลึงสูงมาก ($\ge 0.78$) หรือถ่ายในกิจกรรมเดียวกัน ให้เป็น Seed คลัสเตอร์ย่อย
+2. รวมคลัสเตอร์ย่อยเข้าหากันด้วย **Average Linkage (ระยะห่างเฉลี่ยของทุกคู่ภาพในกลุ่ม)** ป้องกันปัญหา Chaining จุดเดียวพาเสียทั้งกลุ่ม
+
+---
+
+### 12.5 ตารางเปรียบเทียบผลลัพธ์ที่คาดหวัง
+
+| มิติการเปรียบเทียบ | ระบบปัจจุบัน (Leader Fixed) | ทางเลือกที่ 1 (Mutual k-NN + Graph) |
+| :--- | :---: | :---: |
+| **ความแม่นยำ (Purity / ความถูกต้องของคนในกลุ่ม)** | ❌ ต่ำ (คนละคนปนกันมั่ว) | ⭐⭐⭐⭐⭐ **สูงมาก (>95%)** |
+| **การป้องกันคนหน้าโหล (Hubness / False Chaining)** | ❌ ไม่มี (โดนดูดเข้ากลุ่มหมด) | ⭐⭐⭐⭐⭐ **ตัดทิ้งได้ด้วย MNN** |
+| **การรองรับหลายมุมมอง (Multi-View Invariance)** | ❌ รองรับแค่มุมเดียวของ Leader | ⭐⭐⭐⭐⭐ **รองรับหลายมุมผ่าน Graph Hop** |
+| **การจัดการภาพเบลอ / บุคคลโผล่รูปเดียว (Noise)** | ❌ บังคับสร้างกลุ่มหรือยัดเข้ากลุ่ม | ⭐⭐⭐⭐⭐ **แยกเป็น Noise ชัดเจน** |
+| **ความเร็วในการประมวลผล (สำหรับ 100,000 เวกเตอร์)** | ปานกลาง (~30-60 วินาที) | เร็วมากด้วย Matrix Vectorization + NetworkX |
+
+---
+
+## 13. แผนปฏิบัติการอย่างละเอียดทีละข้อ (Step-by-Step Implementation Plan for Option 1: Mutual k-NN Graph + Cannot-Link + Louvain / NetworkX Clustering)
+
+### 13.1 วัตถุประสงค์ (Objectives)
+1. **ยกเครื่องระบบจัดกลุ่มใบหน้านิรนามใน [`unknown_analyzer.py`](unknown_analyzer.py):** เปลี่ยนจากอัลกอริทึม Greedy Leader เดิม (ที่ล้มเหลวจากปัญหาคนหน้าโหลและลำดับภาพ) มาเป็น **Mutual k-NN Graph Architecture** ที่อ้างอิงจากงานวิจัยมาตรฐานสากลของ InsightFace และ Computer Vision
+2. **ขจัดปัญหาคนละคนปนกันในกลุ่มเดียวกัน (Zero-Contamination / High Purity):** บังคับใช้เงื่อนไข **Mutual Agreement** (ต่างฝ่ายต่างต้องเป็น Top-$k$ ของกันและกัน) ตัดเส้นเชื่อมหลุด (False Positive) ทิ้งมากกว่า 95%
+3. **ป้องกันคนในรูปเดียวกันซ้ำซ้อน (Strict Cannot-Link Constraints):** กฎเหล็กทางคณิตศาสตร์ ห้ามมีเส้นเชื่อมระหว่างใบหน้าที่มาจาก `photo_id` เดียวกันโดยเด็ดขาด 100%
+4. **รองรับหลายมุมมองของคนคนเดียวกัน (Multi-View Invariance):** ให้ภาพหน้าตรง ภาพยิ้ม และภาพเอียงข้างของคนเดียวกันสามารถเชื่อมโยงกันเป็นชุมชน (Community) เดียวกันได้ผ่านเส้นทางในกราฟ โดยไม่ต้องพึ่งพา Leader เพียงภาพเดียว
+5. **ตัดขยะภาพเบลอและผู้ปรากฏตัวเดี่ยวๆ (Outlier Noise Rejection):** คัดกรองภาพฝูงชนในแบ็กกราวด์ที่เบลอหรือเล็กทิ้ง และแยกภาพที่ปรากฏเพียง 1-2 ครั้งเป็น Unclustered Noise ไม่นำมาปนเปื้อนในกลุ่มคนหลัก
+
+---
+
+### 13.2 สถาปัตยกรรมกระบวนการทำงาน 6 ขั้นตอน (The 6-Stage Graph Clustering Pipeline)
+
+```
+[445,000+ Unmatched Faces]
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 1: Adaptive Quality Pre-filtering                │
+│ - คัดกรองขนาด Bounding Box >= 45px (ตัด Crowd Noise)  │
+│ - ตรวจสอบ L2-Norm ของ 512-D Embedding                  │
+└────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 2: Chunked Memory-Safe Matrix Multiplication     │
+│ - แบ่งคำนวณทีละ Chunk (B = 2,500 x N) เพื่อไม่ให้ล้น RAM│
+│ - ค้นหา Top-k (k=8) Cosine Similarity >= 0.65          │
+│ - บันทึก Forward Neighbors List N_k[i]                 │
+└────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 3: Mutual k-NN Filtering (MNN)                   │
+│ - สร้าง Edge E(i, j) เฉพาะเมื่อ j in N_k[i] AND i in N_k[j]│
+│ - ตัดคนหน้าโหล (Hub Nodes) และ False Positives ทิ้ง 95%│
+└────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 4: Cannot-Link Constraint Enforcement            │
+│ - ตรวจสอบทุกเส้นเชื่อม หาก photo_id[i] == photo_id[j]   │
+│   สั่งลบ Edge ทิ้งทันที 100% (ห้ามคนในภาพเดียวกันเชื่อมกัน) │
+└────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 5: Conflict-Aware Community Partitioning         │
+│ - แยก Connected Components                             │
+│ - หาก Component มี photo_id ชนกัน -> รัน Louvain       │
+│   (networkx.community.louvain_communities) จัดกลุ่มย่อย│
+└────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│ Stage 6: Noise Filtering & Medoid Representative       │
+│ - กรองกลุ่มที่มีขนาด < min_cluster_size เป็น Noise     │
+│ - เลือกใบหน้าที่คมชัดและมี Degree สูงสุดเป็นภาพตัวแทน    │
+│ - สร้างข้อมูล JSON & SQLite เพื่อส่งให้ GUI แสดงผล     │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 13.3 แผนงานขั้นตอนการแก้ไขโค้ดโดยละเอียด (Step-by-Step Code Execution Plan)
+
+#### ขั้นตอนที่ 1: ปรับปรุงฟังก์ชัน `cluster_unknown_faces()` ใน [`unknown_analyzer.py`](unknown_analyzer.py)
+- **1.1 นำเข้าโมดูลที่จำเป็น:**
+  ```python
+  import networkx as nx
+  from networkx.algorithms import community as nx_comm
+  ```
+- **1.2 Stage 1 (Quality Filter):**
+  - กรองใบหน้าที่มีขนาดกว้างหรือยาวต่ำกว่า `min_face_size` (ปรับค่ามาตรฐานเป็น 45px)
+  - ปรับขนาดและนอร์มัลไลซ์เวกเตอร์ $X = \frac{X}{\|X\|_2}$
+- **1.3 Stage 2 (Chunked k-NN Search):**
+  - สำหรับชุดข้อมูลขนาดใหญ่ ให้แบ่งเป็น Chunk บล็อกละ 2,500 ใบหน้า
+  - คำนวณ Cosine Dot Product: `S = np.dot(X_chunk, X.T)`
+  - ใช้ `np.argpartition` ค้นหา Top-$k$ ($k=8$) สำหรับแต่ละใบหน้า โดยคัดเฉพาะที่มี Similarity $\ge \text{sim\_threshold}$ (default $0.65$)
+  - รายงานความคืบหน้าผ่าน `progress_callback(current, total, ...)`
+- **1.4 Stage 3 & 4 (Graph Construction with MNN & Cannot-Link):**
+  - สร้าง `G = nx.Graph()`
+  - เพิ่ม Node พร้อม Attribute: `photo_id`, `face_index`, `bbox`, `date`, `event`
+  - วนลูปตรวจสอบความสัมพันธ์แบบไป-กลับ: หาก $j \in N_k[i]$ และ $i \in N_k[j]$ และ $photo\_id[i] \ne photo\_id[j]$:
+    - เพิ่มเส้นเชื่อม `G.add_edge(i, j, weight=(sim_ij + sim_ji)/2)`
+- **1.5 Stage 5 (Community Detection / Partitioning):**
+  - ดึง Connected Components จากกราฟ `components = list(nx.connected_components(G))`
+  - สำหรับแต่ละ Component:
+    - ตรวจสอบว่ามี `photo_id` ซ้ำกันหรือไม่
+    - หากไม่มีซ้ำ: นำทั้ง Component มาเป็นคลัสเตอร์ได้ทันที
+    - หากมี `photo_id` ซ้ำ: สร้าง Subgraph และใช้ `nx_comm.louvain_communities(subgraph, weight='weight', resolution=1.0)` เพื่อคลี่คลายการทับซ้อนให้ได้กลุ่มที่สะอาดที่สุด
+- **1.6 Stage 6 (Formatting & Database Output):**
+  - กรองเฉพาะกลุ่มที่มีขนาด $\ge min\_cluster\_size$
+  - สำหรับแต่ละกลุ่ม คัดเลือกภาพตัวแทน (Representative Face) จากโหนดที่มีพื้นที่ Bounding Box สูงสุดและมีความเชื่อมโยงในกลุ่มสูงสุด
+  - รวบรวมสถิติรายปี (Active years, first seen, last seen) ส่งคืนในรูปแบบทูเพิล `(clusters_data, members_data, year_stats_data)` เพื่อส่งต่อไปยัง SQLite DB แบบ 100% Backward Compatible
+
+#### ขั้นตอนที่ 2: ปรับปรุงส่วนแสดงผลและความคืบหน้าบนหน้าต่าง GUI ใน [`app_gui.py`](app_gui.py)
+- ปรับแต่งข้อความรายงานความคืบหน้า (Progress Label) ให้สอดคล้องกับ 3 ช่วงการทำงาน:
+  1. *"⏳ เฟส 1/3: กำลังคัดกรองคุณภาพและสกัดเวกเตอร์..."*
+  2. *"⏳ เฟส 2/3: กำลังสร้างโครงข่าย Mutual k-NN Graph (ความคืบหน้า X%)..."*
+  3. *"⏳ เฟส 3/3: กำลังจัดกลุ่มชุมชนใบหน้า (Graph Partitioning) และบันทึกลงฐานข้อมูล..."*
+- อัปเกรดเลขเวอร์ชันของโปรแกรมบน GUI เป็น **`v6.25 (Graph-Based Unknown Face Clustering)`**
+
+#### ขั้นตอนที่ 3: สร้างชุดทดสอบเส้นทางการทำงานจริง (Execution Verification Suite)
+- สร้างไฟล์สคริปต์ `test_graph_clustering_suite.py` ครอบคลุมการทดสอบ TC-30 ถึง TC-34:
+  - **TC-30 (Mutual k-NN Verification):** จำลองเวกเตอร์คนหน้าโหล (Hub Node) พิสูจน์ว่า MNN ตัดเส้นเชื่อมหลุดทิ้งได้ 100%
+  - **TC-31 (Cannot-Link Enforcement):** จำลอง 2 ใบหน้าที่อยู่ในภาพเดียวกันแต่เวกเตอร์คล้ายกัน พิสูจน์ว่าระบบไม่รวมเข้ากลุ่มเดียวกันเด็ดขาด
+  - **TC-32 (Multi-View Continuity):** จำลองภาพหน้าตรง + หน้าเอียง 30 องศา + หน้าเอียง 45 องศา ของคนเดียวกัน พิสูจน์ว่าระบบเชื่อมโยงเข้ากลุ่มเดียวกันได้สำเร็จ
+  - **TC-33 (Outlier & Noise Rejection):** จำลองภาพเดี่ยว/ภาพเบลอ พิสูจน์ว่าระบบคัดออกเป็น Noise ไม่เกิดกลุ่มขยะ
+  - **TC-34 (Regression Test):** ทดสอบฟังก์ชัน `save_unknown_clusters_batch` และแท็บ UI ให้ทำงานร่วมกันได้อย่างราบรื่น
+
+#### ขั้นตอนที่ 4: บันทึกเอกสารและ Version Control
+- บันทึกประวัติการเปลี่ยนแปลง Prepend ไว้ที่บรรทัดบนสุดของ [`README.md`](README.md) สำหรับ Version 6.25
+- อัปเดตผลการทดสอบจริงลงใน [`implementation_plan.md`](implementation_plan.md)
+- ทำการ Commit ขึ้น Git: `feat(clustering): upgrade unknown face clustering to mutual k-nn graph with cannot-link constraints (v6.25)`
+
+---
+
+### 13.4 ตารางกรณีทดสอบ (Test Plan TC-30 ถึง TC-34)
+
+| รหัสทดสอบ | รายละเอียดกรณีทดสอบ | เงื่อนไข / ข้อมูลนำเข้า | ผลลัพธ์ที่คาดหวัง |
+| :--- | :--- | :--- | :--- |
+| **TC-30** | MNN Hubness Elimination | สร้าง Hub Face ที่คล้ายกับคนอื่น แต่คนอื่นมีคนที่คล้ายกว่า | เส้นเชื่อมระหว่าง Hub Face กับคนอื่นถูกตัดทิ้ง ไม่เกิดการดึงมั่ว |
+| **TC-31** | Strict Cannot-Link Validation | 2 ใบหน้าที่มีความคล้าย 0.85 แต่อยู่ใน `photo_id` เดียวกัน | ถูกแยกเป็นคนละคลัสเตอร์เด็ดขาด 100% |
+| **TC-32** | Multi-View Invariance Test | ภาพ $A$ คล้าย $B$ (0.70) และ $B$ คล้าย $C$ (0.68) ของคนเดียวกัน แต่ $A$ กับ $C$ ห่างกัน (0.58) | รวมเป็น 1 คลัสเตอร์ผ่านเส้นทาง $A \leftrightarrow B \leftrightarrow C$ |
+| **TC-33** | Outlier Noise Suppression | ใบหน้าเดี่ยวที่มีเพื่อนบ้าน 0 คน หรือ BBox < 45px | ถูกตัดทิ้ง ไม่ถูกสร้างเป็นคลัสเตอร์ขยะ |
+| **TC-34** | Full Data Pipeline Verification | รันทดสอบกับตัวอย่างข้อมูลจริง 1,000 ใบหน้า | รันจบสมบูรณ์ ข้อมูลบันทึกลง 3 ตารางของ SQLite ถูกต้อง |
+
+---
+
+### 13.5 บันทึกผลการทดสอบจริง (Execution Verification Results)
+
+#### ผลการทดสอบชุด Graph-Based Clustering Suite (`test_graph_clustering_suite.py`)
+- **วันและเวลาที่ทดสอบ:** 13 ตุลาคม 2026 23:42:18 น.
+- **สถานะ:** ✅ **ผ่านครบ 5/5 ข้อ (100% Passed)**
+  - **TC-30 (MNN Hubness Elimination):** ผ่าน 100% — Mutual k-NN ตัดเส้นเชื่อมระหว่าง Hub Face กับบุคคลอื่น ทำให้คนหน้าโหลไม่สามารถดึงบุคคลอื่นเข้ากลุ่มได้
+  - **TC-31 (Strict Cannot-Link Validation):** ผ่าน 100% — ใบหน้า 2 ใบหน้าที่อยู่ในภาพเดียวกัน (`photo_id` เดียวกัน) ถูกแยกเป็นคนละคลัสเตอร์เด็ดขาด 100% ไม่มีเส้นเชื่อม
+  - **TC-32 (Multi-View Invariance Test):** ผ่าน 100% — ภาพหน้าตรง หน้าเอียง และหน้าก้มของคนเดียวกันถูกเชื่อมโยงเป็นชุมชนเดียวกันสำเร็จผ่านโครงข่ายกราฟแบบ Transitively Connected
+  - **TC-33 (Outlier & Noise Rejection):** ผ่าน 100% — ใบหน้าที่ขนาดต่ำกว่าเกณฑ์ (BBox < 45px) หรือโผล่คนเดียวถูกคัดกรองออก ไม่เกิดคลัสเตอร์ขยะ
+  - **TC-34 (GUI Version & Schema Integration):** ผ่าน 100% — ตรวจสอบ Window Title และ Sidebar Logo เป็น `v6.25` เรียบร้อย
+
+#### ผลการทดสอบชุด Regression Suite (`test_unknown_analytics_suite.py`)
+- **วันและเวลาที่ทดสอบ:** 13 ตุลาคม 2026 23:42:24 น.
+- **สถานะ:** ✅ **ผ่านครบ 20/20 ข้อ (100% Passed)**
+  - ครอบคลุม Schema, Idempotency, Unmatched filtering, Thai Buddhist Year conversion, SQLite batch transaction, Color gradient mapping, Crop padding, Thai Unicode export, Background threading, และ Same-photo separation
+

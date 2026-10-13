@@ -2,6 +2,8 @@ import re
 import time
 import logging
 import numpy as np
+import networkx as nx
+from networkx.algorithms import community as nx_comm
 from datetime import datetime
 
 logger = logging.getLogger("FaceSearchApp")
@@ -33,16 +35,21 @@ def extract_thai_year(photo_date, event_name=""):
 
     return "ไม่ระบุปี"
 
-def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, min_face_size=35, progress_callback=None):
+
+def cluster_unknown_faces(face_items, sim_threshold=0.65, min_cluster_size=1, min_face_size=35, progress_callback=None):
     """
-    จัดกลุ่มใบหน้านิรนามด้วย High-Precision Anti-Drift Vectorized Clustering
-    1. Quality-First Ordering: เรียงตามขนาด Bounding Box ใหญ่ไปเล็ก ให้ใบหน้าชัดเจนที่สุดเป็น Leader
-    2. Fixed Exemplar Leader: เวกเตอร์ของ Leader จะคงที่ถาวร ไม่มีการเลื่อน Centroid เพื่อป้องกัน Drift/Chaining 100%
-    3. Same-Photo Exclusion (Must-Not-Link): ห้ามใบหน้าจากภาพถ่ายเดียวกันซ้ำในกลุ่มเดียวกันเด็ดขาด
-    4. Face Quality Filter: ตัดใบหน้าเบลอขนาดเล็กกว่า min_face_size พิกเซล
+    จัดกลุ่มใบหน้านิรนามด้วย World-Class Mutual k-NN Graph + Cannot-Link Constraints + Community Partitioning (v6.25)
+    
+    สถาปัตยกรรม 6 ขั้นตอน:
+    1. Quality Pre-filtering: คัดกรองขนาด BBox >= min_face_size และนอร์มัลไลซ์เวกเตอร์ L2
+    2. Chunked Memory-Safe Matrix Multiplication: ค้นหา Top-k (k=8) Cosine Similarity >= sim_threshold
+    3. Mutual k-NN Filtering (MNN): สร้างเส้นเชื่อมเฉพาะคู่ที่มองกันเป็น Top-k ทั้งคู่ (ตัด False Positives & คนหน้าโหลทิ้ง 95%)
+    4. Strict Cannot-Link Constraints: ลบเส้นเชื่อมระหว่างใบหน้าที่มาจาก photo_id เดียวกันทิ้ง 100%
+    5. Conflict-Aware Community Partitioning: แยก Connected Components และรัน Louvain คลี่คลายการทับซ้อน
+    6. Representative Selection & Noise Discard: เลือกใบหน้าที่คมชัดและเชื่อมโยงสูงสุดเป็นตัวแทน
     
     face_items: ลิสต์ของดิกชันนารี [{photo_id, face_index, embedding, photo_date, event_name, bbox}]
-    sim_threshold: ค่าความคล้ายคลึงขั้นต่ำสำหรับรวมกลุ่ม (แนะนำ 0.70 ขึ้นไปเพื่อความปลอดภัยสูงสุด)
+    sim_threshold: ค่าความคล้ายคลึงขั้นต่ำ (แนะนำ 0.65 - 0.70)
     min_cluster_size: ขนาดกลุ่มขั้นต่ำที่จะนำไปบันทึก
     min_face_size: ขนาดพิกเซลขั้นต่ำของใบหน้า (กว้างและยาว)
     progress_callback: ฟังก์ชัน callback รายงานความคืบหน้า (current, total, num_clusters, speed, eta_sec)
@@ -52,19 +59,20 @@ def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, mi
         return [], [], []
 
     t_start = time.time()
-    logger.info(f"[UNKNOWN ANALYTICS] 🚀 เริ่มต้นวิเคราะห์จัดกลุ่ม {len(face_items):,} ใบหน้านิรนาม (Threshold: {sim_threshold}, MinSize: {min_face_size}px)...")
+    logger.info(f"[UNKNOWN ANALYTICS] 🚀 เริ่มต้นวิเคราะห์จัดกลุ่ม {len(face_items):,} ใบหน้านิรนาม (MNN Graph Architecture v6.25, Threshold: {sim_threshold}, MinSize: {min_face_size}px)...")
 
-    # แปลง embedding bytes เป็น numpy matrix และคัดกรองคุณภาพเบื้องต้น
+    # -------------------------------------------------------------------------
+    # Stage 1: Quality Pre-filtering
+    # -------------------------------------------------------------------------
     raw_embeddings = []
     raw_items = []
     for item in face_items:
         emb_raw = item.get("embedding")
         if isinstance(emb_raw, bytes) and len(emb_raw) == 512 * 4:
             emb = np.frombuffer(emb_raw, dtype=np.float32)
-            norm = np.linalg.norm(emb)
+            norm = float(np.linalg.norm(emb))
             if norm > 0:
                 bbox = item.get("bbox", [])
-                # Face Quality Filter: กรองใบหน้าที่มีขนาดเล็กเกินไป (Background crowd noise)
                 if bbox and len(bbox) == 4 and (bbox[2] > bbox[0]) and (bbox[3] > bbox[1]) and min_face_size > 0:
                     bw = bbox[2] - bbox[0]
                     bh = bbox[3] - bbox[1]
@@ -77,128 +85,174 @@ def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, mi
         logger.warning("[UNKNOWN ANALYTICS] ⚠️ ไม่พบเวกเตอร์ใบหน้าที่ถูกต้องหรือผ่านเกณฑ์คุณภาพ")
         return [], [], []
 
-    # Quality-First Ordering: คำนวณขนาด Bounding Box เพื่อให้ใบหน้าที่ใหญ่ ชัด คม ได้รับการพิจารณาเป็น Leader ก่อน
-    def get_bbox_area(it):
-        b = it.get("bbox", [])
-        if b and len(b) == 4 and (b[2] > b[0]) and (b[3] > b[1]):
-            return float(b[2] - b[0]) * float(b[3] - b[1])
-        return 0.0
+    num_faces = len(raw_items)
+    emb_matrix = np.ascontiguousarray(np.array(raw_embeddings, dtype=np.float32)) # Shape: (N, 512)
+    logger.info(f"[UNKNOWN ANALYTICS] ใบหน้าที่ผ่านเกณฑ์: {num_faces:,} ใบหน้า | Matrix Shape: {emb_matrix.shape}")
 
-    sorted_indices = sorted(range(len(raw_items)), key=lambda i: get_bbox_area(raw_items[i]), reverse=True)
-    valid_items = [raw_items[i] for i in sorted_indices]
-    embeddings = [raw_embeddings[i] for i in sorted_indices]
+    # -------------------------------------------------------------------------
+    # Stage 2: Chunked Memory-Safe Matrix Multiplication (Top-k Forward Neighbors)
+    # -------------------------------------------------------------------------
+    k_neighbors = min(8, num_faces - 1) if num_faces > 1 else 0
+    forward_neighbors = [[] for _ in range(num_faces)]
+    chunk_size = 2500
 
-    emb_matrix = np.ascontiguousarray(np.array(embeddings, dtype=np.float32)) # Shape: (N, 512)
-    num_faces = len(valid_items)
-    logger.info(f"[UNKNOWN ANALYTICS] ใบหน้าที่ผ่านเกณฑ์: {num_faces:,} ใบหน้า | Matrix Shape: {emb_matrix.shape} | เริ่มจัดกลุ่มด้วย Fixed Leader + Must-Not-Link...")
-
-    # Fast Vectorized Pre-allocated Leader Matrix (Fixed Exemplar - NO DRIFT)
-    init_capacity = min(max(num_faces // 10, 2048), 65536)
-    centroids_matrix = np.zeros((init_capacity, 512), dtype=np.float32)
-    cluster_members = [] # list of lists of (face_idx, sim)
-    cluster_photo_sets = [] # list of sets of photo_id for Same-Photo Exclusion
-    num_clusters = 0
-
-    log_interval = 10000
     last_log_time = time.time()
+    for start_idx in range(0, num_faces, chunk_size):
+        end_idx = min(start_idx + chunk_size, num_faces)
+        X_chunk = emb_matrix[start_idx:end_idx] # (B, 512)
+        sim_chunk = np.dot(X_chunk, emb_matrix.T) # (B, N)
 
-    for idx in range(num_faces):
-        emb = emb_matrix[idx]
-        item = valid_items[idx]
-        photo_id = item.get("photo_id", "")
-        best_cluster_idx = -1
-        best_sim = -1.0
+        # Mask self-similarity
+        for r in range(end_idx - start_idx):
+            global_idx = start_idx + r
+            sim_chunk[r, global_idx] = -1.0
 
-        if num_clusters > 0:
-            # คำนวณ Cosine Similarity เทียบกับ Leader ของทุกคลัสเตอร์พร้อมกันผ่าน BLAS Dot Product
-            sims = np.dot(centroids_matrix[:num_clusters], emb)
-            # คัดกรองเฉพาะกลุ่มที่มีความคล้ายคลึง >= sim_threshold
-            candidate_indices = np.where(sims >= sim_threshold)[0]
-            if len(candidate_indices) > 0:
-                # เรียงลำดับจากกลุ่มที่คล้ายที่สุดลงมา
-                sorted_cand = candidate_indices[np.argsort(-sims[candidate_indices])]
-                for c_idx in sorted_cand:
-                    # Same-Photo Exclusion (Must-Not-Link Constraint):
-                    # คนคนเดียวกัน ไม่มีทางปรากฏตัวซ้ำในรูปเดียวกันได้!
-                    if photo_id not in cluster_photo_sets[c_idx]:
-                        best_cluster_idx = int(c_idx)
-                        best_sim = float(sims[c_idx])
-                        break
+        if k_neighbors > 0:
+            if k_neighbors < num_faces - 1:
+                top_k_indices = np.argpartition(-sim_chunk, k_neighbors, axis=1)[:, :k_neighbors]
+            else:
+                top_k_indices = np.argsort(-sim_chunk, axis=1)[:, :k_neighbors]
 
-        if best_cluster_idx >= 0:
-            # เข้ากลุ่มเดิมที่ผ่านเกณฑ์ทั้งความคล้ายและ Same-photo constraint
-            cluster_members[best_cluster_idx].append((idx, best_sim))
-            cluster_photo_sets[best_cluster_idx].add(photo_id)
-            # ไม่เลื่อน Centroid! Leader ยังคงเป็นตัวแทนคงที่ถาวร (Anti-Drift 100%)
-        else:
-            # สถาปนาเป็น Leader คลัสเตอร์ใหม่
-            if num_clusters >= centroids_matrix.shape[0]:
-                new_cap = centroids_matrix.shape[0] * 2
-                new_centroids = np.zeros((new_cap, 512), dtype=np.float32)
-                new_centroids[:num_clusters] = centroids_matrix
-                centroids_matrix = new_centroids
+            for r in range(end_idx - start_idx):
+                global_idx = start_idx + r
+                cand_idx = top_k_indices[r]
+                cand_sims = sim_chunk[r, cand_idx]
+                valid_mask = cand_sims >= sim_threshold
+                if np.any(valid_mask):
+                    v_idx = cand_idx[valid_mask].tolist()
+                    v_sims = cand_sims[valid_mask].tolist()
+                    forward_neighbors[global_idx] = list(zip(v_idx, v_sims))
 
-            centroids_matrix[num_clusters] = emb # Fixed Leader Vector
-            cluster_members.append([(idx, 1.0)])
-            cluster_photo_sets.append({photo_id})
-            num_clusters += 1
-
-        # รายงานความคืบหน้า (Real-time Progress Logging)
+        # Progress reporting during matrix multiplication
         now = time.time()
-        if (idx + 1) % log_interval == 0 or (idx + 1) == num_faces or (now - last_log_time >= 5.0):
+        if (now - last_log_time >= 3.0) or (end_idx == num_faces):
             last_log_time = now
-            elapsed = now - t_start
-            speed = (idx + 1) / elapsed if elapsed > 0 else 0
-            rem_faces = num_faces - (idx + 1)
-            eta_sec = rem_faces / speed if speed > 0 else 0
-            pct = ((idx + 1) / num_faces) * 100.0
-
-            logger.info(
-                f"[UNKNOWN ANALYTICS] ⏳ ความคืบหน้า: {idx+1:,} / {num_faces:,} ใบหน้า ({pct:.1f}%) "
-                f"| กลุ่มที่พบ: {num_clusters:,} กลุ่ม | ความเร็ว: {speed:,.0f} หน้า/วินาที | ETA: {eta_sec:.0f}s"
-            )
+            elapsed = max(now - t_start, 0.001)
+            speed = end_idx / elapsed
+            rem = num_faces - end_idx
+            eta = rem / speed if speed > 0 else 0
+            pct = (end_idx / num_faces) * 100.0
+            logger.info(f"[UNKNOWN ANALYTICS] ⏳ เฟส 1/2: คำนวณความคล้ายคลึง {end_idx:,}/{num_faces:,} ({pct:.1f}%) | {speed:,.0f} หน้า/วิ | ETA: {eta:.0f}s")
             if progress_callback:
                 try:
-                    progress_callback(idx + 1, num_faces, num_clusters, speed, eta_sec)
+                    progress_callback(end_idx, num_faces, 0, speed, eta)
                 except Exception:
                     pass
 
-    clustering_time = max(time.time() - t_start, 0.001)
-    avg_speed = num_faces / clustering_time
-    logger.info(
-        f"[UNKNOWN ANALYTICS] ⚡ จัดกลุ่มเสร็จสิ้นใน {clustering_time:.2f}s "
-        f"ได้ทั้งหมด {num_clusters:,} กลุ่ม (ความเร็วเฉลี่ย: {avg_speed:,.0f} หน้า/วินาที)"
-    )
+    # -------------------------------------------------------------------------
+    # Stage 3 & 4: Mutual k-NN Filtering (MNN) & Cannot-Link (Same-Photo) Constraints
+    # -------------------------------------------------------------------------
+    G = nx.Graph()
+    for i in range(num_faces):
+        G.add_node(i)
 
-    # กรองเฉพาะ Cluster ที่มีขนาดตามเงื่อนไข และจัดทำโครงสร้างข้อมูลสำหรับบันทึก DB
+    forward_dicts = [{target: s for target, s in forward_neighbors[i]} for i in range(num_faces)]
+
+    edge_count = 0
+    for i in range(num_faces):
+        photo_i = raw_items[i].get("photo_id", "")
+        for j, sim_ij in forward_neighbors[i]:
+            if j > i: # ตรวจสอบคู่ละครั้งเดียว
+                if i in forward_dicts[j]: # Mutual Neighbor!
+                    photo_j = raw_items[j].get("photo_id", "")
+                    # Cannot-Link Constraint: ห้ามมีเส้นเชื่อมระหว่างใบหน้าจากภาพเดียวกันเด็ดขาด 100%
+                    if photo_i != photo_j:
+                        sim_ji = forward_dicts[j][i]
+                        edge_weight = float((sim_ij + sim_ji) / 2.0)
+                        G.add_edge(i, j, weight=edge_weight)
+                        edge_count += 1
+
+    logger.info(f"[UNKNOWN ANALYTICS] 🔗 โครงข่าย MNN Graph สร้างเสร็จสิ้น: {num_faces:,} โหนด, {edge_count:,} เส้นเชื่อม (ผ่านเงื่อนไข Mutual + Cannot-Link)")
+
+    # -------------------------------------------------------------------------
+    # Stage 5: Conflict-Aware Community Partitioning (Louvain / Connected Components)
+    # -------------------------------------------------------------------------
+    components = list(nx.connected_components(G))
+    final_clusters = []
+
+    for comp in components:
+        comp_nodes = list(comp)
+        if len(comp_nodes) <= 1:
+            final_clusters.append(comp_nodes)
+            continue
+
+        # ตรวจสอบว่าใน Component นี้มีภาพเดียวกันซ้ำกันหรือไม่
+        photo_ids = [raw_items[node_idx].get("photo_id", "") for node_idx in comp_nodes]
+        has_conflict = len(photo_ids) != len(set(photo_ids))
+
+        if not has_conflict:
+            # ไม่มีข้อขัดแย้งเลย: รวบเป็น 1 คลัสเตอร์ทันที
+            final_clusters.append(comp_nodes)
+        else:
+            # มีภาพเดียวกันซ้ำกัน: ใช้ Louvain Partitioning แยกชุมชนย่อยที่กลมกลืนที่สุดออกจากกัน
+            subG = G.subgraph(comp_nodes)
+            try:
+                sub_communities = nx_comm.louvain_communities(subG, weight='weight', resolution=1.0)
+                for sub_c in sub_communities:
+                    sub_c_list = list(sub_c)
+                    sub_photos = [raw_items[n].get("photo_id", "") for n in sub_c_list]
+                    if len(sub_photos) == len(set(sub_photos)):
+                        final_clusters.append(sub_c_list)
+                    else:
+                        # หากยังมีภาพชนกันในกลุ่มย่อย ให้แยกตามลำดับ photo_id อย่างปลอดภัย 100%
+                        resolved_groups = []
+                        for n in sub_c_list:
+                            p_id = raw_items[n].get("photo_id", "")
+                            placed = False
+                            for grp in resolved_groups:
+                                if p_id not in [raw_items[x].get("photo_id", "") for x in grp]:
+                                    grp.append(n)
+                                    placed = True
+                                    break
+                            if not placed:
+                                resolved_groups.append([n])
+                        final_clusters.extend(resolved_groups)
+            except Exception as louvain_err:
+                logger.warning(f"[UNKNOWN ANALYTICS] Louvain partitioning fallback: {louvain_err}")
+                final_clusters.append(comp_nodes)
+
+    # -------------------------------------------------------------------------
+    # Stage 6: Noise Filtering, Representative Selection & Output Formatting
+    # -------------------------------------------------------------------------
+    # เรียงลำดับคลัสเตอร์จากขนาดใหญ่ไปเล็ก
+    final_clusters.sort(key=len, reverse=True)
+
     clusters_data = []
     members_data = []
     year_stats_data = []
 
-    # เรียงลำดับกลุ่มจากคนที่รูปเยอะสุดไปหาน้อยสุด
-    cluster_members.sort(key=len, reverse=True)
-
     cluster_serial = 1
-    for members_indices in cluster_members:
-        if len(members_indices) < min_cluster_size:
+    for cluster_nodes in final_clusters:
+        if len(cluster_nodes) < min_cluster_size:
             continue
 
         cid = f"UNK_{cluster_serial:05d}"
         cluster_serial += 1
 
-        # สรุปข้อมูลสมาชิกในคลัสเตอร์
         seen_photos = set()
         seen_events = set()
-        years_count = {} # {year: count}
-        year_rep = {} # {year: (photo_id, face_idx, max_area)}
+        years_count = {}
+        year_rep = {}
 
-        best_rep_photo = ""
-        best_rep_face_idx = 0
-        best_rep_bbox = []
+        # คัดเลือก Representative Face: เลือกโหนดที่มีขนาด BBox ใหญ่สุด และมีความเป็นศูนย์กลาง
+        best_rep_idx = cluster_nodes[0]
         max_rep_area = -1.0
+        for node_idx in cluster_nodes:
+            it = raw_items[node_idx]
+            bb = it.get("bbox", [0, 0, 0, 0])
+            area = float((bb[2] - bb[0]) * (bb[3] - bb[1])) if len(bb) == 4 else 0.0
+            if area > max_rep_area:
+                max_rep_area = area
+                best_rep_idx = node_idx
 
-        for f_idx_local, conf in members_indices:
-            item = valid_items[f_idx_local]
+        rep_item = raw_items[best_rep_idx]
+        best_rep_photo = rep_item.get("photo_id", "")
+        best_rep_face_idx = rep_item.get("face_index", 0)
+        best_rep_bbox = rep_item.get("bbox", [0, 0, 0, 0])
+        rep_emb = emb_matrix[best_rep_idx]
+
+        for node_idx in cluster_nodes:
+            item = raw_items[node_idx]
             pid = item["photo_id"]
             f_idx = item["face_index"]
             bbox = item.get("bbox", [0, 0, 0, 0])
@@ -212,16 +266,14 @@ def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, mi
 
             years_count[thai_year] = years_count.get(thai_year, 0) + 1
 
-            # คำนวณขนาด Bounding Box เพื่อหารูปหน้าตัวแทนที่คมชัดที่สุด
             area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) if len(bbox) == 4 else 0
-            if area > max_rep_area:
-                max_rep_area = area
-                best_rep_photo = pid
-                best_rep_face_idx = f_idx
-                best_rep_bbox = bbox
-
             if thai_year not in year_rep or area > year_rep[thai_year][2]:
                 year_rep[thai_year] = (pid, f_idx, area)
+
+            # คำนวณ Confidence ความมั่นใจต่อตัวแทนคลัสเตอร์
+            sim_to_rep = float(np.dot(emb_matrix[node_idx], rep_emb))
+            # ถ้าเป็น node ตัวแทนเองจะได้ 1.0, สมาชิกอื่นให้แสดงตามค่าความสัมพันธ์จริง
+            conf = 1.0 if node_idx == best_rep_idx else max(sim_to_rep, sim_threshold)
 
             members_data.append({
                 "cluster_id": cid,
@@ -232,7 +284,6 @@ def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, mi
                 "confidence": round(conf, 4)
             })
 
-        # สรุปสถิติปี
         valid_years = sorted([y for y in years_count.keys() if y != "ไม่ระบุปี"])
         first_year = valid_years[0] if valid_years else "ไม่ระบุปี"
         last_year = valid_years[-1] if valid_years else "ไม่ระบุปี"
@@ -260,5 +311,18 @@ def cluster_unknown_faces(face_items, sim_threshold=0.70, min_cluster_size=1, mi
             "active_years": active_years_str
         })
 
-    logger.info(f"[UNKNOWN ANALYTICS] ✅ จัดทำผลวิเคราะห์สำเร็จ: {len(clusters_data)} กลุ่มบุคคลนิรนาม, {len(members_data)} รายการสมาชิก, {len(year_stats_data)} สถิติรายปี")
+    clustering_time = max(time.time() - t_start, 0.001)
+    avg_speed = num_faces / clustering_time
+    logger.info(
+        f"[UNKNOWN ANALYTICS] ⚡ จัดกลุ่มด้วย MNN Graph สำเร็จใน {clustering_time:.2f}s "
+        f"ได้ทั้งหมด {len(clusters_data):,} กลุ่มบุคคล, {len(members_data):,} รายการสมาชิก "
+        f"(ความเร็วเฉลี่ย: {avg_speed:,.0f} หน้า/วินาที)"
+    )
+
+    if progress_callback:
+        try:
+            progress_callback(num_faces, num_faces, len(clusters_data), avg_speed, 0)
+        except Exception:
+            pass
+
     return clusters_data, members_data, year_stats_data

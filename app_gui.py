@@ -674,7 +674,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.24 (Scan Session Report Summary & Exporter)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.25 (Graph-Based Unknown Face Clustering)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -767,7 +767,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.24",
+            text="FACE MATCHING\nSYSTEM v6.25",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -8432,7 +8432,7 @@ class FaceSearchApp(ctk.CTk):
                     ))
 
                 clusters_data, members_data, year_stats_data = unknown_analyzer.cluster_unknown_faces(
-                    face_items, sim_threshold=0.70, min_cluster_size=1, min_face_size=35, progress_callback=on_progress
+                    face_items, sim_threshold=0.68, min_cluster_size=1, min_face_size=35, progress_callback=on_progress
                 )
 
                 logger.info("[UNKNOWN ANALYTICS] บันทึกผลลัพธ์ลงตารางฐานข้อมูล SQLite...")

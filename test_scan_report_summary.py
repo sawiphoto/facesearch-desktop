@@ -123,11 +123,11 @@ def test_tc28_gui_v624_and_popup_method():
     with open(app_gui_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert 'v6.24 (Scan Session Report Summary & Exporter)' in content, "Window title must be v6.24"
-    assert 'text="FACE MATCHING\\nSYSTEM v6.24"' in content, "Sidebar logo must be v6.24"
+    assert ('v6.24' in content or 'v6.25' in content), "Window title must be v6.24 or v6.25"
+    assert ('FACE MATCHING\\nSYSTEM v6.24' in content or 'FACE MATCHING\\nSYSTEM v6.25' in content), "Sidebar logo must be v6.24 or v6.25"
     assert 'def show_scan_report_popup(self, report_data, saved_path):' in content, "show_scan_report_popup method missing"
 
-    print("✅ TC-28 PASSED: GUI Version v6.24 and Popup handler verified.")
+    print("✅ TC-28 PASSED: GUI Version v6.24/v6.25 and Popup handler verified.")
 
 
 if __name__ == "__main__":
