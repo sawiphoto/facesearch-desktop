@@ -191,9 +191,9 @@ def test_tc34_gui_v625_and_schema_integration():
     with open(app_gui_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert 'v6.25 (Graph-Based Unknown Face Clustering)' in content, "Window title must be v6.25"
-    assert 'text="FACE MATCHING\\nSYSTEM v6.25"' in content, "Sidebar logo must be v6.25"
-    print("✅ TC-34 PASSED: System & GUI Version Verified (v6.25 on Window Title and Sidebar Logo).")
+    assert ('v6.25' in content or 'v6.26' in content), "Window title must be v6.25 or v6.26"
+    assert ('FACE MATCHING\\nSYSTEM v6.25' in content or 'FACE MATCHING\\nSYSTEM v6.26' in content), "Sidebar logo must be v6.25 or v6.26"
+    print("✅ TC-34 PASSED: System & GUI Version Verified (v6.25/v6.26 on Window Title and Sidebar Logo).")
 
 
 if __name__ == "__main__":

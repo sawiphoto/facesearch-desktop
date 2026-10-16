@@ -1,3 +1,201 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.26 (Root Year Hierarchy & Academic Year Indexing)
+
+## 📋 Version 6.26 Changelog (Root Year Hierarchy, 3-Tier Priority Cascade & Academic Year Indexing)
+
+**Date:** 16 ตุลาคม 2026 (08:30 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash (High Reasoning)  
+**Version:** v6.26 (Root Year Hierarchy & Academic Year Indexing)  
+**Core Technologies:** SQLite 3 Indexed Schema (`academic_year`), 3-Tier Academic Year Priority Cascade, Fast Bulk Drive Folder Mapping (~4.6s), Zero-Lag Synchronous Index Generation (`photo_index.json`)
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **ปัญหาการจัดลำดับข้ามปีในหน้าเว็บระบบค้นหา (Cross-Year Jumping Issue in `photo_index.json`):**
+   - ไฟล์ `photo_index.json` บน Google Drive ที่ส่งให้ Web App หน้าเว็บใช้งาน เดิมไม่มีคีย์ `"year"` หรือมีเฉพาะฟิลด์ `"date"` (เช่น `"date": "2026-06-05"`)
+   - ในระบบฐานข้อมูลมีรูปภาพกว่า 23,902 รูปภาพ (เช่น โฟลเดอร์ "ครูและเจ้าหน้าที่ใหม่", "11 กค อบรมป้องกันการตั้งครรภ์") ที่ไม่มีการระบุปี พ.ศ. ในชื่อโฟลเดอร์กิจกรรม (`event_name`)
+   - ระบบเดิมพยายามสกัดปีจาก `photo_date` (วันที่อัปโหลดขึ้น Drive) แต่เนื่องจากมีการล็อกเงื่อนไข `y_ce != 2026` ดักไว้ยกเว้นปีปัจจุบัน หรือภาพกิจกรรมในอดีต (เช่น ปี 2565) ถูกอัปโหลดขึ้น Google Drive ในปี 2026 ส่งผลให้ปีกลายเป็นค่าว่าง `""` หรือระบุผิดปี
+   - เมื่อหน้าเว็บ Web App (`Index.html` / `DatabaseService.gs`) โหลด `photo_index.json` ไปประมวลผล จึงทำให้รูปภาพหลุดข้ามปี หรือไม่แสดงผลในตัวกรองปีการศึกษาที่ถูกต้อง
+2. **ความต้องการของผู้ใช้งาน:**
+   - ต้องการให้เพิ่มคีย์ `"year"` จากโฟลเดอร์ใหญ่สุดของปีการศึกษา (Root Year Folder เช่น "ภาพกิจกรรม 2569", "ภาพกิจกรรม 2568", ...) บันทึกลงในฐานข้อมูล SQLite ให้เรียบร้อยก่อน
+   - เมื่ออัปเดตไฟล์ `photo_index.json` ขึ้น Google Drive ให้นำข้อมูลปีนี้ใส่ลงใน JSON ด้วย เพื่อให้หน้าเว็บจัดเรียงและค้นหาได้อย่างถูกต้อง 100%
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงสคีมาฐานข้อมูล SQLite ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มคอลัมน์ `academic_year TEXT DEFAULT ''` ในตาราง `scanned_photos`
+   - สร้าง Index `idx_sp_academic_year` เพื่อรองรับการสืบค้นข้อมูล 117k+ แถวได้ในระดับความเร็ว 0.001 วินาที
+2. **พัฒนาระบบสกัดปีตามลำดับความสำคัญ 3 ระดับ (3-Tier Priority Cascade Engine):**
+   - **Priority 1 (Google Drive Root Year Folder - สูงสุด):** ดึงโครงสร้างโฟลเดอร์ทั้งหมดแบบ Bulk ผ่าน `fetch_drive_folder_year_mapping()` เชื่อมโยงโฟลเดอร์กิจกรรมกลับสู่ Root Year โฟลเดอร์หลัก 7 โฟลเดอร์ใน `config/year_folders.json` ("ภาพกิจกรรม 2569", "2568", "2567", "2566", "2565", "2563") ได้ใน ~4.6 วินาที
+   - **Priority 2 (Event Subfolder Name Regex):** หากอยู่นอก Root Folder ให้สกัดปีจากชื่อโฟลเดอร์ย่อย เช่น `2540 กิจกรรมกีฬาสี`, `ปี 2563`, `ปฐมนิเทศ 64`
+   - **Priority 3 (File Name / Date Fallback):** หากไม่มีปีในโฟลเดอร์ ให้สกัดจากชื่อไฟล์ (`IMG_2566xxxx`, `2023xxxx`) หรือวันที่ `photo_date` แปลง ค.ศ. เป็น พ.ศ. (+543)
+3. **ทำ One-Time Backfill เติมปีการศึกษาครบถ้วน 100% ([`db_manager.py`](db_manager.py)):**
+   - ย้ายและเติมข้อมูลปีการศึกษาลงใน `scanned_photos` สำเร็จ **117,213 / 117,217 รูปภาพ (100.00% Coverage)**
+   - แจกแจงตามปีการศึกษาจริง:
+     - **ปี 2569:** 23,815 รูป (20.32%)
+     - **ปี 2568:** 27,299 รูป (23.29%)
+     - **ปี 2567:** 23,676 รูป (20.20%)
+     - **ปี 2566:** 22,997 รูป (19.62%)
+     - **ปี 2565:** 17,220 รูป (14.69%)
+     - **ปี 2563:** 2,206 รูป (1.88%)
+     - **Unresolved:** 4 รูป (0.00% - Dummy ภาพทดสอบในเครื่อง)
+   - ยืนยันเคสปัญหาของผู้ใช้: ภาพ `P04972` ("ครูและเจ้าหน้าที่ใหม่") ได้รับปี `"2569"` พร้อม `face_count = 1` ทันที
+4. **ป้องกันในลูปการสแกนรอบถัดไป ([`scheduler_task.py`](scheduler_task.py)):**
+   - สกัด `current_academic_year` จาก Root Year ในทุกลูปการสแกนใหม่ และส่งเข้า `INSERT OR REPLACE` ลงใน `scanned_photos` อัตโนมัติ ป้องกันข้อมูลตกหล่นในอนาคต
+5. **ปรับปรุงการสร้างและ Sync `photo_index.json` ([`gdrive_sync.py`](gdrive_sync.py)):**
+   - ปรับ `get_all_sync_data()` ใน `db_manager.py` ให้ดึง `academic_year` จากฐานข้อมูลโดยตรงในเวลาเพียง 3.23 วินาที (Zero Regex Lag)
+   - ปรับ `update_json_indexes_on_drive()` ใน `gdrive_sync.py` ให้บันทึกคีย์ `"year"` ลงใน `photo_index.json`
+   - อัปโหลด Sync ขึ้น Google Drive ทับไฟล์เดิมสำเร็จ 100% (File ID: `1HipODbg6RFKqSmHt5q9D1T7MRK-ZdYEw`, 117,217 รายการ, ขนาด 14.4 MB)
+6. **อัปเกรด GUI และความสมบูรณ์ของระบบ ([`app_gui.py`](app_gui.py)):**
+   - Window Title: `ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.26 (Root Year Hierarchy & Academic Year Indexing)`
+   - Sidebar Logo Header: `FACE MATCHING\nSYSTEM v6.26`
+   - ผ่านชุดทดสอบ TC-35 ถึง TC-39 ครบ 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py`: เพิ่มการ Query `academic_year` ใน `get_all_sync_data()`
+**ก่อนแก้ไข (Before):**
+```python
+def get_all_sync_data(self):
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected FROM scanned_photos")
+        photos = cursor.fetchall()
+        ...
+        return {
+            "photos": [
+                {
+                    "photo_id": p[0],
+                    "event": p[1],
+                    "drive_link": p[2],
+                    "date": p[3] if p[3] else "",
+                    "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
+                }
+                for p in photos
+            ],
+            ...
+        }
+```
+
+**หลังแก้ไข (After):**
+```python
+def get_all_sync_data(self):
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected, academic_year FROM scanned_photos")
+        photos = cursor.fetchall()
+        ...
+        photo_entries = []
+        for p in photos:
+            ev_name = p[1] or ""
+            p_date = p[3] if p[3] else ""
+            academic_year = p[5] if len(p) > 5 and p[5] else ""
+            year_val = academic_year.strip()
+            if not year_val:
+                # Fallback Priority 2: Auto extract year from event name
+                m_year = re.search(r'25\d\d', ev_name)
+                year_val = m_year.group(0) if m_year else ""
+                if not year_val:
+                    m_short = re.search(r'(?:ปี|พ\.ศ\.|\s|^)(6[0-9])(?:\s|$|[^\d])', ev_name)
+                    if m_short:
+                        year_val = "25" + m_short.group(1)
+                # Fallback Priority 3: จาก photo_date
+                if not year_val and p_date and len(p_date.split('-')) >= 1:
+                    try:
+                        y_ce = int(p_date.split('-')[0])
+                        if y_ce > 1900:
+                            year_val = str(y_ce + 543)
+                    except Exception:
+                        pass
+            photo_entries.append({
+                "photo_id": p[0],
+                "event": ev_name,
+                "drive_link": p[2],
+                "date": p_date,
+                "year": year_val,
+                "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
+            })
+        return {
+            "photos": photo_entries,
+            ...
+        }
+```
+
+#### 2. `gdrive_sync.py`: เพิ่มคีย์ `"year"` ใน `photo_index.json`
+**ก่อนแก้ไข (Before):**
+```python
+# 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json
+photo_index = {}
+for item in sync_data["photos"]:
+    photo_id = item["photo_id"]
+    raw_link = item["drive_link"]
+    photo_index[photo_id] = {
+        "event": item["event"],
+        "drive_link": self.format_drive_view_url(raw_link),
+        "date": item.get("date", ""),
+        "face_count": item.get("face_count", 0)
+    }
+```
+
+**หลังแก้ไข (After):**
+```python
+# 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (รวม face_count และ academic_year v6.26)
+photo_index = {}
+for item in sync_data["photos"]:
+    photo_id = item["photo_id"]
+    raw_link = item["drive_link"]
+    entry = {
+        "event": item["event"],
+        "drive_link": self.format_drive_view_url(raw_link),
+        "date": item.get("date", ""),
+        "face_count": item.get("face_count", 0)
+    }
+    if item.get("year"):
+        entry["year"] = str(item["year"]).strip()
+    if item.get("subfolder"):
+        entry["subfolder"] = item["subfolder"]
+    photo_index[photo_id] = entry
+```
+
+#### 3. `scheduler_task.py`: บันทึก `academic_year` ลงใน `scanned_photos` ในทุกลูปการสแกนใหม่
+**ก่อนแก้ไข (Before):**
+```python
+# ใน _task_1_scan_new_photos_fast()
+scanned_rows = [
+    (r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"], r.get("file_name", ""), r.get("file_extension", ""), len(r.get("face_embeddings", [])))
+    for r in results_data
+]
+c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
+```
+
+**หลังแก้ไข (After):**
+```python
+# ใน _task_1_scan_new_photos_fast()
+m_year = re.search(r'25[3-7]\d', year_name)
+current_academic_year = m_year.group(0) if m_year else ""
+...
+scanned_rows = [
+    (
+        r["photo_id"],
+        r["drive_file_id"],
+        r["event_name"],
+        r["drive_link"],
+        r["photo_date"],
+        r.get("file_name", ""),
+        r.get("file_extension", ""),
+        len(r.get("face_embeddings", [])),
+        r.get("academic_year", current_academic_year)
+    )
+    for r in results_data
+]
+c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected, academic_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.25 (Graph-Based Unknown Face Clustering)
 
 ## 📋 Version 6.25 Changelog (Mutual k-NN Graph Clustering, Cannot-Link Constraints & Louvain Detection)

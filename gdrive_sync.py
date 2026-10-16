@@ -300,9 +300,12 @@ class GoogleSyncManager:
                 subdir_id = subdir.get("id")
                 subdir_name = subdir.get("name")
                 
-                # หากโฟลเดอร์เริ่มต้นคือ "ภาพกิจกรรม" โฟลเดอร์ระดับล่างก็ควรชื่อตามโฟลเดอร์นั้น
-                # เช่น ภาพกิจกรรม -> 2569 -> วันแม่ (event = วันแม่)
-                walk_folder(subdir_id, subdir_name)
+                # หากโฟลเดอร์ปัจจุบันคือโฟลเดอร์ระดับรากหรือระดับปี ("ภาพกิจกรรม...")
+                # โฟลเดอร์ลูกชั้นแรกใต้ปีคือชื่อกิจกรรมหลัก (Main Event)
+                # แต่หากเป็นโฟลเดอร์ย่อยลงไปอีก (Subfolder) ให้คงชื่อกิจกรรมหลักเดิมไว้เสมอ (v6.24)
+                is_root_or_year = "ภาพกิจกรรม" in curr_event_name or curr_event_name in ["Unknown Folder", "ภาพกิจกรรม 2569", "ภาพกิจกรรม 2568", "ภาพกิจกรรม 2567", "ภาพกิจกรรม 2566", "ภาพกิจกรรม 2565", "ภาพกิจกรรม 2563"]
+                next_event_name = subdir_name if is_root_or_year else curr_event_name
+                walk_folder(subdir_id, next_event_name)
 
         walk_folder(folder_id, root_folder_name)
         logger.info(f"Recursive scan completed. Total images found: {len(all_images)}")
@@ -461,17 +464,22 @@ class GoogleSyncManager:
                     if photo_id not in person_index[person]:
                         person_index[person].append(photo_id)
 
-            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ และรวม face_count v6.23)
+            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ, รวม face_count v6.23 และ academic_year v6.26)
             photo_index = {}
             for item in sync_data["photos"]:
                 photo_id = item["photo_id"]
                 raw_link = item["drive_link"]
-                photo_index[photo_id] = {
+                entry = {
                     "event": item["event"],
                     "drive_link": self.format_drive_view_url(raw_link),
                     "date": item.get("date", ""),
                     "face_count": item.get("face_count", 0)
                 }
+                if item.get("year"):
+                    entry["year"] = str(item["year"]).strip()
+                if item.get("subfolder"):
+                    entry["subfolder"] = item["subfolder"]
+                photo_index[photo_id] = entry
 
             # พิจารณาการอัปโหลดตามโหมดสแกน
             upload_person = False

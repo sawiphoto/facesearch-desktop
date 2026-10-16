@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import collections
 from datetime import datetime
+import re
 from face_analyzer import decode_image_bytes, read_image_file, get_project_root
 from db_manager import RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
 
@@ -961,8 +962,8 @@ class SchedulerTask:
             ("ภาพกิจกรรม 2565", "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL")
         ]
 
-    def _get_all_subfolders_recursive(self, parent_id, parent_name=""):
-        """ดึงรายชื่อโฟลเดอร์ย่อยทั้งหมดทุกระดับชั้นแบบ Recursive"""
+    def _get_all_subfolders_recursive(self, parent_id, parent_name="", main_event_name=None, subfolder_name=None):
+        """ดึงรายชื่อทุกระดับแบบ Recursive พร้อมรักษาระดับ Main Event Folder และ Subfolder (v6.24)"""
         all_subfolders = []
         try:
             query = f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -980,15 +981,79 @@ class SchedulerTask:
                 if self.stop_requested: break
                 s_id = subdir['id']
                 s_name = subdir['name']
-                all_subfolders.append({"id": s_id, "name": s_name})
+                
+                # ถ้ายังไม่มี main_event_name แสดงว่า subdir นี้คือโฟลเดอร์กิจกรรมหลัก (Level 2 ใต้ปี)
+                cur_event = main_event_name if main_event_name else s_name
+                cur_sub = s_name if main_event_name else None
+                
+                all_subfolders.append({
+                    "id": s_id, 
+                    "name": s_name, 
+                    "event_name": cur_event, 
+                    "subfolder": cur_sub
+                })
                 
                 # มุดลงไปดึงโฟลเดอร์ชั้นในซ้อนชั้นอีก (Recursive)
-                inner_subdirs = self._get_all_subfolders_recursive(s_id, s_name)
+                inner_subdirs = self._get_all_subfolders_recursive(s_id, s_name, main_event_name=cur_event, subfolder_name=cur_sub)
                 all_subfolders.extend(inner_subdirs)
         except Exception as e:
             logger.error(f"[SCHEDULE] Error fetching recursive subfolders for {parent_name}: {e}")
         return all_subfolders
 
+    def fetch_drive_folder_year_mapping(self):
+        """
+        ดึงโครงสร้างโฟลเดอร์ทั้งหมดจาก Google Drive แบบ Bulk (~4-6 วินาที)
+        และสร้างแผนผังจับคู่ชื่อโฟลเดอร์กิจกรรม (event_name) ไปยังปีการศึกษา Root Year (v6.26)
+        """
+        if not self.sync_manager or not self.sync_manager.connected:
+            if hasattr(self, 'sync_manager') and self.sync_manager:
+                self.sync_manager.connect()
+            else:
+                return {}
+
+        target_years = self._load_year_folders()
+        root_years = {}
+        for y_name, y_id in target_years:
+            m_be = re.search(r'25[3-7]\d', y_name)
+            if m_be:
+                root_years[y_id] = m_be.group(0)
+
+        all_folders = {}
+        page_token = None
+        while True:
+            res = self.sync_manager.drive_service.files().list(
+                q="mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+                fields="nextPageToken, files(id, name, parents)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            for f in res.get('files', []):
+                all_folders[f['id']] = {'name': f.get('name', ''), 'parents': f.get('parents', [])}
+            page_token = res.get('nextPageToken')
+            if not page_token or self.stop_requested:
+                break
+
+        def _trace_root_year(fid, visited=None):
+            if visited is None: visited = set()
+            if fid in visited: return None
+            visited.add(fid)
+            if fid in root_years: return root_years[fid]
+            f_info = all_folders.get(fid)
+            if not f_info: return None
+            for p in f_info.get('parents', []):
+                y = _trace_root_year(p, visited)
+                if y: return y
+            return None
+
+        event_to_years = {}
+        for fid, f in all_folders.items():
+            y = _trace_root_year(fid)
+            if y:
+                name = f['name'].strip()
+                event_to_years.setdefault(name, set()).add(y)
+
+        logger.info(f"[GDRIVE MAP] Successfully mapped {len(event_to_years)} distinct folder names to academic years.")
+        return event_to_years
     
     
     def _task_1_scan_new_photos_fast(self):
@@ -1052,6 +1117,10 @@ class SchedulerTask:
         for year_name, year_id in target_years:
             if self.stop_requested: break
             
+            # สกัดปีการศึกษา พ.ศ. 4 หลัก จากชื่อโฟลเดอร์หลัก เช่น "ภาพกิจกรรม 2569" -> "2569" (v6.26)
+            m_year = re.search(r'25[3-7]\d', year_name)
+            current_academic_year = m_year.group(0) if m_year else ""
+
             subfolders = self._get_all_subfolders_recursive(year_id, year_name)
             if not subfolders:
                 subfolders = [{"id": year_id, "name": year_name}]
@@ -1087,6 +1156,9 @@ class SchedulerTask:
                         folders_to_scan.append({
                             "folder_id": f_id,
                             "folder_name": f_name,
+                            "event_name": subdir.get("event_name", f_name),
+                            "subfolder": subdir.get("subfolder"),
+                            "academic_year": current_academic_year,
                             "files_to_scan": unscanned
                         })
                     else:
@@ -1143,7 +1215,7 @@ class SchedulerTask:
                         raw_photos_data.append({
                             "photo_id": f_id,
                             "drive_file_id": f_id,
-                            "event_name": folder_name,
+                            "event_name": target.get("event_name", folder_name),
                             "drive_link": f_link,
                             "photo_date": p_date,
                             "file_name": f_name,
@@ -1246,11 +1318,12 @@ class SchedulerTask:
                         results_data.append({
                             "photo_id": photo_id,
                             "drive_file_id": f_id,
-                            "event_name": folder_name,
+                            "event_name": target.get("event_name", folder_name),
                             "drive_link": f_link,
                             "photo_date": p_date,
                             "file_name": f_name,
                             "file_extension": f_ext,
+                            "academic_year": target.get("academic_year", current_academic_year),
                             "matches": photo_matches,
                             "face_embeddings": face_embeddings
                         })
@@ -1264,12 +1337,25 @@ class SchedulerTask:
                             self.tracker.record_skipped(folder_name, f_name, f_id, f"เกิดข้อผิดพลาด: {e}", f_link)
                         processed_count += 1
 
-                # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 / v6.00 with file_name & file_extension)
+                # Single Transaction Batch Save - บันทึกเฉพาะรูปที่สแกนสำเร็จจริง 100% (v5.80 / v6.00 with file_name & file_extension, v6.26 with academic_year)
                 if results_data:
                     with self.db.get_connection() as conn:
                         c = conn.cursor()
-                        scanned_rows = [(r["photo_id"], r["drive_file_id"], r["event_name"], r["drive_link"], r["photo_date"], r.get("file_name", ""), r.get("file_extension", ""), len(r.get("face_embeddings", []))) for r in results_data]
-                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
+                        scanned_rows = [
+                            (
+                                r["photo_id"],
+                                r["drive_file_id"],
+                                r["event_name"],
+                                r["drive_link"],
+                                r["photo_date"],
+                                r.get("file_name", ""),
+                                r.get("file_extension", ""),
+                                len(r.get("face_embeddings", [])),
+                                r.get("academic_year", current_academic_year)
+                            )
+                            for r in results_data
+                        ]
+                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected, academic_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
                         
                         photo_ids_batch = [r["photo_id"] for r in results_data]
                         if photo_ids_batch:

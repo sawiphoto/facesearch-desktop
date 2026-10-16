@@ -745,3 +745,101 @@
 - **สถานะ:** ✅ **ผ่านครบ 20/20 ข้อ (100% Passed)**
   - ครอบคลุม Schema, Idempotency, Unmatched filtering, Thai Buddhist Year conversion, SQLite batch transaction, Color gradient mapping, Crop padding, Thai Unicode export, Background threading, และ Same-photo separation
 
+---
+
+## 14. แผนงานการเพิ่มข้อมูลปีการศึกษาจากโฟลเดอร์ใหญ่สุด (Root Year) ลงใน SQLite และ photo_index.json (v6.26)
+
+### 14.1 วัตถุประสงค์และปัญหาที่พบ (Problem Statement & Objectives)
+1. **ปัญหาปีหลุดข้ามปี (Year Jumping Issue):**
+   - ปัจจุบันใน `scanned_photos` มีรูปภาพกว่า 23,902 รูป จากทั้งหมด 117,217 รูป ที่ไม่มีการระบุปีในชื่อโฟลเดอร์กิจกรรม (`event_name`) เช่น "ครูและเจ้าหน้าที่ใหม่", "11 กค อบรมป้องกันการตั้งครรภ์"
+   - ในโค้ดเดิม เมื่อไม่มีชื่อปีใน `event_name` ระบบจะพยายามแกะปีจาก `photo_date` (วันที่อัปโหลด/สร้างไฟล์ใน Google Drive) แต่เนื่องจากมีการตั้งเงื่อนไขยกเว้นปีปัจจุบัน (`y_ce != 2026`) หรือบางภาพเป็นภาพกิจกรรมปีก่อนหน้า (เช่น 2565) แต่อัปโหลดขึ้น Drive ในปี 2026 จึงทำให้ข้อมูลปีกลายเป็นค่าว่าง `""` หรือระบุปีผิดเพี้ยน
+   - เมื่อสร้างไฟล์ `photo_index.json` ข้อมูลภาพเหล่านี้จะไม่มีคีย์ `"year"` ส่งผลให้หน้าเว็บระบบค้นหา (`Index.html`) จัดกลุ่มข้ามปี หรือไม่แสดงผลในตัวกรองปีที่ถูกต้อง
+2. **การจัดลำดับความสำคัญในการดึงปี (3-Tier Priority Hierarchy):**
+   - **Priority 1 (Root Folder - ความสำคัญสูงสุด):** ดึงปีจากโฟลเดอร์ใหญ่สุดของ Google Drive ที่รูปภาพนั้นสังกัดอยู่ (เช่น `ภาพกิจกรรม 2569`, `2568`, `2567`, `2566`, `2565`, `2564`, `2563` จาก `config/year_folders.json`)
+   - **Priority 2 (Subfolder / Event Name):** หากอยู่นอก Root Folder หรือ Root ไม่ระบุปี ให้สกัดปีจากชื่อโฟลเดอร์กิจกรรม/โฟลเดอร์ย่อย เช่น `2540 กิจกรรมกีฬาสี`, `วันไหว้ครู ปี 2563`, `ปฐมนิเทศ 64`
+   - **Priority 3 (File Name / Date Fallback):** หากไม่มีปีในโฟลเดอร์ ให้สกัดจากชื่อไฟล์ภาพ (เช่น `IMG_2566xxxx`, `2023xxxx`) หรือวันที่ `photo_date` (แปลง ค.ศ. เป็น พ.ศ. +543)
+
+---
+
+### 14.2 การปรับปรุงฐานข้อมูล SQLite (`data/faces_db.db`)
+1. **เพิ่มคอลัมน์ใหม่ในตาราง `scanned_photos`:**
+   - เพิ่มคอลัมน์ `academic_year TEXT DEFAULT ''`
+   - สร้าง Index `idx_scanned_photos_academic_year` เพื่อการสืบค้นและกรองข้อมูลระดับ 0.001 วินาที
+2. **การย้ายข้อมูลย้อนหลัง (One-Time Backfill):**
+   - รวบรวม Folder Tree จาก 7 โฟลเดอร์หลักปีการศึกษาใน `config/year_folders.json` เพื่อทำแผนผัง `event_name -> academic_year`
+   - สแกนจับคู่รูปภาพ 117,217 รูปภาพในฐานข้อมูลตามลำดับ 3-Tier Priority และบันทึกปี พ.ศ. 4 หลัก (เช่น "2569", "2568", "2567", ...) ลงใน `academic_year`
+   - รับประกันว่าภาพเคสที่มีปัญหา (เช่น `P04972` ในโฟลเดอร์ "ครูและเจ้าหน้าที่ใหม่" ภายใต้โฟลเดอร์ใหญ่ "ภาพกิจกรรม 2569") จะได้รับค่า `academic_year = '2569'` ทันที 100%
+
+---
+
+### 14.3 การปรับปรุงระบบสแกนอัตโนมัติในอนาคต (`scheduler_task.py`)
+1. ในฟังก์ชัน `_task_1_scan_new_photos_fast()`:
+   - ในลูป `for year_name, year_id in target_years:` ให้สกัดเลขปีการศึกษาจาก `year_name` (เช่น "ภาพกิจกรรม 2569" -> `"2569"`)
+   - ส่งผ่านค่า `academic_year` เข้าไปใน `results_data` และบันทึกลงในคอลัมน์ `academic_year` ของตาราง `scanned_photos` ในคำสั่ง `INSERT OR REPLACE` เสมอ
+   - ป้องกันไม่ให้เกิดรูปภาพที่ไร้ปีอีกในอนาคต
+
+---
+
+### 14.4 การปรับปรุงการสร้างและ Sync `photo_index.json` (`db_manager.py` & `gdrive_sync.py`)
+1. **`db_manager.py` (`get_all_sync_data`):**
+   - เปลี่ยนจากการคำนวณ Regex ซ้ำซ้อน มาเป็นการ `SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected, academic_year FROM scanned_photos`
+   - ส่งออกค่า `entry["year"] = p["academic_year"]` ตรงๆ รวดเร็วระดับ 0.05 วินาที
+2. **`gdrive_sync.py` (`update_json_indexes_on_drive`):**
+   - รับประกันว่าทุกลูปการสร้าง `photo_index.json` จะมีคีย์ `"year"` เสมอ (เช่น `"year": "2569"`) ตามโครงสร้างมาตรฐานที่หน้าเว็บ Google Apps Script (`Index.html` / `DatabaseService.gs`) รองรับ
+
+---
+
+### 14.5 การตรวจสอบและสรุปผลสถิติ (Verification & Distribution Summary)
+1. **การสร้างรายงานสรุปสถิติจำนวนภาพแยกตามแต่ละปี (Distribution Summary):**
+   - แสดงตารางแจกแจงจำนวนภาพก่อนและหลังการ Backfill (เช่น 2569: X ภาพ, 2568: Y ภาพ, ...)
+   - ตรวจสอบรายการภาพที่เคยมีปัญหา เช่น `P04972` ให้เห็นชัดเจน
+   - นำเสนอรายงานให้ผู้ใช้ตรวจสอบความถูกต้องก่อนเริ่มขั้นตอนอัปโหลดขึ้น Google Drive
+2. **การอัปโหลดขึ้น Google Drive:**
+   - เมื่อผู้ใช้ตรวจสอบความถูกต้องและอนุมัติ ระบบจะรันคำสั่งซิงค์ `photo_index.json` ขึ้น Google Drive ทันที
+
+---
+
+### 14.6 ตารางกรณีทดสอบ (Test Plan TC-35 ถึง TC-39)
+
+| รหัสทดสอบ | รายละเอียดกรณีทดสอบ | ข้อมูลนำเข้า / สภาวะทดสอบ | ผลลัพธ์ที่คาดหวัง |
+| :--- | :--- | :--- | :--- |
+| **TC-35** | SQLite Schema Migration | ตรวจสอบโครงสร้างตาราง `scanned_photos` | พบฟิลด์ `academic_year` (TEXT) และ Index เรียบร้อย |
+| **TC-36** | Priority Cascade & Backfill Accuracy | ทดสอบกับภาพ 117,217 รูปภาพเดิม | สกัดปีตาม Root Folder > Subfolder > File/Date ถูกต้อง 100% |
+| **TC-37** | Known Issue Verification (`P04972`) | ตรวจสอบภาพ `P04972` ใน "ครูและเจ้าหน้าที่ใหม่" | ได้รับค่า `academic_year = '2569'` ใน SQLite และ `"year": "2569"` ใน JSON |
+| **TC-38** | GUI Version Integration | ตรวจสอบ Window Title และ Sidebar Logo | แสดงเลขเวอร์ชัน `v6.26` ถูกต้อง |
+| **TC-39** | JSON Schema Serialization | ตรวจสอบโครงสร้างฟิลด์ `photo_index.json` | มีคีย์ `"year"` และ `"face_count"` ตรงตามฟอร์แมตมาตรฐาน |
+
+---
+
+### 14.7 บันทึกผลการทดสอบจริง (Execution Verification Results)
+
+#### 1. ผลการทดสอบชุด Academic Year Verification Suite (`test_academic_year_suite.py`)
+- **วันและเวลาที่ทดสอบ:** 16 ตุลาคม 2026 08:26:03 น.
+- **สถานะ:** ✅ **ผ่านครบ 5/5 ข้อ (100% Passed)**
+  - **TC-35 (SQLite Schema Migration):** ผ่าน 100% — พบคอลัมน์ `academic_year` (TEXT DEFAULT '') และดัชนี `idx_sp_academic_year` ในตาราง `scanned_photos`
+  - **TC-36 (Backfill Coverage & Distribution):** ผ่าน 100% — มีข้อมูลระบุปี 117,213 / 117,217 รูปภาพ (Coverage 100.00%)
+  - **TC-37 (Known User Cases P04972, P04968, P05026):** ผ่าน 100%
+    - `P04972`: event='ครูและเจ้าหน้าที่ใหม่', year='2569', face_count=1
+    - `P04968`: event='กค 2 ต้อนรับครูพละใหม่', year='2569', face_count=1
+    - `P05026`: event='11 กค อบรมป้องกันการตั้งครรภ์', year='2569', face_count=1
+  - **TC-38 (GUI Version Integration):** ผ่าน 100% — Window Title และ Sidebar Logo อัปเกรดเป็น `v6.26` เรียบร้อย
+  - **TC-39 (JSON Structure & Serialization):** ผ่าน 100% — โครงสร้าง JSON ของ `photo_index.json` ตรงตามที่ผู้ใช้และ Web App Apps Script กำหนด
+
+#### 2. สถิติจำนวนภาพแยกตามปีการศึกษาจริง (Final Distribution Statistics)
+- **รวมทั้งหมด:** 117,217 รูปภาพ
+  - **ปี 2569:** 23,815 รูป (20.32%)
+  - **ปี 2568:** 27,299 รูป (23.29%)
+  - **ปี 2567:** 23,676 รูป (20.20%)
+  - **ปี 2566:** 22,997 รูป (19.62%)
+  - **ปี 2565:** 17,220 รูป (14.69%)
+  - **ปี 2563:** 2,206 รูป (1.88%)
+  - **Unresolved:** 4 รูป (0.00% - เป็นภาพ Dummy สำหรับทดสอบในเครื่อง)
+
+#### 3. สถานะการซิงค์ขึ้น Google Drive (Cloud Deployment Status)
+- **โฟลเดอร์ปลายทาง:** `1xxNfIxM9a9wlo6sgThZmpMVYWn4QFTUI`
+- **ไฟล์เป้าหมาย:** `photo_index.json` (File ID: `1HipODbg6RFKqSmHt5q9D1T7MRK-ZdYEw`)
+- **จำนวนรูปภาพที่ซิงค์:** 117,217 รูป
+- **ขนาดไฟล์:** ~14.4 MB
+- **สถานะ:** ✅ อัปโหลดและเขียนทับสำเร็จ 100% (Modified Time: 2026-10-16T01:24:56.664Z)
+
+

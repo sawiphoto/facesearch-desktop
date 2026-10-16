@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import os
 import json
 import numpy as np
@@ -303,6 +304,18 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create total_faces/photo_face indexes: {e}")
 
+            # Migration v6.26: เพิ่มคอลัมน์ academic_year และดัชนี idx_sp_academic_year ใน scanned_photos
+            try:
+                cursor.execute("ALTER TABLE scanned_photos ADD COLUMN academic_year TEXT DEFAULT ''")
+                logger.info("Executed database migration v6.26: added academic_year to scanned_photos.")
+            except Exception:
+                pass
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sp_academic_year ON scanned_photos(academic_year)")
+            except Exception as e:
+                logger.warning(f"Could not create academic_year index: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -406,6 +419,115 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"[MIGRATION v6.23] Successfully backfilled total_faces_detected for {len(counts)} photos.")
             return len(counts)
+
+    def backfill_academic_year(self, event_to_years=None):
+        """
+        อัปเดตข้อมูลปีการศึกษา (academic_year) ย้อนหลังลงในตาราง scanned_photos (v6.26)
+        โดยใช้ 3-Tier Priority Cascade:
+        - Priority 1: Google Drive Root Year Mapping (จาก event_to_years map)
+        - Priority 2: Event Subfolder Name Regex (25XX, 20XX, ปี 6X)
+        - Priority 3: File Name / Date Fallback (photo_date / file_name)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            logger.info("[MIGRATION v6.26] Reading all photos from scanned_photos for academic_year backfill...")
+            cursor.execute("SELECT photo_id, event_name, photo_date, file_name FROM scanned_photos")
+            photos = cursor.fetchall()
+            
+            updates = []
+            year_counts = {}
+            source_counts = {
+                'priority_1_root_folder': 0,
+                'priority_2_event_regex': 0,
+                'priority_3_date_filename': 0,
+                'unresolved': 0
+            }
+
+            for pid, ev, dt, fn in photos:
+                ev_clean = (ev or '').strip()
+                dt_clean = (dt or '').strip()
+                fn_clean = (fn or '').strip()
+                
+                resolved_year = None
+                source = None
+                
+                # Priority 1: จาก Google Drive Root Folder mapping
+                if event_to_years and ev_clean in event_to_years:
+                    possible_years = event_to_years[ev_clean]
+                    if len(possible_years) == 1:
+                        resolved_year = list(possible_years)[0]
+                        source = 'priority_1_root_folder'
+                    else:
+                        if dt_clean:
+                            parts = dt_clean.split('-')
+                            if len(parts) >= 1 and parts[0].isdigit():
+                                y_ce = int(parts[0])
+                                if y_ce > 1900:
+                                    cand = str(y_ce + 543)
+                                    if cand in possible_years:
+                                        resolved_year = cand
+                                        source = 'priority_1_root_folder'
+                        if not resolved_year:
+                            resolved_year = sorted(list(possible_years), reverse=True)[0]
+                            source = 'priority_1_root_folder'
+
+                # Priority 2: จาก Event Subfolder Name Regex
+                if not resolved_year and ev_clean:
+                    m_be = re.search(r'25[3-7]\d', ev_clean)
+                    if m_be:
+                        resolved_year = m_be.group(0)
+                        source = 'priority_2_event_regex'
+                    else:
+                        m_short = re.search(r'(?:ปี|พ\.ศ\.|\s|^)(6[0-9])(?:\s|$|[^\d])', ev_clean)
+                        if m_short:
+                            resolved_year = "25" + m_short.group(1)
+                            source = 'priority_2_event_regex'
+                        else:
+                            m_ce = re.search(r'20[1-3]\d', ev_clean)
+                            if m_ce:
+                                resolved_year = str(int(m_ce.group(0)) + 543)
+                                source = 'priority_2_event_regex'
+
+                # Priority 3: จาก File Name หรือ Photo Date
+                if not resolved_year:
+                    if fn_clean:
+                        m_fn_be = re.search(r'25[3-7]\d', fn_clean)
+                        if m_fn_be:
+                            resolved_year = m_fn_be.group(0)
+                            source = 'priority_3_date_filename'
+                        else:
+                            m_fn_ce = re.search(r'20[1-3]\d', fn_clean)
+                            if m_fn_ce:
+                                resolved_year = str(int(m_fn_ce.group(0)) + 543)
+                                source = 'priority_3_date_filename'
+                    if not resolved_year and dt_clean:
+                        parts = dt_clean.split('-')
+                        if len(parts) >= 1 and parts[0].isdigit():
+                            y_ce = int(parts[0])
+                            if y_ce > 1900:
+                                resolved_year = str(y_ce + 543)
+                                source = 'priority_3_date_filename'
+
+                year_val = resolved_year or ""
+                updates.append((year_val, pid))
+                if resolved_year:
+                    year_counts[resolved_year] = year_counts.get(resolved_year, 0) + 1
+                    source_counts[source] += 1
+                else:
+                    source_counts['unresolved'] += 1
+
+            logger.info(f"[MIGRATION v6.26] Updating academic_year for {len(updates)} photos in scanned_photos...")
+            cursor.executemany(
+                "UPDATE scanned_photos SET academic_year = ? WHERE photo_id = ?",
+                updates
+            )
+            conn.commit()
+            logger.info(f"[MIGRATION v6.26] Successfully backfilled academic_year for {len(updates)} photos.")
+            return {
+                "total_photos": len(photos),
+                "year_counts": year_counts,
+                "source_counts": source_counts
+            }
 
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
@@ -922,12 +1044,12 @@ class DatabaseManager:
                 return False
 
     def get_all_sync_data(self):
-        """ดึงข้อมูลทั้งหมดในฐานข้อมูลเพื่อพร้อมอัปเดตลง Google Sheets และ Google Drive JSON Index (v6.23 เพิ่ม face_count)"""
+        """ดึงข้อมูลทั้งหมดในฐานข้อมูลเพื่อพร้อมอัปเดตลง Google Sheets และ Google Drive JSON Index (v6.23 เพิ่ม face_count, v6.26 academic_year)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # ข้อมูลชีท photos (ดึง photo_date และ total_faces_detected มาด้วย)
-            cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected FROM scanned_photos")
+            # ข้อมูลชีท photos (ดึง photo_date, total_faces_detected, และ academic_year มาด้วย)
+            cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected, academic_year FROM scanned_photos")
             photos = cursor.fetchall()
             
             # ข้อมูลชีท faces (ดึงชื่อคนแทนไอดีเพื่อบันทึกลงชีท พร้อมดึงไอดีแถวการสแกนเป็น face_id)
@@ -938,17 +1060,39 @@ class DatabaseManager:
             """)
             faces = cursor.fetchall()
             
+            photo_entries = []
+            for p in photos:
+                ev_name = p[1] or ""
+                p_date = p[3] if p[3] else ""
+                academic_year = p[5] if len(p) > 5 and p[5] else ""
+                year_val = academic_year.strip()
+                if not year_val:
+                    # Fallback Priority 2: Auto extract year from event name
+                    m_year = re.search(r'25\d\d', ev_name)
+                    year_val = m_year.group(0) if m_year else ""
+                    if not year_val:
+                        m_short = re.search(r'(?:ปี|พ\.ศ\.|\s|^)(6[0-9])(?:\s|$|[^\d])', ev_name)
+                        if m_short:
+                            year_val = "25" + m_short.group(1)
+                    # Fallback Priority 3: จาก photo_date
+                    if not year_val and p_date and len(p_date.split('-')) >= 1:
+                        try:
+                            y_ce = int(p_date.split('-')[0])
+                            if y_ce > 1900:
+                                year_val = str(y_ce + 543)
+                        except Exception:
+                            pass
+                photo_entries.append({
+                    "photo_id": p[0],
+                    "event": ev_name,
+                    "drive_link": p[2],
+                    "date": p_date,
+                    "year": year_val,
+                    "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
+                })
+
             return {
-                "photos": [
-                    {
-                        "photo_id": p[0],
-                        "event": p[1],
-                        "drive_link": p[2],
-                        "date": p[3] if p[3] else "",
-                        "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
-                    }
-                    for p in photos
-                ],
+                "photos": photo_entries,
                 "faces": [
                     {
                         "face_id": f[0],
