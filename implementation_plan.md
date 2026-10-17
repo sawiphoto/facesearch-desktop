@@ -842,4 +842,110 @@
 - **ขนาดไฟล์:** ~14.4 MB
 - **สถานะ:** ✅ อัปโหลดและเขียนทับสำเร็จ 100% (Modified Time: 2026-10-16T01:24:56.664Z)
 
+---
 
+## 15. แผนการพัฒนาระบบจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders Management UI & SQLite Table Integration - v6.27)
+
+### 15.1 สรุปผลการตรวจสอบระบบปัจจุบัน (Current Architecture & Usage Audit)
+
+#### 1. ปัจจุบันเก็บข้อมูลเป็น JSON ใช่หรือไม่?
+- **ใช่ครับ:** ปัจจุบันเก็บไว้ในไฟล์ `config/year_folders.json` ในรูปแบบ JSON Array ของ Object `[{"name": "ภาพกิจกรรม 2569", "id": "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"}, ...]` จำนวน 6 โฟลเดอร์ (ปี 2569, 2568, 2567, 2566, 2565, 2563)
+
+#### 2. ในโค้ดนำค่า Root Folder ไปใช้งานในส่วนไหนบ้าง? (ครบทั้ง 5 จุดในระบบ)
+1. **`scheduler_task.py` -> `_load_year_folders()` (บรรทัด 944-963):**
+   - โหลดรายชื่อและ Folder ID ของโฟลเดอร์หลักประจำปีการศึกษาทั้งหมดส่งให้ระบบสแกน
+2. **`scheduler_task.py` -> `_task_1_scan_new_photos_fast()` (บรรทัด 1059-1406):**
+   - ใช้ในปุ่ม **"▶️ 1. สแกนภาพเพิ่มมาใหม่"** และ **ระบบสแกนอัตโนมัติเวลาเที่ยงคืน (`00:00`)**
+   - วนลูปเข้าค้นหาโฟลเดอร์กิจกรรมย่อยภายใต้แต่ละ Root Folder ตามลำดับ
+   - สกัดเลขปีการศึกษา (`current_academic_year`) จาก Root Folder เพื่อบันทึกลงคอลัมน์ `academic_year` ในตาราง `scanned_photos` และส่งออกไปยัง `photo_index.json`
+   - ส่งชื่อ Root Folder ไปยัง `ScanSessionTracker` (`record_folder_start`) เพื่อแสดงคอลัมน์ "ปีการศึกษา" ในหน้าต่าง **Popup Report Summary** และไฟล์รายงานในโฟลเดอร์ `report_summary/`
+3. **`scheduler_task.py` -> `fetch_drive_folder_year_mapping()` (บรรทัด 1003-1056):**
+   - ใช้ Root Folder ID เป็น **Root Anchor (Priority 1)** ในการไต่ลำดับ Parent ของโฟลเดอร์ย่อยบน Google Drive เพื่อระบุปีการศึกษาของรูปภาพย้อนหลัง (Backfill)
+4. **`scheduler_task.py` -> `_task_1_scan_new_folders()` (บรรทัด 500-543):**
+   - ดึงรายการ Root Folder ไปต่อท้ายคิวการสแกนโฟลเดอร์
+5. **`gdrive_sync.py` -> `get_all_images_in_folder_recursive()` (บรรทัด 303-308):**
+   - ใช้ตรวจสอบว่าโฟลเดอร์ปัจจุบันเป็นระดับ Root Year หรือไม่ (`is_root_or_year`) เพื่อให้ตั้งชื่อโฟลเดอร์ลูกชั้นที่ 1 เป็น `event_name` (ชื่อกิจกรรม) และชั้นถัดไปเป็น `subfolder` (ซึ่งเดิมยัง Hardcode ชื่อปีไว้ 5 ปี ควรเปลี่ยนให้เช็คจากฐานข้อมูล Root Folders แบบ Dynamic)
+
+#### 3. ควรเพิ่มตาราง (Table) ใน SQLite หรือไม่?
+- **แนะนำให้เพิ่มตาราง `root_year_folders` ใน SQLite ควบคู่กับการ Auto-Sync ลง `config/year_folders.json` (Hybrid Single Source of Truth)** ด้วยเหตุผลดังนี้:
+  1. **ระบุปี พ.ศ. (`academic_year`) แยกเป็นคอลัมน์ชัดเจน:** ไม่ต้องพึ่งพาแค่การแกะตัวเลขจากชื่อโฟลเดอร์เพียงอย่างเดียว (เช่น หากโฟลเดอร์บน Drive ชื่อ `"อัลบั้มรวมภาพโรงเรียน"` ก็ยังกำหนดปี `2570` ลงในคอลัมน์ `academic_year` ได้โดยตรง)
+  2. **มีสถานะเปิด/ปิดการสแกน (`is_active`):** สามารถติ๊กเปิด/ปิด (Active / Pause) โฟลเดอร์ปีเก่าๆ ที่สแกนครบถ้วนแล้ว (เช่น ปี 2563-2566) เพื่อให้ Task 1 สแกนเฉพาะปีปัจจุบันได้รวดเร็วขึ้น โดยที่ข้อมูลปีเก่าในระบบและ `fetch_drive_folder_year_mapping` ยังคงอ้างอิง Root Folder เดิมได้ครบ
+  3. **จัดลำดับการสแกน (`sort_order`) และดูสถิติร่วมกับ `scanned_photos` ได้ทันที:** สามารถ Query นับจำนวนรูปภาพสะสมของแต่ละปีจากตาราง `scanned_photos` มาแสดงคู่กันในตาราง GUI ได้ทันที และเปิดดูในเมนู **"🗄️ ดูฐานข้อมูล SQLite"** ได้ด้วย
+  4. **Auto-Sync ลง `config/year_folders.json` อัตโนมัติ:** ทุกครั้งที่เพิ่ม/แก้ไข/ลบ/เปลี่ยนสถานะใน SQLite ระบบจะอัปเดตไฟล์ `config/year_folders.json` ให้ตรงกันเสมอ เพื่อรักษาความเข้ากันได้ย้อนหลัง 100%
+
+---
+
+### 15.2 การออกแบบโครงสร้างฐานข้อมูล (Database Schema: `root_year_folders`)
+
+เพิ่มตาราง `root_year_folders` ใน `db_manager.py` (`init_db()`):
+
+```sql
+CREATE TABLE IF NOT EXISTS root_year_folders (
+    folder_id TEXT PRIMARY KEY,
+    folder_name TEXT NOT NULL,
+    academic_year TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+- **Auto-Seeding (การนำเข้าข้อมูลเริ่มต้นอัตโนมัติ):**
+  - เมื่อเปิดโปรแกรมครั้งแรก หากตาราง `root_year_folders` ยังว่างอยู่ ระบบจะอ่านข้อมูลจาก `config/year_folders.json` (ทั้ง 6 โฟลเดอร์: 2569, 2568, 2567, 2566, 2565, 2563) สกัด `academic_year` และนำเข้าสู่ตาราง `root_year_folders` อัตโนมัติทันทีโดยที่ผู้ใช้ไม่ต้องกรอกใหม่
+- **CRUD & Sync Methods ใน `db_manager.py`:**
+  - `get_root_year_folders(active_only=False)`: ดึงรายการโฟลเดอร์หลักเรียงตาม `academic_year DESC, sort_order ASC` พร้อมนับจำนวนภาพใน `scanned_photos` ของแต่ละปีมาแสดงผล
+  - `upsert_root_year_folder(folder_id, folder_name, academic_year, is_active=1, sort_order=0)`: เพิ่มหรือแก้ไขโฟลเดอร์หลัก พร้อมเรียก `_sync_root_folders_to_json()`
+  - `delete_root_year_folder(folder_id)`: ลบโฟลเดอร์หลักออกจากรายการ พร้อมเรียก `_sync_root_folders_to_json()`
+  - `toggle_root_year_folder_active(folder_id, is_active)`: เปิด/ปิดการสแกนโฟลเดอร์นั้นๆ พร้อมเรียก `_sync_root_folders_to_json()`
+  - `_sync_root_folders_to_json()`: เขียนข้อมูลล่าสุดลงไฟล์ `config/year_folders.json` (เก็บทั้ง `name`, `id`, `academic_year`, `is_active`)
+
+---
+
+### 15.3 การปรับปรุงการเชื่อมโยงในระบบสแกน (`scheduler_task.py` และ `gdrive_sync.py`)
+
+1. **`scheduler_task.py` -> `_load_year_folders(active_only=True)`:**
+   - เปลี่ยนมาดึงข้อมูลจาก `db_manager.get_root_year_folders(active_only=active_only)` เป็นหลัก (และใช้ `config/year_folders.json` เป็น Fallback)
+   - สำหรับ `_task_1_scan_new_photos_fast()` จะดึงเฉพาะโฟลเดอร์ที่เปิดใช้งาน (`active_only=True`) และรับค่า `academic_year` จากตารางโดยตรง (หากคอลัมน์ `academic_year` มีค่าอยู่แล้ว ให้ใช้ค่านั้นทันทีก่อน Fallback ไป `extract_academic_year`)
+   - สำหรับ `fetch_drive_folder_year_mapping()` จะดึงโฟลเดอร์ทั้งหมด (`active_only=False`) เพื่อให้การตรวจสอบย้อนหลัง (Backfill) รู้จักโฟลเดอร์ปีเก่าทุกปีเสมอแม้จะปิดการสแกนรายวันไปแล้วก็ตาม
+2. **`gdrive_sync.py` -> `get_all_images_in_folder_recursive()`:**
+   - เปลี่ยนการเช็ค `is_root_or_year` จากเดิมที่ Hardcode ชื่อปี `["ภาพกิจกรรม 2569", ...]` มาเป็นดึงรายชื่อและปีจาก `db_manager.get_root_year_folders(active_only=False)` ร่วมกับ Regex ตรวจจับชื่อระดับปี เพื่อให้เมื่อผู้ใช้เพิ่มโฟลเดอร์ปีใหม่ (เช่น `"ภาพกิจกรรม 2570"`) ระบบจะแยกชั้น `event_name` และ `subfolder` ได้ถูกต้องทันทีโดยไม่ต้องแก้โค้ด
+
+---
+
+### 15.4 การออกแบบส่วนติดต่อผู้ใช้ (UI Design ใน `app_gui.py`)
+
+1. **เพิ่มโซน `"📁 จัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders)"` ในหน้า `"⚙️ ตั้งค่าระบบ"` (`setup_settings_ui`) และปุ่มลัด `"📁 จัดการโฟลเดอร์ปีการศึกษา (Root)"` ในหน้า `"🔍 สแกนรูปภาพกิจกรรม"`:**
+   - **ส่วนฟอร์มเพิ่ม/แก้ไขโฟลเดอร์หลัก (Add / Update Root Folder Bar):**
+     - **ช่องกรอกลิงก์ หรือ Folder ID ของ Google Drive:** รองรับการวาง URL เต็ม (เช่น `https://drive.google.com/drive/folders/1Y0GFyn...`) หรือวางเฉพาะ ID ระบบจะใช้ `_extract_drive_id()` สกัด ID ให้อัตโนมัติ
+     - **ปุ่ม `"🔍 เลือกจาก Drive"`:** เปิดหน้าต่าง `GoogleDrivePicker` ให้คลิกเลือกโฟลเดอร์จาก Google Drive ได้โดยตรง เมื่อเลือกแล้วจะเติมทั้ง **Folder ID**, **ชื่อโฟลเดอร์** และ **ปีการศึกษา (พ.ศ.)** ลงในช่องกรอกให้อัตโนมัติ
+     - **ช่องกรอกชื่อโฟลเดอร์ (`Folder Name`):** เช่น `"ภาพกิจกรรม 2570"` (หากกรอกเฉพาะ ID แล้วกดปุ่มดึงชื่อ ระบบจะเชื่อมต่อ Drive API ดึงชื่อโฟลเดอร์จริงมาใส่ให้อัตโนมัติและสกัดเลขปี 4 หลักใส่ช่องปีการศึกษา)
+     - **ช่องกรอกปีการศึกษา (`Academic Year`):** เช่น `"2570"`
+     - **ปุ่ม `"➕ เพิ่ม / บันทึกโฟลเดอร์หลัก"`**
+   - **ส่วนตารางแสดงรายการโฟลเดอร์หลัก (Root Folders Table / List):**
+     - แสดงรายการโฟลเดอร์ทั้งหมดจากตาราง `root_year_folders` พร้อมข้อมูล:
+       - **สถานะสแกน (Switch / Checkbox `เปิดสแกน`):** เปิด/ปิดการนำโฟลเดอร์ปีนั้นเข้าสแกนใน Task 1
+       - **ปีการศึกษา (Badge เช่น `ปี 2569`)**
+       - **ชื่อโฟลเดอร์ (`ภาพกิจกรรม 2569`)**
+       - **Folder ID**
+       - **จำนวนภาพในฐานข้อมูล (`23,815 รูป`)** ดึงสดจาก `scanned_photos`
+       - **ปุ่มจัดการ:** `"✏️ แก้ไข"` และ `"🗑️ ลบ"`
+2. **รองรับการเปิดดูในหน้า `"🗄️ ดูฐานข้อมูล SQLite"`:**
+   - ตาราง `root_year_folders` จะปรากฏใน Dropdown เลือกตารางของเมนู **"🗄️ ดูฐานข้อมูล SQLite"** อัตโนมัติ
+
+---
+
+### 15.5 แผนการตรวจสอบและทดสอบ (Verification Plan)
+1. **TC-40 (SQLite Table & Auto-Seeding):** ทดสอบการสร้างตาราง `root_year_folders` และการนำเข้าข้อมูลเริ่มต้น 6 โฟลเดอร์จาก `config/year_folders.json` อัตโนมัติ
+2. **TC-41 (CRUD & JSON Auto-Sync):** ทดสอบการเพิ่มโฟลเดอร์ใหม่ (เช่น ปี `2570`), การสลับสถานะ `is_active`, และการลบ แล้วตรวจสอบว่าทั้งตาราง SQLite และไฟล์ `config/year_folders.json` อัปเดตตรงกัน 100%
+3. **TC-42 (URL Extraction & Scheduler Integration):** ทดสอบการสกัด Folder ID จาก URL เต็ม และตรวจสอบว่า `_load_year_folders()` ใน `scheduler_task.py` และ `gdrive_sync.py` ดึงรายการโฟลเดอร์ตามสถานะ `is_active` ได้ถูกต้อง
+4. **TC-43 (GUI Version Upgrade):** อัปเดตเลขเวอร์ชันเป็น `v6.27` บน Window Title, Sidebar Logo และบันทึกประวัติลงบนสุดของ `README.md`
+
+---
+
+### 15.6 บันทึกผลการทดสอบจริง (Execution Verification Results - `test_root_folders_suite.py`)
+- **วันและเวลาที่ทดสอบ:** 18 ตุลาคม 2026 03:26:39 น.
+- **สถานะ:** ✅ **ผ่านครบ 4/4 ข้อ (100% Passed)**
+  - **TC-40 (Production SQLite `root_year_folders` & Live Photo Counts):** ผ่าน 100% — ตาราง `root_year_folders` นำเข้าข้อมูล 6 ปีการศึกษา (`2569`, `2568`, `2567`, `2566`, `2565`, `2563`) พร้อมแสดงจำนวนรูปภาพสะสมของแต่ละปีจาก `scanned_photos` ได้ถูกต้อง
+  - **TC-41 (Isolated CRUD & JSON Auto-Sync):** ผ่าน 100% — ทดสอบการเพิ่มโฟลเดอร์ปี `2570` และ `2571`, สลับสถานะ `is_active`, ลบรายการ และตรวจสอบการซิงค์อัตโนมัติลง `year_folders.json`
+  - **TC-42 (URL Extraction & Scheduler Integration):** ผ่าน 100% — สกัด Folder ID จากลิงก์ Google Drive ทุกรูปแบบได้ถูกต้อง และ `SchedulerTask._load_year_folders()` ดึงข้อมูลจากตาราง `root_year_folders` สำเร็จ
+  - **TC-43 (GUI Version & Module Compilation):** ผ่าน 100% — อัปเดตเลขเวอร์ชันเป็น `v6.27` ครบทุกจุดและคอมไพล์ผ่าน 100%

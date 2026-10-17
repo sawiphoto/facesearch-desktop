@@ -1,4 +1,102 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.26 (Root Year Hierarchy & Academic Year Indexing)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.27 (Root Year Folders Management & SQLite Sync)
+
+## 📋 Version 6.27 Changelog (Root Year Folders Management UI, SQLite `root_year_folders` Table & Auto-JSON Sync)
+
+**Date:** 18 ตุลาคม 2026 (03:27 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Claude Opus 4.6 (Thinking)  
+**Version:** v6.27 (Root Year Folders Management & SQLite Sync)  
+**Core Technologies:** SQLite 3 (`root_year_folders` Table with Auto-Seeding), Hybrid SQLite + `config/year_folders.json` Auto-Sync, CustomTkinter Interactive Root Folder Manager UI, Google Drive Picker & URL Metadata Auto-Extraction
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+1. **การเพิ่มหรือจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders) เดิมต้องแก้ไฟล์ JSON ด้วยมือ:**
+   - เดิมรายชื่อโฟลเดอร์หลักประจำปีการศึกษา (เช่น `"ภาพกิจกรรม 2569"`, `"ภาพกิจกรรม 2568"`, ...) ถูกเก็บไว้ในไฟล์ `config/year_folders.json` เท่านั้น และใน `gdrive_sync.py` ยังมีการ Hardcode รายชื่อปีไว้บางส่วน
+   - เมื่อขึ้นปีการศึกษาใหม่ (เช่น ปี `2570`) หรือต้องการพักการสแกนโฟลเดอร์ปีเก่าที่สแกนครบ 100% แล้ว ผู้ใช้ไม่สามารถกดเพิ่ม/แก้ไข/เปิด-ปิดจากหน้าโปรแกรม GUI ได้โดยตรง
+2. **ความต้องการของผู้ใช้งาน:**
+   - เพิ่มเมนูและส่วนติดต่อผู้ใช้ (UI) สำหรับ **Add / Edit / Delete / Toggle Active โฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders)** บนหน้าโปรแกรม GUI
+   - เพิ่มตาราง `root_year_folders` ในฐานข้อมูล SQLite ควบคู่กับการซิงค์ลงไฟล์ `config/year_folders.json` อัตโนมัติ และเชื่อมโยงกับทุกส่วนของโค้ดที่ใช้งาน Root Folder
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สร้างตาราง `root_year_folders` ในฐานข้อมูล SQLite พร้อมระบบ Auto-Seeding & JSON Sync ([`db_manager.py`](db_manager.py)):**
+   - สร้างตาราง `root_year_folders` (`folder_id` PK, `folder_name`, `academic_year`, `is_active`, `sort_order`, `created_at`) พร้อม Index `idx_ryf_year`
+   - เมื่อเปิดใช้งานครั้งแรก ระบบทำ **Auto-Seeding** นำเข้าข้อมูลโฟลเดอร์หลักทั้ง 6 ปีการศึกษา (`2569`, `2568`, `2567`, `2566`, `2565`, `2563`) จาก `config/year_folders.json` เข้าสู่ตาราง SQLite อัตโนมัติ
+   - เพิ่มเมธอด `get_root_year_folders()`, `upsert_root_year_folder()`, `toggle_root_year_folder_active()`, `delete_root_year_folder()`, และ `_sync_root_folders_to_json()` ที่ซิงค์ข้อมูลกลับลง `config/year_folders.json` ทันทีทุกครั้งที่มีการเปลี่ยนแปลง
+2. **เชื่อมโยงตาราง `root_year_folders` เข้ากับระบบสแกนอัตโนมัติและระบบดึงภาพ ([`scheduler_task.py`](scheduler_task.py), [`gdrive_sync.py`](gdrive_sync.py)):**
+   - ปรับ `_load_year_folders(active_only=True)` ใน `scheduler_task.py` ให้ดึงโฟลเดอร์ที่เปิดสแกน (`is_active=1`) จากตาราง `root_year_folders` เป็นหลัก พร้อมเมธอด `_get_root_folder_year_lookup()` เพื่อดึงคอลัมน์ `academic_year` โดยตรง
+   - ปรับ `get_all_images_in_folder_recursive()` ใน `gdrive_sync.py` ให้ดึงรายชื่อและ ID ของ Root Folder จากฐานข้อมูลแบบ Dynamic แทนการ Hardcode
+3. **พัฒนาหน้าจอจัดการโฟลเดอร์หลักประจำปีการศึกษาใน GUI ([`app_gui.py`](app_gui.py)):**
+   - เพิ่มโซน **"📁 จัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders)"** ในหน้า **"⚙️ ตั้งค่าระบบ"** และเพิ่มปุ่มลัด **"📁 จัดการ Root ปีการศึกษา"** ในหน้า **"🔍 สแกนรูปภาพกิจกรรม"**
+   - รองรับการวางลิงก์ Google Drive Folder URL เต็ม (สกัด Folder ID อัตโนมัติ), ปุ่ม **"🔍 เลือกจาก Drive"** (`GoogleDrivePicker`), ปุ่ม **"🔄 ดึงชื่อจาก Drive"** (ดึงชื่อโฟลเดอร์จริงจาก Drive API พร้อมสกัดปี พ.ศ. 4 หลักอัตโนมัติ), สวิตช์ **เปิดสแกน / พักสแกน**, แสดงจำนวนรูปภาพสะสมของแต่ละปีจากฐานข้อมูลสด (`📸 23,815 รูป`), และปุ่มแก้ไข/ลบ/เปิด Drive
+   - เพิ่มตัวเลือก `"📋 ตารางทั้งหมด: root_year_folders"` ในเมนู **"🗄️ ดูฐานข้อมูล SQLite"**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py`: เพิ่มตาราง `root_year_folders` และระบบ Hybrid SQLite + JSON Auto-Sync
+**ก่อนแก้ไข (Before):**
+```python
+        self.create_unknown_tables()
+        logger.info("SQLite database initialized successfully.")
+```
+
+**หลังแก้ไข (After):**
+```python
+        self.create_unknown_tables()
+        self.create_root_year_folders_table()
+        logger.info("SQLite database initialized successfully.")
+```
+*(พร้อมเมธอด `get_root_year_folders()`, `upsert_root_year_folder()`, `toggle_root_year_folder_active()`, `delete_root_year_folder()`, และ `_sync_root_folders_to_json()`)*
+
+#### 2. `scheduler_task.py`: ดึงรายการ Root Folder และ `academic_year` จากตาราง SQLite `root_year_folders`
+**ก่อนแก้ไข (Before):**
+```python
+    def _load_year_folders(self):
+        """โหลดรายชื่อโฟลเดอร์หลักปีการศึกษาจาก config/year_folders.json"""
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", "year_folders.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and len(data) > 0:
+                        return [(item["name"], item["id"]) for item in data if "name" in item and "id" in item]
+            except Exception as e:
+                logger.error(f"[SCHEDULE] Error reading config/year_folders.json: {e}")
+```
+
+**หลังแก้ไข (After):**
+```python
+    def _load_year_folders(self, active_only=True):
+        """โหลดรายชื่อโฟลเดอร์หลักปีการศึกษาจากตาราง SQLite root_year_folders หรือ config/year_folders.json (v6.27)"""
+        if hasattr(self, 'db') and self.db and hasattr(self.db, 'get_root_year_folders'):
+            try:
+                rows = self.db.get_root_year_folders(active_only=active_only)
+                if rows is not None and len(rows) > 0:
+                    return [(r["name"], r["id"]) for r in rows if r.get("name") and r.get("id")]
+            except Exception as e:
+                logger.error(f"[SCHEDULE] Error reading root_year_folders from SQLite: {e}")
+```
+
+#### 3. `gdrive_sync.py`: ตรวจสอบโฟลเดอร์ระดับปี (`is_root_or_year`) แบบ Dynamic จากฐานข้อมูล
+**ก่อนแก้ไข (Before):**
+```python
+is_root_or_year = "ภาพกิจกรรม" in curr_event_name or curr_event_name in ["Unknown Folder", "ภาพกิจกรรม 2569", "ภาพกิจกรรม 2568", "ภาพกิจกรรม 2567", "ภาพกิจกรรม 2566", "ภาพกิจกรรม 2565", "ภาพกิจกรรม 2563"]
+```
+
+**หลังแก้ไข (After):**
+```python
+is_root_or_year = (
+    "ภาพกิจกรรม" in curr_event_name
+    or curr_event_name in known_root_names
+    or curr_folder_id in known_root_ids
+)
+```
+
+---
 
 ## 📋 Version 6.26 Changelog (Root Year Hierarchy, 3-Tier Priority Cascade & Academic Year Indexing)
 

@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import queue
 import logging
 import threading
@@ -674,7 +675,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.26 (Root Year Hierarchy & Academic Year Indexing)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.27 (Root Year Folders Management & SQLite Sync)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -767,7 +768,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.26",
+            text="FACE MATCHING\nSYSTEM v6.27",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -935,6 +936,8 @@ class FaceSearchApp(ctk.CTk):
         elif menu_name == "settings":
             self.btn_settings.configure(fg_color="#1F3A60", text_color="white")
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+            if hasattr(self, 'refresh_root_folders_table'):
+                self.refresh_root_folders_table()
         elif menu_name == "delete_req":
             self.btn_delete_req.configure(fg_color="#1F3A60", text_color="white")
             self.frame_delete_req.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
@@ -2867,7 +2870,14 @@ class FaceSearchApp(ctk.CTk):
         self.entry_drive_folder_id = ctk.CTkEntry(folder_input_frame, placeholder_text="ตัวอย่าง: 1a2b3c4d5e6f7g8h9i0j...", height=36, font=ctk.CTkFont(size=14))
         self.entry_drive_folder_id.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        btn_pick_folder = ctk.CTkButton(folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=120, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("folder"))
+        btn_manage_root = ctk.CTkButton(
+            folder_input_frame, text="📁 จัดการ Root ปีการศึกษา", width=165, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"), fg_color="#8E44AD", hover_color="#9B59B6",
+            command=lambda: self.select_menu("settings")
+        )
+        btn_manage_root.pack(side="right", padx=(5, 0))
+
+        btn_pick_folder = ctk.CTkButton(folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=115, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("folder"))
         btn_pick_folder.pack(side="right")
 
         ctk.CTkLabel(self.scan_settings_frame, text="ID ของ Google Sheets (ฐานข้อมูลดัชนี):", font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD").grid(row=0, column=1, padx=15, pady=(15, 2), sticky="w")
@@ -4422,47 +4432,435 @@ class FaceSearchApp(ctk.CTk):
             except Exception:
                 pass
 
-    # ==================== (4) หน้าตั้งค่าระบบ (Settings) ====================
+    # ==================== (4) หน้าตั้งค่าระบบ (Settings & Root Year Folders v6.27) ====================
     def setup_settings_ui(self):
         self.frame_settings.grid_columnconfigure(0, weight=1)
+        self.frame_settings.grid_rowconfigure(2, weight=1)
         
         lbl_title = ctk.CTkLabel(
-            self.frame_settings, text="ตั้งค่าระบบการเข้าถึง", 
-            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
+            self.frame_settings, text="ตั้งค่าระบบและโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders)", 
+            font=ctk.CTkFont(size=24, weight="bold"), text_color="white"
         )
-        lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 20))
+        lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
 
-        # โซนไฟล์ Credentials
-        cred_frame = ctk.CTkFrame(self.frame_settings, fg_color="#101B2B")
-        cred_frame.grid(row=1, column=0, sticky="ew", pady=10, padx=2)
+        # แถวที่ 1: โซนไฟล์ Credentials และ โซนล้างประวัติสแกน (จัดวาง 2 คอลัมน์กะทัดรัด)
+        top_settings_row = ctk.CTkFrame(self.frame_settings, fg_color="transparent")
+        top_settings_row.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        top_settings_row.grid_columnconfigure(0, weight=3)
+        top_settings_row.grid_columnconfigure(1, weight=2)
+
+        # ซ้าย: โซนไฟล์ Credentials
+        cred_frame = ctk.CTkFrame(top_settings_row, fg_color="#101B2B")
+        cred_frame.grid(row=0, column=0, sticky="nsew", padx=(2, 6))
         cred_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(cred_frame, text="ที่อยู่ไฟล์คีย์สิทธิ์ Google (Service Account JSON):", font=ctk.CTkFont(size=15, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(
+            cred_frame, text="🔑 ที่อยู่ไฟล์คีย์สิทธิ์ Google (Service Account JSON):",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD"
+        ).grid(row=0, column=0, columnspan=2, padx=15, pady=(10, 2), sticky="w")
         
-        self.entry_cred_path = ctk.CTkEntry(cred_frame, placeholder_text="ตัวอย่าง: config/service_account.json", height=36, font=ctk.CTkFont(size=14))
-        self.entry_cred_path.grid(row=1, column=0, padx=15, pady=5, sticky="ew")
+        self.entry_cred_path = ctk.CTkEntry(
+            cred_frame, placeholder_text="ตัวอย่าง: config/service_account.json",
+            height=34, font=ctk.CTkFont(size=13)
+        )
+        self.entry_cred_path.grid(row=1, column=0, padx=(15, 8), pady=(2, 10), sticky="ew")
         
-        # ปุ่มเลือกไฟล์จากคอมพิวเตอร์
         btn_select_cred = ctk.CTkButton(
-            cred_frame, text="เลือกไฟล์คีย์สิทธิ์ JSON จากเครื่อง...", fg_color="#1F3A60", hover_color="#20334F",
-            height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            cred_frame, text="📂 เลือกไฟล์ JSON...", fg_color="#1F3A60", hover_color="#20334F",
+            width=145, height=34, font=ctk.CTkFont(size=13, weight="bold"),
             command=self.select_cred_file
         )
-        btn_select_cred.grid(row=2, column=0, padx=15, pady=(5, 15), sticky="w")
+        btn_select_cred.grid(row=1, column=1, padx=(0, 15), pady=(2, 10), sticky="e")
 
-        # โซนจัดการขยะล้างประวัติ
-        db_settings_frame = ctk.CTkFrame(self.frame_settings, fg_color="#101B2B")
-        db_settings_frame.grid(row=2, column=0, sticky="ew", pady=10, padx=2)
+        # ขวา: โซนจัดการขยะล้างประวัติ
+        db_settings_frame = ctk.CTkFrame(top_settings_row, fg_color="#101B2B")
+        db_settings_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 2))
         db_settings_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(db_settings_frame, text="จัดการฐานข้อมูลสแกน:", font=ctk.CTkFont(size=15, weight="bold"), text_color="#E74C3C").grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+        ctk.CTkLabel(
+            db_settings_frame, text="🗑️ จัดการฐานข้อมูลสแกน:",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#E74C3C"
+        ).grid(row=0, column=0, padx=15, pady=(10, 2), sticky="w")
         
         btn_clear_history = ctk.CTkButton(
-            db_settings_frame, text="ล้างประวัติภาพสแกนกิจกรรมกิจกรรมทั้งหมด (ไม่ลบรายชื่อครูต้นแบบ)", 
-            fg_color="#C0392B", hover_color="#962D22", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            db_settings_frame, text="ล้างประวัติภาพสแกนกิจกรรมทั้งหมด (ไม่ลบครู/นร.)", 
+            fg_color="#C0392B", hover_color="#962D22", height=34, font=ctk.CTkFont(size=13, weight="bold"),
             command=self.clear_scan_history
         )
-        btn_clear_history.grid(row=1, column=0, padx=15, pady=(5, 15), sticky="w")
+        btn_clear_history.grid(row=1, column=0, padx=15, pady=(2, 10), sticky="ew")
+
+        # แถวที่ 2: โซนจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders Management v6.27)
+        root_mgr_frame = ctk.CTkFrame(self.frame_settings, fg_color="#101B2B")
+        root_mgr_frame.grid(row=2, column=0, sticky="nsew", padx=2, pady=(0, 5))
+        root_mgr_frame.grid_columnconfigure(0, weight=1)
+        root_mgr_frame.grid_rowconfigure(2, weight=1)
+
+        # Header Bar ของ Root Folders
+        hdr_frame = ctk.CTkFrame(root_mgr_frame, fg_color="transparent")
+        hdr_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 4))
+        hdr_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            hdr_frame,
+            text="📁 จัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders - ซิงค์ SQLite & year_folders.json อัตโนมัติ)",
+            font=ctk.CTkFont(size=15, weight="bold"), text_color="#AEEA00"
+        ).grid(row=0, column=0, sticky="w")
+
+        self.lbl_root_folders_summary = ctk.CTkLabel(
+            hdr_frame, text="ทั้งหมด 0 โฟลเดอร์",
+            font=ctk.CTkFont(size=13, weight="bold"), text_color="#6CA6CD"
+        )
+        self.lbl_root_folders_summary.grid(row=0, column=1, padx=(10, 10), sticky="e")
+
+        btn_refresh_roots = ctk.CTkButton(
+            hdr_frame, text="🔄 รีเฟรช", width=85, height=30,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
+            command=self.refresh_root_folders_table
+        )
+        btn_refresh_roots.grid(row=0, column=2, sticky="e")
+
+        # Form Bar สำหรับเพิ่ม / แก้ไข Root Folder
+        form_bar = ctk.CTkFrame(root_mgr_frame, fg_color="#162438", corner_radius=8)
+        form_bar.grid(row=1, column=0, sticky="ew", padx=15, pady=(2, 8))
+        form_bar.grid_columnconfigure(0, weight=3)
+        form_bar.grid_columnconfigure(3, weight=2)
+
+        self.entry_root_folder_id = ctk.CTkEntry(
+            form_bar, placeholder_text="วางลิงก์ Google Drive Folder URL หรือ Folder ID...",
+            height=34, font=ctk.CTkFont(size=13)
+        )
+        self.entry_root_folder_id.grid(row=0, column=0, padx=(10, 5), pady=8, sticky="ew")
+        self.entry_root_folder_id.bind("<FocusOut>", lambda e: self._auto_clean_root_folder_id_entry())
+
+        btn_pick_root_drive = ctk.CTkButton(
+            form_bar, text="🔍 เลือกจาก Drive", width=125, height=34,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#1F3A60", hover_color="#20334F",
+            command=lambda: self.open_google_picker("root_year_folder")
+        )
+        btn_pick_root_drive.grid(row=0, column=1, padx=3, pady=8)
+
+        btn_fetch_root_meta = ctk.CTkButton(
+            form_bar, text="🔄 ดึงชื่อจาก Drive", width=125, height=34,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#2980B9", hover_color="#2471A3",
+            command=self.fetch_root_folder_info_from_drive
+        )
+        btn_fetch_root_meta.grid(row=0, column=2, padx=3, pady=8)
+
+        self.entry_root_folder_name = ctk.CTkEntry(
+            form_bar, placeholder_text="ชื่อโฟลเดอร์ (เช่น ภาพกิจกรรม 2570)",
+            height=34, font=ctk.CTkFont(size=13)
+        )
+        self.entry_root_folder_name.grid(row=0, column=3, padx=5, pady=8, sticky="ew")
+        self.entry_root_folder_name.bind("<KeyRelease>", lambda e: self._auto_extract_year_from_name_entry())
+
+        self.entry_root_folder_year = ctk.CTkEntry(
+            form_bar, placeholder_text="ปี พ.ศ. (2570)",
+            width=105, height=34, font=ctk.CTkFont(size=13, weight="bold"), justify="center"
+        )
+        self.entry_root_folder_year.grid(row=0, column=4, padx=5, pady=8)
+
+        self.btn_save_root_folder = ctk.CTkButton(
+            form_bar, text="➕ เพิ่ม / บันทึก", width=125, height=34,
+            font=ctk.CTkFont(size=13, weight="bold"), fg_color="#2ECC71", hover_color="#27AE60", text_color="black",
+            command=self.save_root_year_folder_from_ui
+        )
+        self.btn_save_root_folder.grid(row=0, column=5, padx=4, pady=8)
+
+        btn_clear_root_form = ctk.CTkButton(
+            form_bar, text="🧹 ล้างช่อง", width=80, height=34,
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
+            command=self.clear_root_folder_form
+        )
+        btn_clear_root_form.grid(row=0, column=6, padx=(3, 10), pady=8)
+
+        # ตารางรายการ Root Year Folders (Scrollable)
+        self.scr_root_folders = ctk.CTkScrollableFrame(root_mgr_frame, fg_color="#0D1622")
+        self.scr_root_folders.grid(row=2, column=0, sticky="nsew", padx=15, pady=(0, 10))
+        self.scr_root_folders.grid_columnconfigure(2, weight=1)
+
+        # โหลดข้อมูลเริ่มต้น
+        self.refresh_root_folders_table()
+
+    @staticmethod
+    def extract_drive_folder_id(raw_text):
+        """สกัด Google Drive Folder ID จาก URL เต็ม หรือคืนค่า ID เดิม (v6.27)"""
+        if not raw_text:
+            return ""
+        s = str(raw_text).strip()
+        m = re.search(r'/folders/([a-zA-Z0-9_-]{15,})', s)
+        if m:
+            return m.group(1)
+        m2 = re.search(r'[?&]id=([a-zA-Z0-9_-]{15,})', s)
+        if m2:
+            return m2.group(1)
+        m3 = re.search(r'/d/([a-zA-Z0-9_-]{15,})', s)
+        if m3:
+            return m3.group(1)
+        return s.split("?")[0].split("#")[0].strip()
+
+    def _auto_clean_root_folder_id_entry(self):
+        raw_val = self.entry_root_folder_id.get().strip()
+        cleaned = self.extract_drive_folder_id(raw_val)
+        if cleaned and cleaned != raw_val:
+            self.entry_root_folder_id.delete(0, "end")
+            self.entry_root_folder_id.insert(0, cleaned)
+
+    def _auto_extract_year_from_name_entry(self):
+        name_val = self.entry_root_folder_name.get().strip()
+        yr = self.db.extract_year_from_text(name_val)
+        if yr:
+            self.entry_root_folder_year.delete(0, "end")
+            self.entry_root_folder_year.insert(0, yr)
+
+    def clear_root_folder_form(self):
+        if hasattr(self, 'entry_root_folder_id'):
+            self.entry_root_folder_id.delete(0, "end")
+        if hasattr(self, 'entry_root_folder_name'):
+            self.entry_root_folder_name.delete(0, "end")
+        if hasattr(self, 'entry_root_folder_year'):
+            self.entry_root_folder_year.delete(0, "end")
+
+    def fetch_root_folder_info_from_drive(self):
+        """ดึงชื่อโฟลเดอร์จริงจาก Google Drive API ด้วย Folder ID และสกัดเลขปี พ.ศ. ให้อัตโนมัติ (v6.27)"""
+        self._auto_clean_root_folder_id_entry()
+        folder_id = self.entry_root_folder_id.get().strip()
+        if not folder_id:
+            messagebox.showwarning("คำเตือน", "กรุณาวางลิงก์โฟลเดอร์ หรือกรอก Folder ID ก่อนกดดึงชื่อจาก Drive")
+            return
+
+        if not self.sync_manager.connected:
+            cred_path = self.entry_cred_path.get().strip() if hasattr(self, 'entry_cred_path') else "config/service_account.json"
+            if cred_path and os.path.exists(cred_path):
+                self.sync_manager.credentials_path = cred_path
+            if not self.sync_manager.connect():
+                messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเชื่อมต่อ Google Drive API ได้ กรุณาตรวจสอบไฟล์ Service Account JSON")
+                return
+
+        try:
+            meta = self.sync_manager.drive_service.files().get(fileId=folder_id, fields="id, name, mimeType").execute()
+            f_name = meta.get("name", "").strip()
+            if f_name:
+                self.entry_root_folder_name.delete(0, "end")
+                self.entry_root_folder_name.insert(0, f_name)
+                yr = self.db.extract_year_from_text(f_name)
+                if yr:
+                    self.entry_root_folder_year.delete(0, "end")
+                    self.entry_root_folder_year.insert(0, yr)
+                logger.info(f"[ROOT_FOLDERS] Fetched folder metadata from Drive: '{f_name}' (ID={folder_id}, Year={yr})")
+            else:
+                messagebox.showwarning("ไม่พบชื่อโฟลเดอร์", f"เชื่อมต่อสำเร็จแต่ไม่พบชื่อของ Folder ID: {folder_id}")
+        except Exception as e:
+            logger.error(f"[ROOT_FOLDERS] Error fetching Drive metadata for {folder_id}: {e}")
+            messagebox.showerror("ไม่พบโฟลเดอร์บน Drive", f"ไม่สามารถดึงข้อมูลของ Folder ID '{folder_id}' ได้:\n{e}")
+
+    def save_root_year_folder_from_ui(self):
+        """บันทึกหรืออัปเดตโฟลเดอร์หลักประจำปีการศึกษาจากฟอร์ม UI ลง SQLite และ JSON (v6.27)"""
+        self._auto_clean_root_folder_id_entry()
+        folder_id = self.entry_root_folder_id.get().strip()
+        folder_name = self.entry_root_folder_name.get().strip()
+        academic_year = self.entry_root_folder_year.get().strip()
+
+        if not folder_id:
+            messagebox.showwarning("ข้อมูลไม่ครบ", "กรุณาระบุ Folder ID หรือวางลิงก์ Google Drive ของโฟลเดอร์")
+            return
+
+        # ถ้าผู้ใช้กรอกแค่ Folder ID/URL แต่ยังไม่กรอกชื่อโฟลเดอร์ ให้ลองดึงชื่อจาก Drive อัตโนมัติ
+        if not folder_name and self.sync_manager:
+            try:
+                if not self.sync_manager.connected:
+                    self.sync_manager.connect()
+                if self.sync_manager.connected:
+                    meta = self.sync_manager.drive_service.files().get(fileId=folder_id, fields="name").execute()
+                    folder_name = meta.get("name", "").strip()
+            except Exception:
+                pass
+
+        if not folder_name:
+            messagebox.showwarning("ข้อมูลไม่ครบ", "กรุณาระบุชื่อโฟลเดอร์ (เช่น ภาพกิจกรรม 2570) หรือกดปุ่ม '🔄 ดึงชื่อจาก Drive'")
+            return
+
+        if not academic_year:
+            academic_year = self.db.extract_year_from_text(folder_name)
+
+        if not academic_year:
+            messagebox.showwarning("ข้อมูลไม่ครบ", "กรุณาระบุปีการศึกษา พ.ศ. 4 หลัก (เช่น 2570)")
+            return
+
+        try:
+            self.db.upsert_root_year_folder(
+                folder_id=folder_id,
+                folder_name=folder_name,
+                academic_year=academic_year,
+                is_active=1
+            )
+            self.clear_root_folder_form()
+            self.refresh_root_folders_table()
+            messagebox.showinfo(
+                "บันทึกสำเร็จ",
+                f"บันทึกโฟลเดอร์หลักเรียบร้อยแล้ว:\n"
+                f"• ชื่อโฟลเดอร์: {folder_name}\n"
+                f"• ปีการศึกษา: {academic_year}\n"
+                f"• Folder ID: {folder_id}\n\n"
+                f"(ซิงค์ลงตาราง SQLite root_year_folders และ config/year_folders.json อัตโนมัติแล้ว)"
+            )
+        except Exception as e:
+            logger.error(f"[ROOT_FOLDERS] Error saving root folder: {e}")
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถบันทึกโฟลเดอร์หลักได้: {e}")
+
+    def populate_root_folder_form_for_edit(self, item):
+        """นำข้อมูลแถวที่เลือกขึ้นไปใส่ในช่องกรอกเพื่อแก้ไขได้ทันที (v6.27)"""
+        self.clear_root_folder_form()
+        self.entry_root_folder_id.insert(0, item.get("id", ""))
+        self.entry_root_folder_name.insert(0, item.get("name", ""))
+        self.entry_root_folder_year.insert(0, item.get("academic_year", ""))
+
+    def on_toggle_root_folder_active(self, folder_id, switch_var):
+        """สลับสถานะเปิด/ปิดการสแกนของโฟลเดอร์หลัก (v6.27)"""
+        new_state = 1 if switch_var.get() else 0
+        self.db.toggle_root_year_folder_active(folder_id, new_state)
+        self.refresh_root_folders_table()
+
+    def on_delete_root_folder_click(self, item):
+        """ลบโฟลเดอร์หลักออกจากรายการหลังจากยืนยัน (v6.27)"""
+        f_id = item.get("id", "")
+        f_name = item.get("name", "")
+        f_year = item.get("academic_year", "")
+        confirm = messagebox.askyesno(
+            "ยืนยันการลบโฟลเดอร์หลัก",
+            f"คุณต้องการลบโฟลเดอร์หลัก '{f_name}' (ปี {f_year})\n"
+            f"Folder ID: {f_id}\n"
+            f"ออกจากรายการสแกนประจำปีใช่หรือไม่?\n\n"
+            f"* หมายเหตุ: รูปภาพที่เคยสแกนไว้แล้วในฐานข้อมูลจะไม่ถูกลบ *"
+        )
+        if confirm:
+            self.db.delete_root_year_folder(f_id)
+            self.refresh_root_folders_table()
+
+    def open_root_folder_in_browser(self, folder_id):
+        if not folder_id:
+            return
+        import webbrowser
+        webbrowser.open(f"https://drive.google.com/drive/folders/{folder_id}")
+
+    def refresh_root_folders_table(self):
+        """วาดตารางรายการโฟลเดอร์หลักประจำปีการศึกษาใหม่จากฐานข้อมูล SQLite (v6.27)"""
+        if not hasattr(self, 'scr_root_folders'):
+            return
+        for w in self.scr_root_folders.winfo_children():
+            w.destroy()
+
+        folders = self.db.get_root_year_folders(active_only=False, include_photo_counts=True)
+        active_cnt = sum(1 for f in folders if f.get("is_active", 1))
+        total_photos_all = sum(f.get("photo_count", 0) for f in folders)
+
+        if hasattr(self, 'lbl_root_folders_summary'):
+            self.lbl_root_folders_summary.configure(
+                text=f"ทั้งหมด {len(folders)} โฟลเดอร์ | เปิดสแกน {active_cnt} โฟลเดอร์ | รวมภาพในระบบ {total_photos_all:,} รูป"
+            )
+
+        if not folders:
+            ctk.CTkLabel(
+                self.scr_root_folders,
+                text="ยังไม่มีโฟลเดอร์หลักประจำปีการศึกษา กรุณาเพิ่มโฟลเดอร์จากแถบด้านบน",
+                font=ctk.CTkFont(size=14), text_color="#A2B5CD"
+            ).pack(pady=30)
+            return
+
+        for idx, item in enumerate(folders):
+            f_id = item["id"]
+            f_name = item["name"]
+            f_year = item["academic_year"] or "-"
+            is_active = bool(item.get("is_active", 1))
+            p_count = item.get("photo_count", 0)
+
+            row_bg = "#162438" if is_active else "#111A26"
+            row_card = ctk.CTkFrame(self.scr_root_folders, fg_color=row_bg, corner_radius=8)
+            row_card.pack(fill="x", padx=4, pady=3)
+
+            # 1. สวิตช์เปิด/ปิดการสแกน
+            sw_var = ctk.BooleanVar(value=is_active)
+            sw = ctk.CTkSwitch(
+                row_card,
+                text="เปิดสแกน" if is_active else "พักสแกน",
+                variable=sw_var,
+                width=95,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#2ECC71" if is_active else "#7F8C8D",
+                progress_color="#27AE60",
+                command=lambda fid=f_id, v=sw_var: self.on_toggle_root_folder_active(fid, v)
+            )
+            sw.pack(side="left", padx=(12, 8), pady=8)
+
+            # 2. ป้ายปีการศึกษา (Badge)
+            badge_color = "#8E44AD" if is_active else "#34495E"
+            lbl_year = ctk.CTkLabel(
+                row_card,
+                text=f"ปี {f_year}",
+                width=80,
+                height=28,
+                corner_radius=6,
+                fg_color=badge_color,
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color="white"
+            )
+            lbl_year.pack(side="left", padx=6, pady=8)
+
+            # 3. ชื่อโฟลเดอร์
+            lbl_name = ctk.CTkLabel(
+                row_card,
+                text=f_name,
+                width=200,
+                anchor="w",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="white" if is_active else "#7F8C8D"
+            )
+            lbl_name.pack(side="left", padx=8, pady=8)
+
+            # 4. Folder ID
+            lbl_id = ctk.CTkLabel(
+                row_card,
+                text=f"ID: {f_id}",
+                anchor="w",
+                font=ctk.CTkFont(family="Consolas", size=12),
+                text_color="#A2B5CD"
+            )
+            lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
+
+            # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
+            lbl_cnt = ctk.CTkLabel(
+                row_card,
+                text=f"📸 {p_count:,} รูป",
+                width=115,
+                anchor="e",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color="#2ECC71" if p_count > 0 else "#95A5A6"
+            )
+            lbl_cnt.pack(side="left", padx=10, pady=8)
+
+            # 6. ปุ่มจัดการ (ลบ / แก้ไข / เปิด Drive)
+            btn_del = ctk.CTkButton(
+                row_card, text="🗑️ ลบ", width=65, height=28,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color="#C0392B", hover_color="#962D22",
+                command=lambda it=item: self.on_delete_root_folder_click(it)
+            )
+            btn_del.pack(side="right", padx=(4, 10), pady=8)
+
+            btn_edit = ctk.CTkButton(
+                row_card, text="✏️ แก้ไข", width=75, height=28,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color="#F39C12", hover_color="#D68910", text_color="black",
+                command=lambda it=item: self.populate_root_folder_form_for_edit(it)
+            )
+            btn_edit.pack(side="right", padx=4, pady=8)
+
+            btn_open = ctk.CTkButton(
+                row_card, text="🌐 เปิด Drive", width=95, height=28,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color="#1F3A60", hover_color="#20334F",
+                command=lambda fid=f_id: self.open_root_folder_in_browser(fid)
+            )
+            btn_open.pack(side="right", padx=4, pady=8)
 
     def select_cred_file(self):
         file_path = filedialog.askopenfilename(
@@ -4753,7 +5151,8 @@ class FaceSearchApp(ctk.CTk):
                 "📋 ตารางทั้งหมด: raw_camera_photos",
                 "📋 ตารางทั้งหมด: detected_faces",
                 "📋 ตารางทั้งหมด: scanned_photo_faces",
-                "📋 ตารางทั้งหมด: staff_embeddings"
+                "📋 ตารางทั้งหมด: staff_embeddings",
+                "📋 ตารางทั้งหมด: root_year_folders"
             ],
             width=360,
             height=38,
@@ -6580,6 +6979,22 @@ class FaceSearchApp(ctk.CTk):
             self.entry_delete_req_file_id.insert(0, item_id)
             logger.info(f"Drive Picker: Set Delete Request JSON file ID to {item_id}")
             self.load_delete_requests_table()
+        elif mode == "root_year_folder":
+            first_id = item_id.split(",")[0].strip() if item_id else ""
+            first_name = item_name.split(",")[0].strip() if item_name else ""
+            if hasattr(self, "entry_root_folder_id"):
+                self.entry_root_folder_id.delete(0, "end")
+                self.entry_root_folder_id.insert(0, first_id)
+            if hasattr(self, "entry_root_folder_name"):
+                self.entry_root_folder_name.delete(0, "end")
+                self.entry_root_folder_name.insert(0, first_name)
+            if hasattr(self, "entry_root_folder_year"):
+                yr = self.db.extract_year_from_text(first_name)
+                self.entry_root_folder_year.delete(0, "end")
+                if yr:
+                    self.entry_root_folder_year.insert(0, yr)
+            logger.info(f"Drive Picker: Selected Root Year Folder -> {first_name} (ID: {first_id})")
+            return
             
         # บันทึกการตั้งค่าลงสถานะทันที เพื่อเก็บค่าค้างไว้
         self.save_settings()

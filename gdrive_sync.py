@@ -245,6 +245,18 @@ class GoogleSyncManager:
         logger.info(f"Starting root folder name: {root_folder_name}")
 
         all_images = []
+        known_root_names = {"Unknown Folder", "ภาพกิจกรรม 2569", "ภาพกิจกรรม 2568", "ภาพกิจกรรม 2567", "ภาพกิจกรรม 2566", "ภาพกิจกรรม 2565", "ภาพกิจกรรม 2563"}
+        known_root_ids = set()
+        try:
+            from db_manager import DatabaseManager
+            _db = DatabaseManager()
+            for r in _db.get_root_year_folders(active_only=False):
+                if r.get("name"):
+                    known_root_names.add(r["name"].strip())
+                if r.get("id"):
+                    known_root_ids.add(r["id"].strip())
+        except Exception as e:
+            logger.debug(f"Could not load dynamic root folders in gdrive_sync: {e}")
         
         # ฟังก์ชันค้นหาไฟล์ในโฟลเดอร์ recursively
         def walk_folder(curr_folder_id, curr_event_name):
@@ -302,8 +314,12 @@ class GoogleSyncManager:
                 
                 # หากโฟลเดอร์ปัจจุบันคือโฟลเดอร์ระดับรากหรือระดับปี ("ภาพกิจกรรม...")
                 # โฟลเดอร์ลูกชั้นแรกใต้ปีคือชื่อกิจกรรมหลัก (Main Event)
-                # แต่หากเป็นโฟลเดอร์ย่อยลงไปอีก (Subfolder) ให้คงชื่อกิจกรรมหลักเดิมไว้เสมอ (v6.24)
-                is_root_or_year = "ภาพกิจกรรม" in curr_event_name or curr_event_name in ["Unknown Folder", "ภาพกิจกรรม 2569", "ภาพกิจกรรม 2568", "ภาพกิจกรรม 2567", "ภาพกิจกรรม 2566", "ภาพกิจกรรม 2565", "ภาพกิจกรรม 2563"]
+                # แต่หากเป็นโฟลเดอร์ย่อยลงไปอีก (Subfolder) ให้คงชื่อกิจกรรมหลักเดิมไว้เสมอ (v6.24/v6.27 Dynamic Root Check)
+                is_root_or_year = (
+                    "ภาพกิจกรรม" in curr_event_name
+                    or curr_event_name in known_root_names
+                    or curr_folder_id in known_root_ids
+                )
                 next_event_name = subdir_name if is_root_or_year else curr_event_name
                 walk_folder(subdir_id, next_event_name)
 

@@ -1,28 +1,38 @@
 [
   {
     "name": "ภาพกิจกรรม 2569",
-    "id": "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"
+    "id": "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ",
+    "academic_year": "2569",
+    "is_active": 1
   },
   {
     "name": "ภาพกิจกรรม 2568",
-    "id": "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+    "id": "1YYkDLsalb0jVM0K876lcejLoiggoJ18N",
+    "academic_year": "2568",
+    "is_active": 1
   },
   {
     "name": "ภาพกิจกรรม 2567",
-    "id": "1ocR4srmu1tA1nYgJOhoM9I0KDVMmbRGF"
+    "id": "1ocR4srmu1tA1nYgJOhoM9I0KDVMmbRGF",
+    "academic_year": "2567",
+    "is_active": 1
   },
   {
     "name": "ภาพกิจกรรม 2566",
-    "id": "1ZMhLENv8u-onIhVzwBTxCzjJVQVCriVd"
+    "id": "1ZMhLENv8u-onIhVzwBTxCzjJVQVCriVd",
+    "academic_year": "2566",
+    "is_active": 1
   },
   {
     "name": "ภาพกิจกรรม 2565",
-    "id": "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL"
+    "id": "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL",
+    "academic_year": "2565",
+    "is_active": 1
   },
   {
     "name": "ภาพกิจกรรม 2563",
-    "id": "1uE8wHS5MNxscTIif9TmRLoxd5ptK16_t"
+    "id": "1uE8wHS5MNxscTIif9TmRLoxd5ptK16_t",
+    "academic_year": "2563",
+    "is_active": 1
   }
-
-
 ]

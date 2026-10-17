@@ -43,13 +43,25 @@ class CachedFace:
         self.embedding = embedding
 
 class DatabaseManager:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, year_folders_json_path=None):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        default_db_dir = os.path.join(base_dir, "data")
+        default_db_path = os.path.join(default_db_dir, "faces_db.db")
+        default_json_path = os.path.join(base_dir, "config", "year_folders.json")
+
         if db_path is None:
-            db_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-            os.makedirs(db_dir, exist_ok=True)
-            db_path = os.path.join(db_dir, "faces_db.db")
-        
+            os.makedirs(default_db_dir, exist_ok=True)
+            db_path = default_db_path
+
         self.db_path = db_path
+        self._default_year_folders_json_path = default_json_path
+        if year_folders_json_path is not None:
+            self.year_folders_json_path = year_folders_json_path
+        elif os.path.abspath(self.db_path) == os.path.abspath(default_db_path):
+            self.year_folders_json_path = default_json_path
+        else:
+            self.year_folders_json_path = os.path.join(os.path.dirname(os.path.abspath(self.db_path)), "year_folders.json")
+
         self.init_db()
 
     def get_connection(self):
@@ -320,6 +332,7 @@ class DatabaseManager:
             conn.commit()
         
         self.create_unknown_tables()
+        self.create_root_year_folders_table()
         logger.info("SQLite database initialized successfully.")
 
     def create_unknown_tables(self):
@@ -1673,3 +1686,220 @@ class DatabaseManager:
             cursor.execute("SELECT DISTINCT year FROM unknown_cluster_year_stats ORDER BY CAST(year AS INTEGER) DESC")
             return [row[0] for row in cursor.fetchall() if row[0] and row[0] != "ไม่ระบุปี"]
 
+    # =========================================================================
+    # 8. ระบบจัดการโฟลเดอร์หลักประจำปีการศึกษา (v6.27 Root Year Folders Management)
+    # =========================================================================
+    @staticmethod
+    def extract_year_from_text(text):
+        """สกัดเลขปี พ.ศ. 4 หลักจากข้อความ (หากเป็น ค.ศ. จะบวก 543 ให้อัตโนมัติ)"""
+        if not text:
+            return ""
+        text_str = str(text)
+        m_be = re.search(r'(?<!\d)(25[5-8]\d)(?!\d)', text_str)
+        if m_be:
+            return m_be.group(1)
+        m_ce = re.search(r'(?<!\d)(20[1-4]\d)(?!\d)', text_str)
+        if m_ce:
+            return str(int(m_ce.group(1)) + 543)
+        return ""
+
+    def create_root_year_folders_table(self):
+        """สร้างตาราง root_year_folders และนำเข้าข้อมูลเริ่มต้นจาก config/year_folders.json อัตโนมัติหากตารางว่าง (v6.27)"""
+        default_seed_folders = [
+            {"name": "ภาพกิจกรรม 2569", "id": "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ", "academic_year": "2569", "is_active": 1},
+            {"name": "ภาพกิจกรรม 2568", "id": "1YYkDLsalb0jVM0K876lcejLoiggoJ18N", "academic_year": "2568", "is_active": 1},
+            {"name": "ภาพกิจกรรม 2567", "id": "1ocR4srmu1tA1nYgJOhoM9I0KDVMmbRGF", "academic_year": "2567", "is_active": 1},
+            {"name": "ภาพกิจกรรม 2566", "id": "1ZMhLENv8u-onIhVzwBTxCzjJVQVCriVd", "academic_year": "2566", "is_active": 1},
+            {"name": "ภาพกิจกรรม 2565", "id": "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL", "academic_year": "2565", "is_active": 1},
+            {"name": "ภาพกิจกรรม 2563", "id": "1uE8wHS5MNxscTIif9TmRLoxd5ptK16_t", "academic_year": "2563", "is_active": 1},
+        ]
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS root_year_folders (
+                folder_id TEXT PRIMARY KEY,
+                folder_name TEXT NOT NULL,
+                academic_year TEXT NOT NULL DEFAULT '',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ryf_year ON root_year_folders(academic_year DESC, sort_order ASC)")
+            except Exception as e:
+                logger.warning(f"Could not create idx_ryf_year index: {e}")
+
+            cursor.execute("SELECT COUNT(*) FROM root_year_folders")
+            existing_cnt = cursor.fetchone()[0]
+
+            if existing_cnt == 0:
+                seed_items = []
+                # ลองโหลดจากไฟล์ JSON ปัจจุบันก่อน
+                for json_candidate in [self.year_folders_json_path, self._default_year_folders_json_path]:
+                    if json_candidate and os.path.exists(json_candidate):
+                        try:
+                            with open(json_candidate, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                                if isinstance(data, list) and len(data) > 0:
+                                    seed_items = data
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Failed to read seed JSON {json_candidate}: {e}")
+
+                if not seed_items:
+                    seed_items = default_seed_folders
+
+                for idx, item in enumerate(seed_items):
+                    f_id = str(item.get("id") or item.get("folder_id") or "").strip()
+                    f_name = str(item.get("name") or item.get("folder_name") or "").strip()
+                    if not f_id or not f_name:
+                        continue
+                    f_year = str(item.get("academic_year") or "").strip()
+                    if not f_year:
+                        f_year = self.extract_year_from_text(f_name)
+                    f_active = 1 if item.get("is_active", 1) else 0
+                    f_order = int(item.get("sort_order", idx + 1))
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO root_year_folders
+                        (folder_id, folder_name, academic_year, is_active, sort_order)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (f_id, f_name, f_year, f_active, f_order))
+                conn.commit()
+                logger.info(f"Seeded {len(seed_items)} root year folders into SQLite root_year_folders table.")
+
+    def get_root_year_folders(self, active_only=False, include_photo_counts=False):
+        """
+        ดึงรายการโฟลเดอร์หลักประจำปีการศึกษาจากตาราง root_year_folders (v6.27)
+        คืนค่าเป็น List ของ Dict ที่มีทั้งคีย์ id/folder_id และ name/folder_name เพื่อความเข้ากันได้ 100%
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if active_only:
+                cursor.execute("""
+                    SELECT folder_id, folder_name, academic_year, is_active, sort_order, created_at
+                    FROM root_year_folders
+                    WHERE is_active = 1
+                    ORDER BY CAST(CASE WHEN academic_year GLOB '[0-9][0-9][0-9][0-9]' THEN academic_year ELSE '0' END AS INTEGER) DESC,
+                             sort_order ASC,
+                             folder_name DESC
+                """)
+            else:
+                cursor.execute("""
+                    SELECT folder_id, folder_name, academic_year, is_active, sort_order, created_at
+                    FROM root_year_folders
+                    ORDER BY CAST(CASE WHEN academic_year GLOB '[0-9][0-9][0-9][0-9]' THEN academic_year ELSE '0' END AS INTEGER) DESC,
+                             sort_order ASC,
+                             folder_name DESC
+                """)
+            rows = cursor.fetchall()
+
+            year_counts = {}
+            if include_photo_counts:
+                try:
+                    cursor.execute("SELECT academic_year, COUNT(*) FROM scanned_photos GROUP BY academic_year")
+                    for y_val, cnt in cursor.fetchall():
+                        if y_val:
+                            year_counts[str(y_val).strip()] = int(cnt)
+                except Exception as e:
+                    logger.warning(f"Failed to query photo counts by academic_year: {e}")
+
+            results = []
+            for r in rows:
+                f_id, f_name, f_year, f_active, f_order, f_created = r
+                f_year_str = str(f_year or "").strip()
+                if not f_year_str:
+                    f_year_str = self.extract_year_from_text(f_name)
+                results.append({
+                    "id": f_id,
+                    "folder_id": f_id,
+                    "name": f_name,
+                    "folder_name": f_name,
+                    "academic_year": f_year_str,
+                    "is_active": int(f_active) if f_active is not None else 1,
+                    "sort_order": int(f_order) if f_order is not None else 0,
+                    "created_at": f_created,
+                    "photo_count": year_counts.get(f_year_str, 0) if include_photo_counts else 0
+                })
+            return results
+
+    def _sync_root_folders_to_json(self):
+        """บันทึกข้อมูลโฟลเดอร์หลักจาก SQLite ลงไฟล์ config/year_folders.json อัตโนมัติ (v6.27)"""
+        try:
+            folders = self.get_root_year_folders(active_only=False, include_photo_counts=False)
+            json_payload = []
+            for item in folders:
+                json_payload.append({
+                    "name": item["name"],
+                    "id": item["id"],
+                    "academic_year": item["academic_year"],
+                    "is_active": item["is_active"]
+                })
+            if self.year_folders_json_path:
+                os.makedirs(os.path.dirname(os.path.abspath(self.year_folders_json_path)), exist_ok=True)
+                with open(self.year_folders_json_path, "w", encoding="utf-8") as f:
+                    json.dump(json_payload, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to sync root_year_folders to JSON: {e}")
+            return False
+
+    def upsert_root_year_folder(self, folder_id, folder_name, academic_year="", is_active=1, sort_order=0):
+        """เพิ่มหรืออัปเดตโฟลเดอร์หลักประจำปีการศึกษาใน SQLite และซิงค์ลง year_folders.json อัตโนมัติ (v6.27)"""
+        f_id = str(folder_id or "").strip()
+        f_name = str(folder_name or "").strip()
+        if not f_id or not f_name:
+            raise ValueError("กรุณาระบุทั้ง Folder ID และชื่อโฟลเดอร์")
+
+        f_year = str(academic_year or "").strip()
+        if not f_year:
+            f_year = self.extract_year_from_text(f_name)
+        elif len(f_year) == 4 and f_year.isdigit() and 2000 <= int(f_year) <= 2045:
+            f_year = str(int(f_year) + 543)
+
+        f_active = 1 if is_active else 0
+        f_order = int(sort_order or 0)
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO root_year_folders (folder_id, folder_name, academic_year, is_active, sort_order)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(folder_id) DO UPDATE SET
+                    folder_name = excluded.folder_name,
+                    academic_year = excluded.academic_year,
+                    is_active = excluded.is_active,
+                    sort_order = CASE WHEN excluded.sort_order > 0 THEN excluded.sort_order ELSE root_year_folders.sort_order END
+            """, (f_id, f_name, f_year, f_active, f_order))
+            conn.commit()
+
+        self._sync_root_folders_to_json()
+        logger.info(f"[ROOT_FOLDERS] Upserted root folder: {f_name} (ID={f_id}, Year={f_year}, Active={f_active})")
+        return True
+
+    def toggle_root_year_folder_active(self, folder_id, is_active):
+        """เปิด/ปิดสถานะการสแกนของโฟลเดอร์หลักประจำปีการศึกษา (v6.27)"""
+        f_id = str(folder_id or "").strip()
+        f_active = 1 if is_active else 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE root_year_folders SET is_active = ? WHERE folder_id = ?", (f_active, f_id))
+            updated = cursor.rowcount > 0
+            conn.commit()
+        if updated:
+            self._sync_root_folders_to_json()
+        return updated
+
+    def delete_root_year_folder(self, folder_id):
+        """ลบโฟลเดอร์หลักประจำปีการศึกษาออกจากตาราง root_year_folders และซิงค์ลง JSON (v6.27)"""
+        f_id = str(folder_id or "").strip()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM root_year_folders WHERE folder_id = ?", (f_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+        if deleted:
+            self._sync_root_folders_to_json()
+            logger.info(f"[ROOT_FOLDERS] Deleted root folder ID={f_id}")
+        return deleted

@@ -941,26 +941,63 @@ class SchedulerTask:
 
     
     
-    def _load_year_folders(self):
-        """โหลดรายชื่อโฟลเดอร์หลักปีการศึกษาจาก config/year_folders.json"""
+    def _load_year_folders(self, active_only=True):
+        """โหลดรายชื่อโฟลเดอร์หลักปีการศึกษาจากตาราง SQLite root_year_folders หรือ config/year_folders.json (v6.27)"""
+        if hasattr(self, 'db') and self.db and hasattr(self.db, 'get_root_year_folders'):
+            try:
+                rows = self.db.get_root_year_folders(active_only=active_only)
+                if rows is not None and len(rows) > 0:
+                    return [(r["name"], r["id"]) for r in rows if r.get("name") and r.get("id")]
+                elif not active_only and rows == []:
+                    pass
+                elif active_only and rows == []:
+                    # ถ้ารายการทั้งหมดมีแต่ถูกปิด active หมด ให้คืนลิสต์ว่างตามที่ผู้ใช้ตั้งค่า
+                    all_rows = self.db.get_root_year_folders(active_only=False)
+                    if all_rows:
+                        return []
+            except Exception as e:
+                logger.error(f"[SCHEDULE] Error reading root_year_folders from SQLite: {e}")
+
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", "year_folders.json")
         if os.path.exists(config_path):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list) and len(data) > 0:
-                        return [(item["name"], item["id"]) for item in data if "name" in item and "id" in item]
+                        return [
+                            (item["name"], item["id"])
+                            for item in data
+                            if "name" in item and "id" in item and (not active_only or item.get("is_active", 1))
+                        ]
             except Exception as e:
                 logger.error(f"[SCHEDULE] Error reading config/year_folders.json: {e}")
                 
-        # Default Fallback (5 โฟลเดอร์หลัก)
+        # Default Fallback (6 โฟลเดอร์หลัก)
         return [
             ("ภาพกิจกรรม 2569", "1Y0GFynJhBzQIyR4XE0X7ABkdM1xEENTQ"),
             ("ภาพกิจกรรม 2568", "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"),
             ("ภาพกิจกรรม 2567", "1ocR4srmu1tA1nYgJOhoM9I0KDVMmbRGF"),
             ("ภาพกิจกรรม 2566", "1ZMhLENv8u-onIhVzwBTxCzjJVQVCriVd"),
-            ("ภาพกิจกรรม 2565", "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL")
+            ("ภาพกิจกรรม 2565", "1cN-3d_mz_9CAbAwLOFKil22bBr0xgasL"),
+            ("ภาพกิจกรรม 2563", "1uE8wHS5MNxscTIif9TmRLoxd5ptK16_t")
         ]
+
+    def _get_root_folder_year_lookup(self):
+        """คืนค่า Dict {folder_id: academic_year} จากตาราง root_year_folders (v6.27)"""
+        lookup = {}
+        if hasattr(self, 'db') and self.db and hasattr(self.db, 'get_root_year_folders'):
+            try:
+                for r in self.db.get_root_year_folders(active_only=False):
+                    fid = r.get("id", "")
+                    yr = str(r.get("academic_year") or "").strip()
+                    if not yr:
+                        m = re.search(r'25[5-8]\d', r.get("name", ""))
+                        yr = m.group(0) if m else ""
+                    if fid and yr:
+                        lookup[fid] = yr
+            except Exception as e:
+                logger.warning(f"[SCHEDULE] Could not build root folder year lookup: {e}")
+        return lookup
 
     def _get_all_subfolders_recursive(self, parent_id, parent_name="", main_event_name=None, subfolder_name=None):
         """ดึงรายชื่อทุกระดับแบบ Recursive พร้อมรักษาระดับ Main Event Folder และ Subfolder (v6.24)"""
@@ -1003,7 +1040,7 @@ class SchedulerTask:
     def fetch_drive_folder_year_mapping(self):
         """
         ดึงโครงสร้างโฟลเดอร์ทั้งหมดจาก Google Drive แบบ Bulk (~4-6 วินาที)
-        และสร้างแผนผังจับคู่ชื่อโฟลเดอร์กิจกรรม (event_name) ไปยังปีการศึกษา Root Year (v6.26)
+        และสร้างแผนผังจับคู่ชื่อโฟลเดอร์กิจกรรม (event_name) ไปยังปีการศึกษา Root Year (v6.26/v6.27)
         """
         if not self.sync_manager or not self.sync_manager.connected:
             if hasattr(self, 'sync_manager') and self.sync_manager:
@@ -1011,12 +1048,16 @@ class SchedulerTask:
             else:
                 return {}
 
-        target_years = self._load_year_folders()
+        target_years = self._load_year_folders(active_only=False)
+        db_year_lookup = self._get_root_folder_year_lookup()
         root_years = {}
         for y_name, y_id in target_years:
-            m_be = re.search(r'25[3-7]\d', y_name)
-            if m_be:
-                root_years[y_id] = m_be.group(0)
+            if y_id in db_year_lookup and db_year_lookup[y_id]:
+                root_years[y_id] = db_year_lookup[y_id]
+            else:
+                m_be = re.search(r'25[5-8]\d', y_name)
+                if m_be:
+                    root_years[y_id] = m_be.group(0)
 
         all_folders = {}
         page_token = None
@@ -1057,9 +1098,10 @@ class SchedulerTask:
     
     
     def _task_1_scan_new_photos_fast(self):
-        logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 1: สแกนโฟลเดอร์ใหม่เรียงลำดับปีการศึกษา (5 โฟลเดอร์หลัก - Single GPU Consumer)")
+        logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 1: สแกนโฟลเดอร์ใหม่เรียงลำดับปีการศึกษา (Single GPU Consumer)")
         
-        target_years = self._load_year_folders()
+        target_years = self._load_year_folders(active_only=True)
+        root_year_lookup = self._get_root_folder_year_lookup()
         
         # 1. โหลดข้อมูลเป้าหมายจากฐานข้อมูลมาไว้ใน Memory
         with self.db.get_connection() as conn:
@@ -1117,9 +1159,11 @@ class SchedulerTask:
         for year_name, year_id in target_years:
             if self.stop_requested: break
             
-            # สกัดปีการศึกษา พ.ศ. 4 หลัก จากชื่อโฟลเดอร์หลัก เช่น "ภาพกิจกรรม 2569" -> "2569" (v6.26)
-            m_year = re.search(r'25[3-7]\d', year_name)
-            current_academic_year = m_year.group(0) if m_year else ""
+            # ดึงปีการศึกษา พ.ศ. 4 หลัก จากตาราง root_year_folders หรือสกัดจากชื่อโฟลเดอร์หลัก (v6.26/v6.27)
+            current_academic_year = root_year_lookup.get(year_id, "")
+            if not current_academic_year:
+                m_year = re.search(r'25[5-8]\d', year_name)
+                current_academic_year = m_year.group(0) if m_year else ""
 
             subfolders = self._get_all_subfolders_recursive(year_id, year_name)
             if not subfolders:
