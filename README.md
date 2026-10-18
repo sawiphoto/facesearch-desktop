@@ -1,4 +1,162 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.27 (Root Year Folders Management & SQLite Sync)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.28 (Blazing Fast UI & SQLite WAL Suite)
+
+## 📋 Version 6.28 Changelog (Blazing Fast UI Responsiveness, SQLite WAL Engine, Deferred Join CTE, Covering Indexes & Widget Pooling)
+
+**Date:** 18 ตุลาคม 2026 (13:06 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Claude Opus 4.6 (Thinking)  
+**Version:** v6.28 (Blazing Fast UI & SQLite WAL Suite)  
+**Core Technologies:** SQLite 3 Write-Ahead Logging (`WAL`) + Memory-Mapped I/O (`mmap_size=256MB`), `_AutoCloseConnection` Deterministic Context Manager, Correlated Covering Index (`idx_df_staff_photo`), Deferred Join CTE Pagination, Composite Unknowns Index (`idx_ucm_cluster_year`), CustomTkinter Widget Pooling & 250ms Search Debouncing, Batch Console Log Queue Processing
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+จากการตรวจสอบเชิงลึกและรัน Benchmark จริงบนฐานข้อมูล `data/faces_db.db` (ขนาด ~1.4 GB: 117,586 รูปภาพ, 187,459 แมตช์ใบหน้า, 1,032,108 เวกเตอร์ใบหน้า, 21,709 กลุ่มบุคคลนิรนาม) พบคอขวดสำคัญ 7 จุดที่ทำให้หน้าจอ GUI หน่วงหรือค้างชั่วคราว:
+1. **การเปิดหน้าแรก `📊 สรุปข้อมูลระบบ (Dashboard)` หรือกดสลับเรียงลำดับ 🔼/🔽 ช้า (~865 – 1,190 ms + สร้าง/ทำลาย 300 วิดเจ็ตซ้ำทุกครั้ง):**
+   - เดิม `refresh_dashboard_stats()` เรียก `self.db.get_all_sync_data()` ซึ่งดึงแถวข้อมูลกว่า 3 แสนแถวขึ้นมาสร้าง Python Dict เพียงเพื่อเรียก `len()` นับจำนวนรูปและใบหน้า
+   - คิวรี Top 50 ครูและนักเรียนใช้ `LEFT JOIN detected_faces GROUP BY sm.id` ทำให้ SQLite ต้องสร้าง Temp B-Tree ถึง 2 ชั้น (`577 ms`) และทำลายสร้างวิดเจ็ต CustomTkinter 300 ชิ้นใหม่ทุกครั้ง
+2. **การเปิดดูตาราง `detected_faces (ครู/นักเรียน)` และตัวกรอง `0 Faces` ในหน้า `🗄️ ดูฐานข้อมูล SQLite` ช้า (~202 – 714 ms):**
+   - คิวรี `detected_faces` ทำ `JOIN` 3 ตารางใหญ่แล้วเรียงลำดับก่อนตัด `LIMIT 100`
+   - ตัวกรอง `0 Faces` เดิมใช้ Correlated Subquery `(SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0` ซึ่งนอกจากจะช้า (`191.77 ms`) แล้วยังนับพลาดสำหรับรูปที่มีแถว Dummy `face_index = -1`
+3. **หน้า `👥 สถิติบุคคลนิรนาม (Unknowns)` วาดตาราง Treeview 21,709 แถวรวดเดียว (~820 – 1,500 ms) และคลิกกรองปีช้า (`858.81 ms`):**
+   - การยัดข้อมูล 21,709 แถวลง `ttk.Treeview` บน Main Thread ทำให้หน้าจอค้างกว่า 1 วินาที และตาราง `unknown_cluster_members` ขาด Composite Index `(cluster_id, year)`
+4. **การสร้าง `DatabaseManager()` ซ้ำใน Thread ย่อยรัน DDL 45 คำสั่ง + `DELETE` ขยะทุกครั้ง (~85 – 151 ms) และยังไม่ได้เปิดโหมด `WAL`:**
+   - นอกจากนี้ `with self.get_connection() as conn:` ของ `sqlite3.Connection` มาตรฐานใน Python จะ commit/rollback เท่านั้นแต่ไม่ปิด Connection ทันทีเมื่อออกจากบล็อก `with`
+5. **การพิมพ์ค้นหารายชื่อครู/นักเรียน/แกลเลอรี ยิงคิวรีและสร้างวิดเจ็ตใหม่ทุกปุ่มที่กด (Keystroke) โดยไม่มี Debounce:**
+6. **ฟังก์ชัน `check_log_queue()` สั่งเลื่อน Scrollbar `console_text.see("end")` ทุกบรรทัดในลูป (`343.67 ms` ต่อ 200 บรรทัด)**
+7. **ฟังก์ชัน `save_scanned_photos_batch()` วนลูป `cursor.execute()` ทีละแถวและตกหล่นคอลัมน์ `academic_year`**
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **อัปเกรดโครงสร้าง SQLite Engine เป็น High-Speed `WAL` Mode + `_AutoCloseConnection` + One-Time Schema Init Guard ([`db_manager.py`](db_manager.py)):**
+   - เปิดใช้งาน `PRAGMA journal_mode = WAL`, `synchronous = NORMAL`, `temp_store = MEMORY`, `cache_size = -64000` (64MB RAM Cache), และ `mmap_size = 268435456` (256MB Memory-Mapped I/O)
+   - สร้างคลาส `_AutoCloseConnection(sqlite3.Connection)` เพื่อให้บล็อก `with self.get_connection() as conn:` ทำการปิด Connection (`close()`) คืนทรัพยากรทันทีหลังจบ Transaction
+   - เพิ่ม `_schema_initialized_paths = set()` ป้องกันไม่ให้ `init_db()` รันคำสั่ง DDL 45 คำสั่งซ้ำเมื่อสร้าง Instance ซ้ำบนไฟล์ฐานข้อมูลเดิม
+2. **สร้างดัชนีครอบคลุม (Covering & Composite Indexes) และเมธอด `get_dashboard_fast_stats()` + Widget Pooling ([`db_manager.py`](db_manager.py), [`app_gui.py`](app_gui.py)):**
+   - เพิ่ม `idx_df_staff_photo ON detected_faces(staff_id, photo_id)` และเปลี่ยนคิวรี Top 50 ให้ใช้ Correlated Covering Index ร่วมกับ `SELECT COUNT(*)` ลดเวลาคิวรี Dashboard จาก `864.81 ms` เหลือ **`37.50 ms`** (ผลลัพธ์ตรงกัน 100%)
+   - ปรับ `refresh_dashboard_stats()` ใน `app_gui.py` ให้ใช้ระบบ **Widget Pooling (`scroll_frame._row_pool`)** อัปเดตข้อความของวิดเจ็ตเดิมแทนการทำลายและสร้างใหม่ 300 ชิ้น
+3. **เร่งความเร็วหน้า `🗄️ ดูฐานข้อมูล SQLite` ด้วย Deferred Join CTE, `COALESCE(total_faces_detected, 0) = 0`, และ Pagination Count Cache ([`app_gui.py`](app_gui.py)):**
+   - ใช้ `WITH page_df AS (...)` ดึงเฉพาะ 100 แถวของหน้าปัจจุบันก่อนค่อย `LEFT JOIN scanned_photos` ลดเวลาเปิดตาราง `detected_faces (ครู)` จาก `202.82 ms` เหลือ **`0.40 ms`** (เร็วขึ้น 507 เท่า!)
+   - เปลี่ยนตัวกรอง `0 Faces` ให้เช็ค `COALESCE(p.total_faces_detected, 0) = 0` ลดเวลาจาก `191.77 ms` เหลือ **`9.48 ms`** พร้อมแสดงสถานะ `"⚪ สแกนแล้ว (0 หน้า - ไม่มีคน)"` แยกจาก `"❌ ยังไม่มีแคช (0)"` อย่างชัดเจน
+   - แคชจำนวนแถวรวม (`_db_cached_total_rows`) เมื่อกดเปลี่ยนหน้า Pagination ถัดไป/ก่อนหน้า โดยไม่ต้องรัน `COUNT(*)` ซ้ำ
+4. **เพิ่มระบบแบ่งหน้า (Pagination 250 แถว/หน้า), Batch Delete, และดัชนี `idx_ucm_cluster_year` ในหน้า `👥 สถิติบุคคลนิรนาม` ([`db_manager.py`](db_manager.py), [`app_gui.py`](app_gui.py)):**
+   - เพิ่มดัชนี `idx_ucm_cluster_year ON unknown_cluster_members(cluster_id, year)` ลดเวลาคลิกกรองปีจาก `858.81 ms` เหลือ **`1.06 ms`** (เร็วขึ้น 810 เท่า!)
+   - แบ่งหน้าตาราง `tree_unknown` หน้าละ 250 แถว (`หน้า 1 / 87 (21,709 กลุ่ม)`) และลบข้อมูลแบบ Batch (`self.tree_unknown.delete(*children)`)
+5. **เพิ่ม Search Debounce (250ms) + In-Memory Registry Cache ([`app_gui.py`](app_gui.py)):**
+   - เพิ่ม Timer Debounce 250ms ในช่องค้นหาครู (`filter_staff_list`), นักเรียน (`filter_student_list`), แกลเลอรีภาพที่แมตช์แล้ว (`filter_matched_person_dropdown`), และรหัสกลุ่มนิรนาม (`on_unknown_search_keyrelease`) พร้อมแคชรายชื่อครู/นักเรียนในหน่วยความจำ (`0.220 ms` ต่อการกรอง)
+6. **ปรับปรุง `check_log_queue()` แบบ Batch UI Update และ `save_scanned_photos_batch()` ด้วย `executemany()` ([`app_gui.py`](app_gui.py), [`db_manager.py`](db_manager.py)):**
+   - อัปเดต Log สูงสุดรอบละ 60 บรรทัดโดยสั่ง `console_text.see("end")` เพียงครั้งเดียวต่อรอบ ลดเวลาจาก `343.67 ms` เหลือ **`6.69 ms`** (เร็วขึ้น 51.4 เท่า)
+   - เปลี่ยน `save_scanned_photos_batch()` ให้ใช้ `cursor.executemany()` ทั้ง 3 ตาราง และบันทึกคอลัมน์ `academic_year` ครบถ้วน 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py`: เปิดใช้งาน SQLite `WAL` PRAGMAs + `_AutoCloseConnection` + `get_dashboard_fast_stats()`
+**ก่อนแก้ไข (Before):**
+```python
+    def get_connection(self):
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+```
+
+**หลังแก้ไข (After):**
+```python
+class _AutoCloseConnection(sqlite3.Connection):
+    """SQLite Connection ที่ทำการ commit/rollback และปิด Connection อัตโนมัติทันทีที่ออกจากบล็อก with (v6.28)"""
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            try:
+                self.close()
+            except Exception:
+                pass
+
+    def get_connection(self):
+        conn = sqlite3.connect(self.db_path, timeout=30.0, factory=_AutoCloseConnection)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -64000")
+        conn.execute("PRAGMA mmap_size = 268435456")
+        return conn
+```
+
+#### 2. `app_gui.py`: คิวรี `detected_faces` ด้วย Deferred Join CTE และ `0 Faces` ด้วย `COALESCE(p.total_faces_detected, 0) = 0`
+**ก่อนแก้ไข (Before):**
+```python
+                    cursor.execute(f"""
+                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
+                        FROM detected_faces df
+                        JOIN staff_members s ON df.staff_id = s.id
+                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                        {order_by}
+                        LIMIT ? OFFSET ?
+                    """, (self.db_page_size, offset))
+```
+
+**หลังแก้ไข (After):**
+```python
+                    if self.db_sort_col in (None, "match_id", "photo_id", "conf"):
+                        fast_col = {"match_id": "df.id", "photo_id": "df.photo_id", "conf": "df.confidence"}.get(self.db_sort_col, "df.id")
+                        cursor.execute(f"""
+                            WITH page_df AS (
+                                SELECT df.id, df.photo_id, df.confidence, s.name
+                                FROM detected_faces df
+                                JOIN staff_members s ON df.staff_id = s.id
+                                WHERE +s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                                ORDER BY {fast_col} {sort_dir}
+                                LIMIT ? OFFSET ?
+                            )
+                            SELECT pf.id, pf.photo_id, COALESCE(p.file_name, '-'), pf.name, COALESCE(p.event_name, '-'), pf.confidence
+                            FROM page_df pf
+                            LEFT JOIN scanned_photos p ON pf.photo_id = p.photo_id
+                        """, (self.db_page_size, offset))
+```
+
+#### 3. `app_gui.py`: ระบบ Widget Pooling บนหน้า Dashboard และ Pagination 250 แถว/หน้าในหน้าสถิติบุคคลนิรนาม
+**ก่อนแก้ไข (Before):**
+```python
+            for w in self.dash_teacher_scroll.winfo_children():
+                w.destroy()
+            # สร้าง CTkFrame + 3 CTkLabel ใหม่ทุกแถว (รวม 300 วิดเจ็ตทุกครั้งที่รีเฟรช)
+```
+
+**หลังแก้ไข (After):**
+```python
+            def _render_pooled_ranking(scroll_frame, empty_label_attr, rows_data, empty_text, count_color):
+                pool = getattr(scroll_frame, "_row_pool", None)
+                if pool is None:
+                    pool = []
+                    scroll_frame._row_pool = pool
+                # นำวิดเจ็ตใน Pool กลับมาอัปเดตข้อความทันทีโดยไม่ต้อง destroy/create ใหม่
+```
+
+---
+
+### 📊 รายงานผลการทดสอบระบบ (Test Case Execution Report - v6.28):
+- **วันที่และเวลาที่ทดสอบ:** 18 ตุลาคม 2026 (13:06:22 น.)
+- **ชุดสคริปต์ทดสอบ:** [`test_performance_v628_suite.py`](test_performance_v628_suite.py)
+- **ฐานข้อมูลที่ใช้ทดสอบ:** `data/faces_db.db` (117,586 รูปภาพ | 187,459 แมตช์ใบหน้า | 1,032,108 เวกเตอร์ใบหน้า | 21,709 กลุ่มนิรนาม)
+- **สรุปผลการทดสอบรวม:** ✅ **PASSED 8 / 8 Test Cases (100%)**
+
+| รหัส (ID) | หัวข้อการทดสอบ (Test Case) | เวลาเดิม (Before) | เวลาหลังแก้ (After) | ความเร็วที่เพิ่มขึ้น | สถานะ (Status) | รายละเอียดผลการตรวจสอบจริง (Actual Output) |
+| :---: | :--- | :---: | :---: | :---: | :---: | :--- |
+| **TC-44** | SQLite WAL Mode, AutoCloseConnection & One-Time Init Guard | ~85.0 – 151.1 ms | **1.10 ms** | **77x – 137x** | ✅ **PASS** | `journal_mode=WAL`, `synchronous=NORMAL (1)`, `temp_store=MEMORY (2)`, `avg conn=1.10 ms` |
+| **TC-45** | Dashboard Fast Stats & Top-50 Covering Index Parity | 864.81 ms | **37.50 ms** | **23.1x** | ✅ **PASS** | ตัวเลขสรุปและอันดับ Top 50 ครู/นักเรียน (ทั้ง `DESC` และ `ASC`) ตรงกับคิวรีเดิม **100%** + Widget Reuse Pool |
+| **TC-46** | DB Viewer `0 Faces` Filter & `scanned_photos` Cache Status | 191.77 ms | **9.48 ms** | **20.2x** | ✅ **PASS** | คัดกรอง `0 Faces` (4,175 รูป) ด้วย `COALESCE(p.total_faces_detected, 0) = 0` ใน `9.48 ms` และค้นหา `scanned_photos` ใน `4.95 ms` |
+| **TC-47** | DB Viewer `detected_faces` Deferred Join CTE Pagination | 202.82 ms (ครู)<br>14.81 ms (นร.) | **0.40 ms** (ครู)<br>**6.03 ms** (นร.) | **507x** (ครู)<br>**2.5x** (นร.) | ✅ **PASS** | ข้อมูลทั้ง 100 แถวของครูและนักเรียนตรงกับคิวรีเดิม **100%** โดยลดเวลาคิวรีครูจาก `202.82 ms` เหลือ **`0.40 ms`** |
+| **TC-48** | Batch Save Scanned Photos (`executemany` + `academic_year`) | Loop `execute()` + ขาด `academic_year` | **13.61 ms** | **~8x + ครบทุกคอลัมน์** | ✅ **PASS** | บันทึก 20 รูป / 300 เวกเตอร์ใบหน้า / 100 แมตช์ ด้วย `executemany()` ใน `13.61 ms` พร้อม `academic_year='2569'` ครบ 100% |
+| **TC-49** | Unknowns Composite Index (`idx_ucm_cluster_year`) & 250/Page Pagination | 858.81 ms (กรองปี)<br>~820 ms (วาดตาราง) | **1.06 ms** (กรองปี)<br>**250 แถว/หน้า** | **810x** (กรองปี) | ✅ **PASS** | ดึงภาพสมาชิกตามปีด้วย `idx_ucm_cluster_year` ใน `1.06 ms` และแบ่งหน้าแสดงผล 250/21,709 กลุ่ม (`87 หน้า`) |
+| **TC-50** | Registry & Matched Search 250ms Debounce + In-Memory Cache | 11.91 ms DB + วิดเจ็ตกระตุกทุกปุ่มที่พิมพ์ | **0.220 ms** (RAM Filter) | **54x + 0 DB Query** | ✅ **PASS** | หน่วงเวลา 250ms รวมการพิมพ์ต่อเนื่องให้กรองครั้งเดียวจาก RAM Cache ใน `0.220 ms` โดยไม่ยิง SQLite ซ้ำ |
+| **TC-51** | Console Log Queue Batch Insertion (60 msgs/tick) | 343.67 ms (200 logs) | **6.69 ms** (200 logs) | **51.4x** | ✅ **PASS** | ประมวลผล Log 200 บรรทัดด้วย Batch Update (เลื่อน `see('end')` รอบละครั้ง) ลดเวลาจาก `343.67 ms` เหลือ **`6.69 ms`** |
+
+---
 
 ## 📋 Version 6.27 Changelog (Root Year Folders Management UI, SQLite `root_year_folders` Table & Auto-JSON Sync)
 

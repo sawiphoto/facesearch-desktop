@@ -675,7 +675,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.27 (Root Year Folders Management & SQLite Sync)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.28 (Blazing Fast UI & SQLite WAL Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -725,14 +725,26 @@ class FaceSearchApp(ctk.CTk):
         self.db_sort_col = "photo_id"  # v6.00: คอลัมน์ที่กำลังจัดเรียงในตาราง SQLite
         self.db_sort_desc = True       # v6.00: ทิศทางการจัดเรียง (True = DESC, False = ASC)
         self._db_search_timer = None  # v5.70: Timer สำหรับ Search Debounce ป้องกัน UI Freezing
+        self._db_cached_count_key = None  # v6.28: แคชคีย์สำหรับการเปลี่ยนหน้า Pagination โดยไม่ต้องรัน COUNT(*) ซ้ำ
+        self._db_cached_total_rows = None
+        self._staff_search_timer = None   # v6.28: Timer Debounce 250ms สำหรับค้นหาครู
+        self._student_search_timer = None # v6.28: Timer Debounce 250ms สำหรับค้นหานักเรียน
+        self._matched_search_timer = None # v6.28: Timer Debounce 250ms สำหรับค้นหาแกลเลอรี
+        self._cached_teachers_list = None
+        self._cached_students_list = None
+        self._last_loaded_matched_person = None
 
         # Settings cache
         self.settings = {}
 
-        # v6.20: State variables for Unknown Faces Analytics
+        # v6.20 / v6.28: State variables for Unknown Faces Analytics + Pagination
         self.selected_unknown_cluster_id = None
         self.selected_unknown_cluster_data = None
         self.unknown_clusters_cache = []
+        self.unknown_filtered_rows = []
+        self.unknown_page = 1
+        self.unknown_page_size = 250
+        self._unknown_search_timer = None
         self.unknown_gallery_filter_year = None
         self._unknown_face_preview_img = None  # Reference to prevent GC
 
@@ -768,7 +780,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.27",
+            text="FACE MATCHING\nSYSTEM v6.28",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1128,20 +1140,13 @@ class FaceSearchApp(ctk.CTk):
 
     def refresh_dashboard_stats(self):
         try:
-            # ดึงข้อมูลจากฐานข้อมูล SQLite แยกครูและนักเรียน
-            teachers = self.db.get_all_teachers()
-            students = self.db.get_all_students()
-            sync_data = self.db.get_all_sync_data()
+            sort_dir = "DESC" if self.dashboard_sort_desc else "ASC"
+            stats = self.db.get_dashboard_fast_stats(sort_dir=sort_dir)
 
-            num_teachers = len(teachers)
-            num_students = len(students)
-            num_photos = len(sync_data["photos"])
-            num_matches = len(sync_data["faces"])
-
-            self.lbl_stat_teachers.configure(text=str(num_teachers))
-            self.lbl_stat_students.configure(text=str(num_students))
-            self.lbl_stat_photos.configure(text=str(num_photos))
-            self.lbl_stat_matches.configure(text=str(num_matches))
+            self.lbl_stat_teachers.configure(text=str(stats["num_teachers"]))
+            self.lbl_stat_students.configure(text=str(stats["num_students"]))
+            self.lbl_stat_photos.configure(text=str(stats["num_photos"]))
+            self.lbl_stat_matches.configure(text=str(stats["num_matches"]))
             
             # ตรวจโมเดล
             model_dir = get_antelopev2_dir()
@@ -1153,48 +1158,33 @@ class FaceSearchApp(ctk.CTk):
             else:
                 self.lbl_model_status.configure(text="โมเดล InsightFace: ยังไม่มีไฟล์ในเครื่อง", text_color="#E67E22")
                 
-            # ดึงและแสดงตารางสถิติจำนวนภาพแยกรายบุคคล
-            for widget in self.scr_teacher_faces.winfo_children():
-                widget.destroy()
-            for widget in self.scr_student_faces.winfo_children():
-                widget.destroy()
-                
-            sort_dir = "DESC" if self.dashboard_sort_desc else "ASC"
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            teacher_rows = stats["teacher_rows"]
+            student_rows = stats["student_rows"]
             
-            # 1. โหลดข้อมูลคุณครู
-            cursor.execute(f"""
-                SELECT sm.name, COUNT(DISTINCT df.photo_id) as photo_count
-                FROM staff_members sm
-                LEFT JOIN detected_faces df ON sm.id = df.staff_id
-                WHERE sm.role = 'teacher' OR sm.role IS NULL OR sm.role = ''
-                GROUP BY sm.id, sm.name
-                ORDER BY photo_count {sort_dir}, sm.name ASC
-                LIMIT 50
-            """)
-            teacher_rows = cursor.fetchall()
-            
-            # 2. โหลดข้อมูลนักเรียน
-            cursor.execute(f"""
-                SELECT sm.name, COUNT(DISTINCT df.photo_id) as photo_count
-                FROM staff_members sm
-                LEFT JOIN detected_faces df ON sm.id = df.staff_id
-                WHERE sm.role = 'student'
-                GROUP BY sm.id, sm.name
-                ORDER BY photo_count {sort_dir}, sm.name ASC
-                LIMIT 50
-            """)
-            student_rows = cursor.fetchall()
-            conn.close()
-            
-            # ฟังก์ชันวาดแถวข้อมูลสถิติ (ขนาด 1.5 เท่า ฟอนต์ 13pt)
+            if not hasattr(self, "_dash_font_bold"):
+                self._dash_font_bold = ctk.CTkFont(size=13, weight="bold")
+                self._dash_font_norm = ctk.CTkFont(size=13, weight="normal")
+
+            # ฟังก์ชันวาดแถวข้อมูลสถิติแบบ Widget Pooling / Reuse (v6.28 ไม่ทำลายและสร้างใหม่ซ้ำ 300 วิดเจ็ต)
             def draw_rows(rows, scroll_frame):
                 all_counts = [r[1] for r in rows]
                 max_count = max(all_counts) if all_counts else 0
                 if max_count == 0:
                     max_count = 1
                 
+                pool = getattr(scroll_frame, "_row_pool", None)
+                if pool is None or any(not item["frame"].winfo_exists() for item in pool):
+                    for widget in scroll_frame.winfo_children():
+                        widget.destroy()
+                    pool = []
+                    scroll_frame._row_pool = pool
+
+                def _on_mousewheel(event, sf=scroll_frame):
+                    try:
+                        sf._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    except Exception:
+                        pass
+
                 for idx, r in enumerate(rows):
                     name = r[0]
                     count = r[1]
@@ -1205,30 +1195,47 @@ class FaceSearchApp(ctk.CTk):
                     g_val = int(57 + (174 - 57) * ratio)
                     b_val = int(43 + (96 - 43) * ratio)
                     color_hex = f"#{r_val:02x}{g_val:02x}{b_val:02x}"
-                    
-                    row_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
-                    row_frame.pack(fill="x", pady=2)
-                    
                     rank_str = f"{idx+1}."
-                    lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=28, anchor="w", font=ctk.CTkFont(size=13, weight="bold"), text_color=color_hex)
-                    lbl_rank.pack(side="left")
-                    
-                    lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=ctk.CTkFont(size=13, weight="bold" if ratio > 0.5 else "normal"))
-                    lbl_name.pack(side="left", fill="x", expand=True)
-                    
-                    lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=60, anchor="e", text_color=color_hex, font=ctk.CTkFont(size=13, weight="bold"))
-                    lbl_count.pack(side="right")
-                    
-                    def _on_mousewheel(event, sf=scroll_frame):
-                        try:
-                            sf._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-                        except Exception:
-                            pass
-                    
-                    row_frame.bind("<MouseWheel>", _on_mousewheel)
-                    lbl_rank.bind("<MouseWheel>", _on_mousewheel)
-                    lbl_name.bind("<MouseWheel>", _on_mousewheel)
-                    lbl_count.bind("<MouseWheel>", _on_mousewheel)
+                    name_font = self._dash_font_bold if ratio > 0.5 else self._dash_font_norm
+
+                    if idx < len(pool):
+                        entry = pool[idx]
+                        if not entry["visible"]:
+                            entry["frame"].pack(fill="x", pady=2)
+                            entry["visible"] = True
+                        entry["lbl_rank"].configure(text=rank_str, text_color=color_hex)
+                        entry["lbl_name"].configure(text=name, text_color=color_hex, font=name_font)
+                        entry["lbl_count"].configure(text=f"{count} รูป", text_color=color_hex)
+                    else:
+                        row_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+                        row_frame.pack(fill="x", pady=2)
+                        
+                        lbl_rank = ctk.CTkLabel(row_frame, text=rank_str, width=28, anchor="w", font=self._dash_font_bold, text_color=color_hex)
+                        lbl_rank.pack(side="left")
+                        
+                        lbl_name = ctk.CTkLabel(row_frame, text=name, anchor="w", text_color=color_hex, font=name_font)
+                        lbl_name.pack(side="left", fill="x", expand=True)
+                        
+                        lbl_count = ctk.CTkLabel(row_frame, text=f"{count} รูป", width=60, anchor="e", text_color=color_hex, font=self._dash_font_bold)
+                        lbl_count.pack(side="right")
+                        
+                        row_frame.bind("<MouseWheel>", _on_mousewheel)
+                        lbl_rank.bind("<MouseWheel>", _on_mousewheel)
+                        lbl_name.bind("<MouseWheel>", _on_mousewheel)
+                        lbl_count.bind("<MouseWheel>", _on_mousewheel)
+                        pool.append({
+                            "frame": row_frame,
+                            "lbl_rank": lbl_rank,
+                            "lbl_name": lbl_name,
+                            "lbl_count": lbl_count,
+                            "visible": True
+                        })
+
+                for idx in range(len(rows), len(pool)):
+                    if pool[idx]["visible"]:
+                        pool[idx]["frame"].pack_forget()
+                        pool[idx]["visible"] = False
+
             draw_rows(teacher_rows, self.scr_teacher_faces)
             draw_rows(student_rows, self.scr_student_faces)
             
@@ -1524,7 +1531,7 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_delete_student.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
-    def load_student_list(self):
+    def load_student_list(self, refresh_db=True):
         # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
         for widget in self.student_list_scrollable.winfo_children():
             widget.destroy()
@@ -1543,7 +1550,9 @@ class FaceSearchApp(ctk.CTk):
         if hasattr(self, 'entry_student_search'):
             search_term = self.entry_student_search.get().strip().lower()
 
-        students = self.db.get_all_students()
+        if refresh_db or getattr(self, '_cached_students_list', None) is None:
+            self._cached_students_list = self.db.get_all_students()
+        students = self._cached_students_list
         rendered_count = 0
         for idx, s in enumerate(students):
             if search_term:
@@ -1592,13 +1601,28 @@ class FaceSearchApp(ctk.CTk):
             btn_delete_x.pack(side="right", padx=(5, 2))
 
 
-    def filter_student_list(self):
-        self.load_student_list()
+    def filter_student_list(self, event=None, immediate=False):
+        if getattr(self, "_student_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._student_search_timer)
+            except Exception:
+                pass
+            self._student_search_timer = None
+        if immediate:
+            self.load_student_list(refresh_db=False)
+        else:
+            self._student_search_timer = self.after(250, lambda: self.load_student_list(refresh_db=False))
 
     def clear_student_search(self):
+        if getattr(self, "_student_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._student_search_timer)
+            except Exception:
+                pass
+            self._student_search_timer = None
         if hasattr(self, 'entry_student_search'):
             self.entry_student_search.delete(0, "end")
-            self.load_student_list()
+            self.load_student_list(refresh_db=False)
 
     def select_student_item(self, student_id, student_name, student_code, photo_count):
         self.selected_student_id = student_id
@@ -2567,7 +2591,7 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_close.pack(side="right")
 
-    def load_staff_list(self):
+    def load_staff_list(self, refresh_db=True):
         # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
         for widget in self.staff_list_scrollable.winfo_children():
             widget.destroy()
@@ -2584,7 +2608,9 @@ class FaceSearchApp(ctk.CTk):
         if hasattr(self, 'entry_staff_search'):
             search_term = self.entry_staff_search.get().strip().lower()
 
-        staff = self.db.get_all_teachers()
+        if refresh_db or getattr(self, '_cached_teachers_list', None) is None:
+            self._cached_teachers_list = self.db.get_all_teachers()
+        staff = self._cached_teachers_list
         rendered_count = 0
         for idx, s in enumerate(staff):
             if search_term and search_term not in s['name'].lower():
@@ -2628,13 +2654,28 @@ class FaceSearchApp(ctk.CTk):
             )
             btn_delete_x.pack(side="right", padx=(5, 2))
 
-    def filter_staff_list(self):
-        self.load_staff_list()
+    def filter_staff_list(self, event=None, immediate=False):
+        if getattr(self, "_staff_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._staff_search_timer)
+            except Exception:
+                pass
+            self._staff_search_timer = None
+        if immediate:
+            self.load_staff_list(refresh_db=False)
+        else:
+            self._staff_search_timer = self.after(250, lambda: self.load_staff_list(refresh_db=False))
 
     def clear_staff_search(self):
+        if getattr(self, "_staff_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._staff_search_timer)
+            except Exception:
+                pass
+            self._staff_search_timer = None
         if hasattr(self, 'entry_staff_search'):
             self.entry_staff_search.delete(0, "end")
-            self.load_staff_list()
+            self.load_staff_list(refresh_db=False)
 
     def select_staff_item(self, staff_id, staff_name, photo_count):
         self.selected_staff_id = staff_id
@@ -3225,10 +3266,13 @@ class FaceSearchApp(ctk.CTk):
             self.txt_float_summary = None
 
     def check_log_queue(self):
-        """ดึง Log จากคิวของ Thread ย่อย มาเติมลงในช่อง Console ของ GUI ในเธรดหลัก"""
-        while not self.log_queue.empty():
+        """ดึง Log จากคิวของ Thread ย่อย มาเติมลงในช่อง Console ของ GUI ในเธรดหลัก (v6.28 Batch Update)"""
+        inserted_any = False
+        processed_in_tick = 0
+        while not self.log_queue.empty() and processed_in_tick < 60:
             try:
                 msg = self.log_queue.get_nowait()
+                processed_in_tick += 1
                 
                 # วิเคราะห์หาแท็กประเภทสีตาม Keyword 12 หมวดหมู่
                 tag = "white"
@@ -3265,7 +3309,6 @@ class FaceSearchApp(ctk.CTk):
                 elif "FALLBACK" in msg_upper:
                     tag = "magenta"
 
-                
                 # เก็บเข้าประวัติ Log ในหน่วยความจำ (จำกัด 6000 บรรทัด)
                 if not hasattr(self, 'console_log_history'):
                     self.console_log_history = []
@@ -3283,16 +3326,21 @@ class FaceSearchApp(ctk.CTk):
 
                 if should_display:
                     self.console_text.insert("end", msg + "\n", tag)
-                    self.console_text.see("end")
-                    
-                    # จำกัดจำนวนบรรทัดของ Console เพื่อป้องกันค้าง (เช่น เก็บ 5000 บรรทัดล่าสุด)
-                    num_lines = float(self.console_text.index('end-1c').split('.')[0])
-                    if num_lines > 5000:
-                        self.console_text.delete('1.0', '100.0')
+                    inserted_any = True
             except queue.Empty:
                 break
-        # เช็คซ้ำทุก 100 มิลลิวินาที
-        self.after(100, self.check_log_queue)
+
+        if inserted_any:
+            # จำกัดจำนวนบรรทัดของ Console เพื่อป้องกันค้าง และเลื่อนลงล่างสุดเพียง 1 ครั้งต่อรอบ (Batch UI Update)
+            num_lines = float(self.console_text.index('end-1c').split('.')[0])
+            if num_lines > 5000:
+                delete_to = max(100, int(num_lines - 4900))
+                self.console_text.delete('1.0', f'{delete_to}.0')
+            self.console_text.see("end")
+
+        # เช็คซ้ำทุก 100 มิลลิวินาที (หรือ 30ms หากยังมีคิวค้างอยู่เยอะ)
+        next_delay = 30 if not self.log_queue.empty() else 100
+        self.after(next_delay, self.check_log_queue)
 
     def set_console_log_filter(self, mode):
         """สลับตัวกรอง Console Log ('all', 'warning', 'error') (v6.11)"""
@@ -5624,6 +5672,20 @@ class FaceSearchApp(ctk.CTk):
         conn = self.db.get_connection()
         cursor = conn.cursor()
         total_rows = 0
+        cache_key = (selected_table_text, search_query)
+
+        def get_total_rows(count_sql, count_params=()):
+            if (
+                self.db_current_page > 1
+                and getattr(self, "_db_cached_count_key", None) == cache_key
+                and getattr(self, "_db_cached_total_rows", 0) > 0
+            ):
+                return self._db_cached_total_rows
+            cursor.execute(count_sql, count_params)
+            cnt = cursor.fetchone()[0]
+            self._db_cached_count_key = cache_key
+            self._db_cached_total_rows = cnt
+            return cnt
         
         try:
             # --- 1. โหมดดูทุกตารางดิบ (📋 ตารางทั้งหมด: <table_name>) ---
@@ -5642,19 +5704,17 @@ class FaceSearchApp(ctk.CTk):
                     
                 order_by = f"ORDER BY {self.db_sort_col} {sort_dir}" if (self.db_sort_col and self.db_sort_col in col_names) else "ORDER BY 1 DESC"
 
-                # นับจำนวนแถวทั้งหมด (Global Count)
+                # นับจำนวนแถวทั้งหมด (Global Count พร้อมระบบแคชเมื่อเปลี่ยนหน้า)
                 if search_query:
                     where_clauses = [f"CAST({c} AS TEXT) LIKE ?" for c in col_names]
                     params = [f"%{search_query}%"] * len(col_names)
                     count_sql = f"SELECT COUNT(*) FROM {table_name} WHERE {' OR '.join(where_clauses)}"
-                    cursor.execute(count_sql, params)
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows(count_sql, params)
                     
                     data_sql = f"SELECT * FROM {table_name} WHERE {' OR '.join(where_clauses)} {order_by} LIMIT ? OFFSET ?"
                     cursor.execute(data_sql, params + [self.db_page_size, offset])
                 else:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows(f"SELECT COUNT(*) FROM {table_name}")
                     cursor.execute(f"SELECT * FROM {table_name} {order_by} LIMIT ? OFFSET ?", (self.db_page_size, offset))
                     
                 rows = cursor.fetchall()
@@ -5667,13 +5727,12 @@ class FaceSearchApp(ctk.CTk):
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
 
                 if search_query:
-                    cursor.execute("""
+                    total_rows = get_total_rows("""
                         SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
                     """, (f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
 
                     cursor.execute(f"""
                         WITH top_staff AS (
@@ -5689,8 +5748,7 @@ class FaceSearchApp(ctk.CTk):
                         LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
-                    cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
 
                     cursor.execute(f"""
                         WITH top_staff AS (
@@ -5724,13 +5782,12 @@ class FaceSearchApp(ctk.CTk):
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
 
                 if search_query:
-                    cursor.execute("""
+                    total_rows = get_total_rows("""
                         SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE s.role = 'student'
                           AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
 
                     cursor.execute(f"""
                         WITH top_students AS (
@@ -5746,8 +5803,7 @@ class FaceSearchApp(ctk.CTk):
                         LIMIT ? OFFSET ?
                     """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
-                    cursor.execute("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
 
                     cursor.execute(f"""
                         WITH top_students AS (
@@ -5778,7 +5834,7 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
-                # ตารางภาพที่ไม่พบใบหน้าคน (0 Faces เช่น สิ่งของ/ป้าย/วิว)
+                # ตารางภาพที่ไม่พบใบหน้าคน (0 Faces เช่น สิ่งของ/ป้าย/วิว) — v6.28 ใช้ COALESCE(p.total_faces_detected, 0) = 0 แทน Correlated Subquery
                 sort_col_map = {
                     "photo_id": "p.photo_id",
                     "file_name": "COALESCE(p.file_name, p.photo_id)",
@@ -5790,9 +5846,9 @@ class FaceSearchApp(ctk.CTk):
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'p.photo_id')} {sort_dir}"
 
                 if search_query:
-                    where_clause = "WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ? OR p.file_name LIKE ? OR p.file_extension LIKE ?)"
-                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
+                    where_clause = "WHERE COALESCE(p.total_faces_detected, 0) = 0 AND (p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ? OR p.file_name LIKE ? OR p.file_extension LIKE ?)"
+                    search_params = (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%")
+                    total_rows = get_total_rows(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", search_params)
 
                     query_sql = f"""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension, 0 as face_cache_count
@@ -5801,15 +5857,14 @@ class FaceSearchApp(ctk.CTk):
                         {order_by}
                         LIMIT ? OFFSET ?
                     """
-                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    cursor.execute(query_sql, search_params + (self.db_page_size, offset))
                 else:
-                    cursor.execute("SELECT COUNT(*) FROM scanned_photos p WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows("SELECT COUNT(*) FROM scanned_photos p WHERE COALESCE(p.total_faces_detected, 0) = 0")
 
                     query_sql = f"""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension, 0 as face_cache_count
                         FROM scanned_photos p
-                        WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                        WHERE COALESCE(p.total_faces_detected, 0) = 0
                         {order_by}
                         LIMIT ? OFFSET ?
                     """
@@ -5840,38 +5895,39 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "scanned_photos" in selected_table_text:
-                # ตาราง scanned_photos
+                # ตาราง scanned_photos (v6.28 ใช้ COALESCE(p.total_faces_detected, 0) + EXISTS ตรวจสอบแคช 0 หน้า)
                 sort_col_map = {
                     "photo_id": "p.photo_id",
                     "file_name": "COALESCE(p.file_name, p.photo_id)",
                     "file_ext": "COALESCE(p.file_extension, '')",
                     "event": "p.event_name",
-                    "cache_status": "face_cache_count",
+                    "cache_status": "COALESCE(p.total_faces_detected, 0)",
                     "link": "p.drive_link"
                 }
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'p.photo_id')} {sort_dir}"
 
                 if search_query:
                     where_clause = "WHERE p.photo_id LIKE ? OR p.drive_file_id LIKE ? OR p.event_name LIKE ? OR p.drive_link LIKE ? OR p.file_name LIKE ? OR p.file_extension LIKE ?"
-                    cursor.execute(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
+                    search_params = (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%")
+                    total_rows = get_total_rows(f"SELECT COUNT(*) FROM scanned_photos p {where_clause}", search_params)
 
                     query_sql = f"""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension,
-                               (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) as face_cache_count
+                               COALESCE(p.total_faces_detected, 0) as face_cache_count,
+                               EXISTS(SELECT 1 FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id LIMIT 1) as has_cache_row
                         FROM scanned_photos p
                         {where_clause}
                         {order_by}
                         LIMIT ? OFFSET ?
                     """
-                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    cursor.execute(query_sql, search_params + (self.db_page_size, offset))
                 else:
-                    cursor.execute("SELECT COUNT(*) FROM scanned_photos")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows("SELECT COUNT(*) FROM scanned_photos")
 
                     query_sql = f"""
                         SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.file_name, p.file_extension,
-                               COALESCE(p.total_faces_detected, 0) as face_cache_count
+                               COALESCE(p.total_faces_detected, 0) as face_cache_count,
+                               EXISTS(SELECT 1 FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id LIMIT 1) as has_cache_row
                         FROM scanned_photos p
                         {order_by}
                         LIMIT ? OFFSET ?
@@ -5884,7 +5940,7 @@ class FaceSearchApp(ctk.CTk):
                 self.db_tree.column("file_name", width=180, anchor="w")
                 self.db_tree.column("file_ext", width=80, anchor="center")
                 self.db_tree.column("event", width=160, anchor="w")
-                self.db_tree.column("cache_status", width=140, anchor="center")
+                self.db_tree.column("cache_status", width=165, anchor="center")
                 self.db_tree.column("link", width=220, anchor="w")
                 
                 set_tree_heading("photo_id", "Photo ID")
@@ -5895,10 +5951,15 @@ class FaceSearchApp(ctk.CTk):
                 set_tree_heading("link", "ลิงก์ไดรฟ์รูปภาพ")
                 
                 for r in rows:
-                    pid, fid, evt, link, fname, fext, c_count = r
+                    pid, fid, evt, link, fname, fext, c_count, has_cache = r
                     display_name = fname if fname else pid
                     display_ext = fext if fext else (os.path.splitext(display_name)[1].lower() if "." in display_name else "-")
-                    c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)" if c_count > 0 else "❌ ยังไม่มีแคช (0)"
+                    if c_count > 0:
+                        c_status = f"✅ มีแคชแล้ว ({c_count} หน้า)"
+                    elif has_cache:
+                        c_status = "⚪ สแกนแล้ว (0 หน้า - ไม่มีคน)"
+                    else:
+                        c_status = "❌ ยังไม่มีแคช (0)"
                     row_vals = (pid, display_name, display_ext, evt, c_status, link)
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
 
@@ -5920,11 +5981,10 @@ class FaceSearchApp(ctk.CTk):
                            OR r.file_name LIKE ? OR r.file_extension LIKE ? OR r.camera_brand LIKE ? 
                            OR r.photo_date LIKE ? OR r.drive_link LIKE ?
                     """
-                    cursor.execute(f"SELECT COUNT(*) FROM raw_camera_photos r {where_clause}", 
-                                   (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
-                                    f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
-                                    f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
+                    search_params = (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                     f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
+                                     f"%{search_query}%", f"%{search_query}%")
+                    total_rows = get_total_rows(f"SELECT COUNT(*) FROM raw_camera_photos r {where_clause}", search_params)
 
                     query_sql = f"""
                         SELECT r.photo_id, r.file_name, r.file_extension, r.camera_brand, r.event_name, r.photo_date, r.drive_link
@@ -5933,12 +5993,9 @@ class FaceSearchApp(ctk.CTk):
                         {order_by}
                         LIMIT ? OFFSET ?
                     """
-                    cursor.execute(query_sql, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
-                                               f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", 
-                                               f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    cursor.execute(query_sql, search_params + (self.db_page_size, offset))
                 else:
-                    cursor.execute("SELECT COUNT(*) FROM raw_camera_photos")
-                    total_rows = cursor.fetchone()[0]
+                    total_rows = get_total_rows("SELECT COUNT(*) FROM raw_camera_photos")
 
                     query_sql = f"""
                         SELECT r.photo_id, r.file_name, r.file_extension, r.camera_brand, r.event_name, r.photo_date, r.drive_link
@@ -5973,7 +6030,7 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "ครู" in selected_table_text:
-                # ตาราง detected_faces (ครู)
+                # ตาราง detected_faces (ครู) — v6.28 Deferred Join CTE สำหรับการแบ่งหน้าความเร็วสูง
                 sort_col_map = {
                     "match_id": "df.id",
                     "photo_id": "df.photo_id",
@@ -5989,14 +6046,14 @@ class FaceSearchApp(ctk.CTk):
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                           AND (df.photo_id LIKE ? OR s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ? OR p.file_name LIKE ?)
                     """
-                    cursor.execute(f"""
+                    search_params = (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%")
+                    total_rows = get_total_rows(f"""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
+                    """, search_params)
 
                     cursor.execute(f"""
                         SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
@@ -6006,25 +6063,40 @@ class FaceSearchApp(ctk.CTk):
                         {where_clause}
                         {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, search_params + (self.db_page_size, offset))
                 else:
-                    cursor.execute("""
+                    total_rows = get_total_rows("""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                     """)
-                    total_rows = cursor.fetchone()[0]
 
-                    cursor.execute(f"""
-                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
-                        FROM detected_faces df
-                        JOIN staff_members s ON df.staff_id = s.id
-                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                        {order_by}
-                        LIMIT ? OFFSET ?
-                    """, (self.db_page_size, offset))
+                    if self.db_sort_col in (None, "match_id", "photo_id", "conf"):
+                        fast_col = {"match_id": "df.id", "photo_id": "df.photo_id", "conf": "df.confidence"}.get(self.db_sort_col, "df.id")
+                        cursor.execute(f"""
+                            WITH page_df AS (
+                                SELECT df.id, df.photo_id, df.confidence, s.name
+                                FROM detected_faces df
+                                JOIN staff_members s ON df.staff_id = s.id
+                                WHERE +s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                                ORDER BY {fast_col} {sort_dir}
+                                LIMIT ? OFFSET ?
+                            )
+                            SELECT pf.id, pf.photo_id, COALESCE(p.file_name, '-'), pf.name, COALESCE(p.event_name, '-'), pf.confidence
+                            FROM page_df pf
+                            LEFT JOIN scanned_photos p ON pf.photo_id = p.photo_id
+                        """, (self.db_page_size, offset))
+                    else:
+                        cursor.execute(f"""
+                            SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(p.event_name, '-'), df.confidence
+                            FROM detected_faces df
+                            JOIN staff_members s ON df.staff_id = s.id
+                            LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                            WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                            {order_by}
+                            LIMIT ? OFFSET ?
+                        """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "file_name", "name", "event", "conf")
@@ -6049,7 +6121,7 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_vals])
                     
             elif "detected_faces" in selected_table_text and "นักเรียน" in selected_table_text:
-                # ตาราง detected_faces (นักเรียน)
+                # ตาราง detected_faces (นักเรียน) — v6.28 Deferred Join CTE สำหรับการแบ่งหน้าความเร็วสูง
                 sort_col_map = {
                     "match_id": "df.id",
                     "photo_id": "df.photo_id",
@@ -6066,14 +6138,14 @@ class FaceSearchApp(ctk.CTk):
                         WHERE s.role = 'student'
                           AND (df.photo_id LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR p.event_name LIKE ? OR p.drive_file_id LIKE ? OR p.file_name LIKE ?)
                     """
-                    cursor.execute(f"""
+                    search_params = (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%")
+                    total_rows = get_total_rows(f"""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
                         {where_clause}
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-                    total_rows = cursor.fetchone()[0]
+                    """, search_params)
 
                     cursor.execute(f"""
                         SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
@@ -6083,25 +6155,40 @@ class FaceSearchApp(ctk.CTk):
                         {where_clause}
                         {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, search_params + (self.db_page_size, offset))
                 else:
-                    cursor.execute("""
+                    total_rows = get_total_rows("""
                         SELECT COUNT(*)
                         FROM detected_faces df
                         JOIN staff_members s ON df.staff_id = s.id
                         WHERE s.role = 'student'
                     """)
-                    total_rows = cursor.fetchone()[0]
 
-                    cursor.execute(f"""
-                        SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
-                        FROM detected_faces df
-                        JOIN staff_members s ON df.staff_id = s.id
-                        LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
-                        WHERE s.role = 'student'
-                        {order_by}
-                        LIMIT ? OFFSET ?
-                    """, (self.db_page_size, offset))
+                    if self.db_sort_col in (None, "match_id", "photo_id", "conf"):
+                        fast_col = {"match_id": "df.id", "photo_id": "df.photo_id", "conf": "df.confidence"}.get(self.db_sort_col, "df.id")
+                        cursor.execute(f"""
+                            WITH page_df AS (
+                                SELECT df.id, df.photo_id, df.confidence, s.name, s.student_id
+                                FROM detected_faces df
+                                JOIN staff_members s ON df.staff_id = s.id
+                                WHERE +s.role = 'student'
+                                ORDER BY {fast_col} {sort_dir}
+                                LIMIT ? OFFSET ?
+                            )
+                            SELECT pf.id, pf.photo_id, COALESCE(p.file_name, '-'), pf.name, COALESCE(pf.student_id, '-'), COALESCE(p.event_name, '-'), pf.confidence
+                            FROM page_df pf
+                            LEFT JOIN scanned_photos p ON pf.photo_id = p.photo_id
+                        """, (self.db_page_size, offset))
+                    else:
+                        cursor.execute(f"""
+                            SELECT df.id, df.photo_id, COALESCE(p.file_name, '-'), s.name, COALESCE(s.student_id, '-'), COALESCE(p.event_name, '-'), df.confidence
+                            FROM detected_faces df
+                            JOIN staff_members s ON df.staff_id = s.id
+                            LEFT JOIN scanned_photos p ON df.photo_id = p.photo_id
+                            WHERE s.role = 'student'
+                            {order_by}
+                            LIMIT ? OFFSET ?
+                        """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
                 self.db_tree["columns"] = ("match_id", "photo_id", "file_name", "name", "student_id", "event", "conf")
@@ -6198,7 +6285,7 @@ class FaceSearchApp(ctk.CTk):
                     cursor.execute("""
                         SELECT p.photo_id, COALESCE(p.file_name, '-'), COALESCE(p.file_extension, '-'), p.drive_file_id, p.event_name, p.drive_link 
                         FROM scanned_photos p
-                        WHERE (SELECT COUNT(*) FROM scanned_photo_faces pf WHERE pf.photo_id = p.photo_id) = 0
+                        WHERE COALESCE(p.total_faces_detected, 0) = 0
                         ORDER BY p.photo_id ASC
                     """)
                     writer.writerow(["Photo ID", "ชื่อไฟล์ภาพ", "สกุลไฟล์", "Drive File ID", "ชื่องานกิจกรรม", "ลิงก์ไดรฟ์รูปภาพ"])
@@ -6491,21 +6578,35 @@ class FaceSearchApp(ctk.CTk):
         self.combo_matched_person.set(options[0])
         self.on_matched_person_change(options[0])
 
-    def filter_matched_person_dropdown(self):
-        """กรองรายชื่อใน Dropdown ตามคำค้นหาในช่อง entry_matched_search"""
-        query = self.entry_matched_search.get().strip().lower()
-        if not hasattr(self, 'full_matched_options'):
-            return
-        if not query:
-            filtered = self.full_matched_options
+    def filter_matched_person_dropdown(self, event=None, immediate=False):
+        """กรองรายชื่อใน Dropdown ตามคำค้นหาในช่อง entry_matched_search (พร้อม Debounce 250ms v6.28)"""
+        if getattr(self, "_matched_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._matched_search_timer)
+            except Exception:
+                pass
+            self._matched_search_timer = None
+
+        def _do_filter():
+            self._matched_search_timer = None
+            query = self.entry_matched_search.get().strip().lower()
+            if not hasattr(self, 'full_matched_options'):
+                return
+            if not query:
+                filtered = self.full_matched_options
+            else:
+                filtered = [opt for opt in self.full_matched_options if query in opt.lower()]
+            
+            if not filtered:
+                filtered = ["-- ไม่พบรายชื่อ --"]
+            self.combo_matched_person.configure(values=filtered)
+            self.combo_matched_person.set(filtered[0])
+            self.on_matched_person_change(filtered[0])
+
+        if immediate:
+            _do_filter()
         else:
-            filtered = [opt for opt in self.full_matched_options if query in opt.lower()]
-        
-        if not filtered:
-            filtered = ["-- ไม่พบรายชื่อ --"]
-        self.combo_matched_person.configure(values=filtered)
-        self.combo_matched_person.set(filtered[0])
-        self.on_matched_person_change(filtered[0])
+            self._matched_search_timer = self.after(250, _do_filter)
 
     def on_matched_person_change(self, selected_disp):
         """เมื่อเลือกบุคคลใน Dropdown ให้คิวรีรูปภาพและสร้าง UI แกลเลอรี (v3.2 Fix Bug 9)"""
@@ -8260,17 +8361,17 @@ class FaceSearchApp(ctk.CTk):
         )
         lbl_left_title.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
 
-        # ช่องค้นหารหัสกลุ่ม
+        # ช่องค้นหารหัสกลุ่ม (พร้อม Debounce 250ms v6.28)
         self.entry_unknown_search = ctk.CTkEntry(
             left_box, placeholder_text="🔍 ค้นหารหัสกลุ่ม (เช่น UNK_00001)...",
             height=32, font=ctk.CTkFont(size=12)
         )
         self.entry_unknown_search.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
-        self.entry_unknown_search.bind("<KeyRelease>", self.filter_unknown_table)
+        self.entry_unknown_search.bind("<KeyRelease>", self.on_unknown_search_keyrelease)
 
         # คอนเทนเนอร์ตาราง Treeview
         table_frame = ctk.CTkFrame(left_box, fg_color="#1C2D42")
-        table_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        table_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 4))
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
 
@@ -8297,6 +8398,31 @@ class FaceSearchApp(ctk.CTk):
         tree_scroll.grid(row=0, column=1, sticky="ns")
 
         self.tree_unknown.bind("<<TreeviewSelect>>", self.on_unknown_cluster_select)
+
+        # แถบควบคุมการแบ่งหน้าตารางนิรนาม (Unknowns Pagination Bar - 250 แถว/หน้า v6.28)
+        unk_page_bar = ctk.CTkFrame(left_box, fg_color="transparent")
+        unk_page_bar.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 8))
+        unk_page_bar.grid_columnconfigure(1, weight=1)
+
+        self.btn_unknown_prev_page = ctk.CTkButton(
+            unk_page_bar, text="◀ ก่อนหน้า", width=78, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#1F3A60", hover_color="#2980B9",
+            state="disabled", command=self.prev_unknown_page
+        )
+        self.btn_unknown_prev_page.grid(row=0, column=0, sticky="w")
+
+        self.lbl_unknown_page_info = ctk.CTkLabel(
+            unk_page_bar, text="หน้า 1 / 1 (0 กลุ่ม)",
+            font=ctk.CTkFont(size=11, weight="bold"), text_color="#A2B5CD"
+        )
+        self.lbl_unknown_page_info.grid(row=0, column=1, sticky="ew")
+
+        self.btn_unknown_next_page = ctk.CTkButton(
+            unk_page_bar, text="ถัดไป ▶", width=78, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#1F3A60", hover_color="#2980B9",
+            state="disabled", command=self.next_unknown_page
+        )
+        self.btn_unknown_next_page.grid(row=0, column=2, sticky="e")
 
         # ------------------- 2.2 ฝั่งขวา: รายละเอียด, กราฟแท่ง, แกลเลอรี (Right Pane) -------------------
         right_box = ctk.CTkFrame(main_pane, fg_color="transparent")
@@ -8410,8 +8536,67 @@ class FaceSearchApp(ctk.CTk):
         self.lbl_unknown_gal_title.configure(text="🖼️ ภาพกิจกรรมที่พบบุคคลนี้")
         self.load_unknown_clusters_list()
 
+    def on_unknown_search_keyrelease(self, event=None):
+        """หน่วงเวลา 250ms ก่อนกรองตารางกลุ่มนิรนาม เพื่อความลื่นไหลขณะพิมพ์ (v6.28)"""
+        if getattr(self, "_unknown_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._unknown_search_timer)
+            except Exception:
+                pass
+            self._unknown_search_timer = None
+        self._unknown_search_timer = self.after(250, lambda: self.filter_unknown_table(select_first=False))
+
+    def prev_unknown_page(self):
+        if getattr(self, "unknown_page", 1) > 1:
+            self.unknown_page -= 1
+            self._render_unknown_table_page(select_first=False)
+
+    def next_unknown_page(self):
+        total_items = len(getattr(self, "unknown_filtered_rows", []))
+        page_size = getattr(self, "unknown_page_size", 250)
+        max_page = max(1, (total_items + page_size - 1) // page_size)
+        if getattr(self, "unknown_page", 1) < max_page:
+            self.unknown_page += 1
+            self._render_unknown_table_page(select_first=False)
+
+    def _render_unknown_table_page(self, select_first=False):
+        """วาดแถวใน Treeview เฉพาะหน้าปัจจุบัน (250 แถว/หน้า) และลบข้อมูลเก่าแบบ Batch Delete (v6.28)"""
+        children = self.tree_unknown.get_children()
+        if children:
+            self.tree_unknown.delete(*children)
+
+        filtered = getattr(self, "unknown_filtered_rows", [])
+        page_size = getattr(self, "unknown_page_size", 250)
+        total_items = len(filtered)
+        max_page = max(1, (total_items + page_size - 1) // page_size)
+        self.unknown_page = max(1, min(getattr(self, "unknown_page", 1), max_page))
+
+        start_idx = (self.unknown_page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_slice = filtered[start_idx:end_idx]
+
+        for rank, cid, y_count, t_count, years in page_slice:
+            self.tree_unknown.insert("", "end", iid=cid, values=(rank, cid, y_count, t_count, years))
+
+        if hasattr(self, "lbl_unknown_page_info"):
+            self.lbl_unknown_page_info.configure(text=f"หน้า {self.unknown_page:,} / {max_page:,} ({total_items:,} กลุ่ม)")
+        if hasattr(self, "btn_unknown_prev_page"):
+            self.btn_unknown_prev_page.configure(state="normal" if self.unknown_page > 1 else "disabled")
+        if hasattr(self, "btn_unknown_next_page"):
+            self.btn_unknown_next_page.configure(state="normal" if self.unknown_page < max_page else "disabled")
+
+        if select_first:
+            new_children = self.tree_unknown.get_children()
+            if new_children:
+                first_id = new_children[0]
+                self.tree_unknown.selection_set(first_id)
+                self.tree_unknown.focus(first_id)
+                self.display_unknown_cluster_detail(first_id)
+            else:
+                self.clear_unknown_detail_view()
+
     def load_unknown_clusters_list(self):
-        """โหลดข้อมูลจัดอันดับกลุ่มบุคคลนิรนามเข้าสู่ตาราง Treeview"""
+        """โหลดข้อมูลจัดอันดับกลุ่มบุคคลนิรนามเข้าสู่ตาราง Treeview (พร้อมระบบแบ่งหน้า 250 แถว/หน้า v6.28)"""
         raw_year = self.combo_unknown_year.get()
         if "ภาพรวม" in raw_year or "Overall" in raw_year:
             selected_year = "all"
@@ -8426,50 +8611,18 @@ class FaceSearchApp(ctk.CTk):
 
         rows = self.db.get_unknown_clusters_summary(selected_year=selected_year, min_photos=min_photos)
         self.unknown_clusters_cache = rows
-
-        # ล้างข้อมูลเดิมในตาราง
-        for item in self.tree_unknown.get_children():
-            self.tree_unknown.delete(item)
-
-        for idx, row in enumerate(rows):
-            if selected_year == "all":
-                # row: cluster_id, photo_count, event_count, rep_photo_id, rep_face_index, rep_bbox, first_seen_year, last_seen_year, active_years
-                cid = row[0]
-                y_count = row[1]
-                t_count = row[1]
-                years = row[8] or "-"
-            else:
-                # row: cluster_id, year_photos, total_photos, event_count, rep_photo_id, rep_face_index, rep_bbox, first_seen_year, last_seen_year, active_years
-                cid = row[0]
-                y_count = row[1]
-                t_count = row[2]
-                years = row[9] or "-"
-
-            self.tree_unknown.insert("", "end", iid=cid, values=(idx + 1, cid, y_count, t_count, years))
-
         self.lbl_unknown_summary.configure(text=f"พบ {len(rows):,} กลุ่ม")
+        self.filter_unknown_table(select_first=True)
 
-        # เลือกแถวแรกอัตโนมัติหากมีข้อมูล
-        children = self.tree_unknown.get_children()
-        if children:
-            first_id = children[0]
-            self.tree_unknown.selection_set(first_id)
-            self.tree_unknown.focus(first_id)
-            self.display_unknown_cluster_detail(first_id)
-        else:
-            self.clear_unknown_detail_view()
-
-    def filter_unknown_table(self, event=None):
-        """กรองตารางตามรหัสกลุ่มที่พิมพ์ในช่องค้นหา"""
-        query = self.entry_unknown_search.get().strip().upper()
+    def filter_unknown_table(self, event=None, select_first=False):
+        """กรองตารางตามรหัสกลุ่มที่พิมพ์ในช่องค้นหา และแบ่งหน้าแสดงผล 250 รายการต่อหน้า (v6.28)"""
+        query = self.entry_unknown_search.get().strip().upper() if hasattr(self, "entry_unknown_search") else ""
         raw_year = self.combo_unknown_year.get()
         is_all = ("ภาพรวม" in raw_year or "Overall" in raw_year)
 
-        for item in self.tree_unknown.get_children():
-            self.tree_unknown.delete(item)
-
+        filtered = []
         rank = 1
-        for row in self.unknown_clusters_cache:
+        for row in getattr(self, "unknown_clusters_cache", []):
             cid = row[0]
             if query and query not in cid.upper():
                 continue
@@ -8483,8 +8636,12 @@ class FaceSearchApp(ctk.CTk):
                 t_count = row[2]
                 years = row[9] or "-"
 
-            self.tree_unknown.insert("", "end", iid=cid, values=(rank, cid, y_count, t_count, years))
+            filtered.append((rank, cid, y_count, t_count, years))
             rank += 1
+
+        self.unknown_filtered_rows = filtered
+        self.unknown_page = 1
+        self._render_unknown_table_page(select_first=select_first)
 
     def on_unknown_cluster_select(self, event=None):
         """เมื่อคลิกเลือกแถวในตาราง Treeview ให้แสดงรายละเอียด กราฟแท่ง และแกลเลอรี"""
