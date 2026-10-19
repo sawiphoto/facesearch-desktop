@@ -359,6 +359,36 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create academic_year index: {e}")
 
+            # Migration v6.29: เพิ่มคอลัมน์ status, class_room, entry_year, graduation_year ใน staff_members (Student Lifecycle Architecture)
+            new_sm_cols = [
+                ("status", "TEXT DEFAULT 'active'"),
+                ("class_room", "TEXT DEFAULT ''"),
+                ("entry_year", "TEXT DEFAULT ''"),
+                ("graduation_year", "TEXT DEFAULT ''")
+            ]
+            for col_name, col_def in new_sm_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE staff_members ADD COLUMN {col_name} {col_def}")
+                    logger.info(f"Executed database migration v6.29: added {col_name} to staff_members.")
+                except Exception:
+                    pass
+
+            # Backfill ข้อมูลเดิมใน staff_members ให้มี status = 'active' อัตโนมัติ (Idempotent Backfill)
+            try:
+                cursor.execute("UPDATE staff_members SET status = 'active' WHERE status IS NULL OR status = ''")
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Could not backfill status in staff_members: {e}")
+
+            # ดัชนีครอบคลุมความเร็วสูงสำหรับวงจรชีวิตนักเรียนและการแมตช์ใบหน้า (v6.29 Composite & Covering Indexes)
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_status_role ON staff_members(role, status)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_classroom ON staff_members(class_room)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_grad_year ON staff_members(graduation_year)")
+                logger.info("Executed database migration v6.29: created indexes for staff_members lifecycle.")
+            except Exception as e:
+                logger.warning(f"Could not create student lifecycle indexes: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -669,19 +699,45 @@ class DatabaseManager:
             """)
             return [{"id": row[0], "name": row[1], "photo_count": row[2]} for row in cursor.fetchall()]
 
-    def get_all_students(self):
-        """ดึงรายชื่อนักเรียนทั้งหมด (role = 'student') พร้อม student_id"""
+    def get_all_students(self, status_filter=None, class_filter=None):
+        """ดึงรายชื่อนักเรียนทั้งหมด (role = 'student') พร้อม student_id, status, class_room, grad_year (v6.29)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT s.id, s.name, s.student_id, COUNT(e.id) as photo_count
+            query = """
+                SELECT s.id, s.name, s.student_id, COUNT(e.id) as photo_count,
+                       COALESCE(s.status, 'active') as status,
+                       COALESCE(s.class_room, '') as class_room,
+                       COALESCE(s.graduation_year, '') as graduation_year,
+                       COALESCE(s.entry_year, '') as entry_year
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                 WHERE s.role = 'student'
-                GROUP BY s.id, s.name, s.student_id
-                ORDER BY s.name ASC
-            """)
-            return [{"id": row[0], "name": row[1], "student_id": row[2], "photo_count": row[3]} for row in cursor.fetchall()]
+            """
+            params = []
+            if status_filter and status_filter != 'all':
+                if status_filter == 'active':
+                    query += " AND (s.status = 'active' OR s.status IS NULL OR s.status = '')"
+                else:
+                    query += " AND s.status = ?"
+                    params.append(status_filter)
+            if class_filter and class_filter != 'all':
+                query += " AND s.class_room = ?"
+                params.append(class_filter)
+            query += """
+                GROUP BY s.id, s.name, s.student_id, s.status, s.class_room, s.graduation_year, s.entry_year
+                ORDER BY s.class_room ASC, s.student_id ASC, s.name ASC
+            """
+            cursor.execute(query, params)
+            return [{
+                "id": row[0],
+                "name": row[1],
+                "student_id": row[2],
+                "photo_count": row[3],
+                "status": row[4],
+                "class_room": row[5],
+                "graduation_year": row[6],
+                "entry_year": row[7]
+            } for row in cursor.fetchall()]
 
     def check_student_id_exists(self, student_id):
         """ตรวจสอบว่ารหัสประจำตัวนักเรียนนี้ถูกใช้ไปแล้วหรือยัง"""
@@ -698,12 +754,12 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, name, student_id FROM staff_members WHERE student_id = ? AND role = 'student'",
+                "SELECT id, name, student_id, COALESCE(status, 'active'), COALESCE(class_room, '') FROM staff_members WHERE student_id = ? AND role = 'student'",
                 (student_id,)
             )
             row = cursor.fetchone()
             if row:
-                return {"id": row[0], "name": row[1], "student_id": row[2]}
+                return {"id": row[0], "name": row[1], "student_id": row[2], "status": row[3], "class_room": row[4]}
             return None
 
     def get_student_photo_count(self, staff_id):
@@ -714,31 +770,37 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else 0
 
-    def register_member(self, name, role='teacher', student_id=None, pin_code=None, personal_threshold=None):
-        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student), student_id, pin_code และ personal_threshold"""
+    def register_member(self, name, role='teacher', student_id=None, pin_code=None, personal_threshold=None, status='active', class_room='', entry_year='', graduation_year=''):
+        """ลงทะเบียนสมาชิกใหม่พร้อมระบุ role (teacher/student), student_id, pin_code, personal_threshold และข้อมูลวงจรชีวิต (v6.29)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 if role == 'student' and student_id:
                     cursor.execute(
-                        "INSERT INTO staff_members (name, role, student_id, pin_code, personal_threshold) VALUES (?, ?, ?, ?, ?)",
-                        (name, role, student_id, pin_code, personal_threshold if personal_threshold is not None else 0.50)
+                        """INSERT INTO staff_members 
+                           (name, role, student_id, pin_code, personal_threshold, status, class_room, entry_year, graduation_year) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (name, role, student_id, pin_code, personal_threshold if personal_threshold is not None else 0.50,
+                         status or 'active', class_room or '', entry_year or '', graduation_year or '')
                     )
                     conn.commit()
-                    logger.info(f"Registered new {role}: {name} (ID: {student_id}, Thresh: {personal_threshold or 0.50})")
+                    logger.info(f"Registered new {role}: {name} (ID: {student_id}, Room: {class_room}, Status: {status})")
                     return cursor.lastrowid
                 elif role == 'student':
                     cursor.execute(
-                        "INSERT INTO staff_members (name, role, pin_code, personal_threshold) VALUES (?, ?, ?, ?)",
-                        (name, role, pin_code, personal_threshold if personal_threshold is not None else 0.50)
+                        """INSERT INTO staff_members 
+                           (name, role, pin_code, personal_threshold, status, class_room, entry_year, graduation_year) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (name, role, pin_code, personal_threshold if personal_threshold is not None else 0.50,
+                         status or 'active', class_room or '', entry_year or '', graduation_year or '')
                     )
                     conn.commit()
                     logger.info(f"Registered new {role}: {name} (WARNING: no student_id)")
                     return cursor.lastrowid
                 else:
                     cursor.execute(
-                        "INSERT INTO staff_members (name, role, personal_threshold) VALUES (?, ?, ?)",
-                        (name, role, personal_threshold if personal_threshold is not None else 0.50)
+                        "INSERT INTO staff_members (name, role, personal_threshold, status) VALUES (?, ?, ?, ?)",
+                        (name, role, personal_threshold if personal_threshold is not None else 0.50, status or 'active')
                     )
                     conn.commit()
                     logger.info(f"Registered new {role}: {name}")
@@ -749,10 +811,19 @@ class DatabaseManager:
                     cursor.execute("SELECT id FROM staff_members WHERE student_id = ?", (student_id,))
                     row = cursor.fetchone()
                     if row:
+                        updates = ["name = ?", "role = 'student'"]
+                        up_params = [name]
                         if personal_threshold is not None:
-                            cursor.execute("UPDATE staff_members SET name = ?, role = 'student', personal_threshold = ? WHERE id = ?", (name, personal_threshold, row[0]))
-                        else:
-                            cursor.execute("UPDATE staff_members SET name = ?, role = 'student' WHERE id = ?", (name, row[0]))
+                            updates.append("personal_threshold = ?")
+                            up_params.append(personal_threshold)
+                        if status:
+                            updates.append("status = ?")
+                            up_params.append(status)
+                        if class_room:
+                            updates.append("class_room = ?")
+                            up_params.append(class_room)
+                        up_params.append(row[0])
+                        cursor.execute(f"UPDATE staff_members SET {', '.join(updates)} WHERE id = ?", up_params)
                         conn.commit()
                         logger.info(f"Student '{name}' updated existing record (ID: {row[0]}, Student ID: {student_id}).")
                         return row[0]
@@ -781,8 +852,8 @@ class DatabaseManager:
             row = cursor.fetchone()
             return row[0] if row else None
 
-    def update_student_info(self, staff_id, new_name, new_student_id):
-        """อัปเดตชื่อและรหัสนักเรียน (v5.30)"""
+    def update_student_info(self, staff_id, new_name, new_student_id, status=None, class_room=None, graduation_year=None, entry_year=None):
+        """อัปเดตชื่อและรหัสนักเรียน พร้อมข้อมูลวงจรชีวิต (v6.29)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
@@ -793,14 +864,116 @@ class DatabaseManager:
                         logger.warning(f"[DATABASE] Student ID {new_student_id} already exists for another student.")
                         return False, "รหัสประจำตัวนักเรียนนี้ถูกใช้ไปแล้วโดยนักเรียนคนอื่น"
                         
-                cursor.execute("UPDATE staff_members SET name = ?, student_id = ? WHERE id = ?", (new_name.strip(), str(new_student_id).strip() if new_student_id else None, staff_id))
+                fields = ["name = ?", "student_id = ?"]
+                params = [new_name.strip(), str(new_student_id).strip() if new_student_id else None]
+
+                if status is not None:
+                    fields.append("status = ?")
+                    params.append(status.strip())
+                if class_room is not None:
+                    fields.append("class_room = ?")
+                    params.append(class_room.strip())
+                if graduation_year is not None:
+                    fields.append("graduation_year = ?")
+                    params.append(str(graduation_year).strip())
+                if entry_year is not None:
+                    fields.append("entry_year = ?")
+                    params.append(str(entry_year).strip())
+
+                params.append(staff_id)
+                query = f"UPDATE staff_members SET {', '.join(fields)} WHERE id = ?"
+                cursor.execute(query, params)
                 conn.commit()
-                logger.info(f"[DATABASE] Updated student ID {staff_id} info: name='{new_name}', student_id='{new_student_id}'")
+                logger.info(f"[DATABASE] Updated student ID {staff_id} info: name='{new_name}', student_id='{new_student_id}', status='{status}', class='{class_room}'")
                 return True, "อัปเดตข้อมูลสำเร็จ"
             except sqlite3.Error as e:
                 logger.error(f"[DATABASE] Error updating student info for ID {staff_id}: {e}")
                 conn.rollback()
                 return False, f"เกิดข้อผิดพลาดในฐานข้อมูล: {e}"
+
+    def batch_update_student_status(self, student_ids, new_status, graduation_year=None):
+        """อัปเดตสถานะนักเรียนแบบกลุ่ม (เช่น บันทึกจบการศึกษา) ใน 1 Transaction (v6.29)"""
+        if not student_ids:
+            return 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                if graduation_year is not None:
+                    cursor.executemany(
+                        "UPDATE staff_members SET status = ?, graduation_year = ? WHERE id = ? AND role = 'student'",
+                        [(new_status, str(graduation_year).strip(), sid) for sid in student_ids]
+                    )
+                else:
+                    cursor.executemany(
+                        "UPDATE staff_members SET status = ? WHERE id = ? AND role = 'student'",
+                        [(new_status, sid) for sid in student_ids]
+                    )
+                affected = cursor.rowcount
+                conn.commit()
+                logger.info(f"[DATABASE] Batch updated {len(student_ids)} students to status='{new_status}' (Grad Year: {graduation_year})")
+                return len(student_ids)
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[DATABASE] Error in batch_update_student_status: {e}")
+                raise e
+
+    def batch_promote_students(self, source_class, target_class):
+        """เลื่อนชั้นเรียนนักเรียนทั้งห้อง (เช่น ม.1/1 -> ม.2/1) เฉพาะนักเรียนที่กำลังศึกษา (v6.29)"""
+        if not source_class or not target_class:
+            return 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE staff_members 
+                    SET class_room = ? 
+                    WHERE role = 'student' 
+                      AND class_room = ? 
+                      AND (status = 'active' OR status IS NULL OR status = '')
+                """, (target_class.strip(), source_class.strip()))
+                affected = cursor.rowcount
+                conn.commit()
+                logger.info(f"[DATABASE] Promoted {affected} students from '{source_class}' to '{target_class}'")
+                return affected
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[DATABASE] Error promoting students: {e}")
+                raise e
+
+    def get_student_classrooms(self):
+        """ดึงรายชื่อห้องเรียนทั้งหมดที่มีนักเรียนในฐานข้อมูล เรียงตามตัวอักษร (v6.29)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT class_room 
+                FROM staff_members 
+                WHERE role = 'student' AND class_room IS NOT NULL AND TRIM(class_room) != ''
+                ORDER BY class_room ASC
+            """)
+            return [row[0] for row in cursor.fetchall()]
+
+    def get_student_lifecycle_stats(self):
+        """ดึงข้อมูลสถิติภาพรวมวงจรชีวิตนักเรียน (v6.29)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    COUNT(id) as total_students,
+                    SUM(CASE WHEN status = 'active' OR status IS NULL OR status = '' THEN 1 ELSE 0 END) as active_count,
+                    SUM(CASE WHEN status = 'graduated' THEN 1 ELSE 0 END) as graduated_count,
+                    SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_count,
+                    COUNT(DISTINCT CASE WHEN class_room IS NOT NULL AND TRIM(class_room) != '' THEN class_room END) as classroom_count
+                FROM staff_members
+                WHERE role = 'student'
+            """)
+            row = cursor.fetchone()
+            return {
+                "total_students": row[0] or 0,
+                "active_count": row[1] or 0,
+                "graduated_count": row[2] or 0,
+                "inactive_count": row[3] or 0,
+                "classroom_count": row[4] or 0
+            }
 
     def delete_staff_member(self, staff_id):
         """ลบข้อมูลครูและลบความสัมพันธ์อื่น ๆ ทั้งหมด (Cascaded)"""
@@ -827,15 +1000,28 @@ class DatabaseManager:
                 logger.info(f"Cleaned up {deleted_count} orphan student records without photos.")
             return deleted_count
 
-    def get_all_embeddings(self):
-        """ดึงเวกเตอร์ทั้งหมดของครูเพื่อใช้โหลดลงหน่วยความจำตอนเริ่มต้นโปรแกรม"""
+    def get_all_embeddings(self, active_only=True):
+        """ดึงเวกเตอร์ทั้งหมดของครูและนักเรียนเพื่อใช้โหลดลงหน่วยความจำตอนเริ่มต้นโปรแกรม หรือตอนจับคู่ใบหน้า (v6.29)
+        active_only: หากเป็น True จะดึงเฉพาะครู และนักเรียนที่มีสถานะ 'active' (ข้ามศิษย์เก่า/จบการศึกษา)
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, COALESCE(s.personal_threshold, 0.50)
-                FROM staff_embeddings e
-                JOIN staff_members s ON e.staff_id = s.id
-            """)
+            if active_only:
+                cursor.execute("""
+                    SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, 
+                           COALESCE(s.personal_threshold, 0.50), COALESCE(s.status, 'active'), COALESCE(s.class_room, '')
+                    FROM staff_embeddings e
+                    JOIN staff_members s ON e.staff_id = s.id
+                    WHERE (s.role = 'teacher' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+                       OR (s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+                """)
+            else:
+                cursor.execute("""
+                    SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, 
+                           COALESCE(s.personal_threshold, 0.50), COALESCE(s.status, 'active'), COALESCE(s.class_room, '')
+                    FROM staff_embeddings e
+                    JOIN staff_members s ON e.staff_id = s.id
+                """)
             rows = cursor.fetchall()
             
             embeddings = []
@@ -844,10 +1030,11 @@ class DatabaseManager:
             image_paths = []
             roles = []
             personal_thresholds = []
+            statuses = []
+            class_rooms = []
             
             for row in rows:
-                staff_id, name, blob, img_path, role, thresh = row
-                # แปลง bytes กลับเป็น numpy array
+                staff_id, name, blob, img_path, role, thresh, status, c_room = row
                 vec = np.frombuffer(blob, dtype=np.float32)
                 embeddings.append(vec)
                 names.append(name)
@@ -855,6 +1042,8 @@ class DatabaseManager:
                 image_paths.append(img_path)
                 roles.append(role if role else "teacher")
                 personal_thresholds.append(float(thresh) if thresh is not None else 0.50)
+                statuses.append(status if status else "active")
+                class_rooms.append(c_room if c_room else "")
                 
             return {
                 "embeddings": np.array(embeddings) if embeddings else np.empty((0, 512), dtype=np.float32),
@@ -862,7 +1051,9 @@ class DatabaseManager:
                 "staff_ids": staff_ids,
                 "image_paths": image_paths,
                 "roles": roles,
-                "personal_thresholds": personal_thresholds
+                "personal_thresholds": personal_thresholds,
+                "statuses": statuses,
+                "class_rooms": class_rooms
             }
 
     def get_personal_threshold(self, staff_id):

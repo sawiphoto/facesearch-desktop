@@ -342,6 +342,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
         # โหลดค่า column ล่าสุด
         self.last_col_id = parent.settings.get("last_import_col_id", "A")
         self.last_col_name = parent.settings.get("last_import_col_name", "B")
+        self.last_col_class = parent.settings.get("last_import_col_class", "- ไม่ระบุ -")
         self.last_col_img1 = parent.settings.get("last_import_col_img1", "D")
         self.last_col_img2 = parent.settings.get("last_import_col_img2", "E")
         self.last_col_img3 = parent.settings.get("last_import_col_img3", "F")
@@ -400,6 +401,17 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.col_name.set(self.last_col_name)
         self.col_name.pack(side="left", padx=(5, 0))
         ctk.CTkLabel(col2_frame, text="(บังคับ)", text_color="#27AE60",
+                   font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
+
+        # คอลัมน์ระดับชั้น/ห้องเรียน (เสริม - v6.29)
+        col_class_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        col_class_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(col_class_frame, text="คอลัมน์ห้องเรียน (ถ้ามี):", width=130, anchor="w",
+                   text_color="#A2B5CD").pack(side="left")
+        self.col_class = ctk.CTkOptionMenu(col_class_frame, values=["- ไม่ระบุ -", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+        self.col_class.set(self.last_col_class)
+        self.col_class.pack(side="left", padx=(5, 0))
+        ctk.CTkLabel(col_class_frame, text="(เลือกหรือไม่ก็ได้)", text_color="#F39C12",
                    font=ctk.CTkFont(size=10)).pack(side="left", padx=(5, 0))
 
         # คอลัมน์ภาพที่ 1
@@ -647,6 +659,7 @@ class SheetsImportDialog(ctk.CTkToplevel):
             "sheet_name": self.selected_sheet_name,
             "col_id": self.col_id.get(),
             "col_name": self.col_name.get(),
+            "col_class": self.col_class.get() if hasattr(self, 'col_class') else "- ไม่ระบุ -",
             "col_img1": self.col_img1.get(),
             "col_img2": self.col_img2.get(),
             "col_img3": self.col_img3.get()
@@ -657,6 +670,8 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.parent.settings["last_import_sheet_name"] = self.selected_sheet_name
         self.parent.settings["last_import_col_id"] = self.col_id.get()
         self.parent.settings["last_import_col_name"] = self.col_name.get()
+        if hasattr(self, 'col_class'):
+            self.parent.settings["last_import_col_class"] = self.col_class.get()
         self.parent.settings["last_import_col_img1"] = self.col_img1.get()
         self.parent.settings["last_import_col_img2"] = self.col_img2.get()
         self.parent.settings["last_import_col_img3"] = self.col_img3.get()
@@ -665,6 +680,194 @@ class SheetsImportDialog(ctk.CTkToplevel):
         self.destroy()
         if self.callback:
             self.callback(settings)
+
+
+class StudentLifecycleDialog(ctk.CTkToplevel):
+    """หน้าต่างเครื่องมือบริหารวงจรชีวิตนักเรียน (เลื่อนชั้น / บันทึกจบการศึกษา) (v6.29)"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.db = parent.db
+
+        self.title("🎓 จัดการวงจรชีวิตนักเรียน (เลื่อนชั้น / บันทึกจบการศึกษา)")
+        self.geometry("640x560")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - 320
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - 280
+        self.geometry(f"+{x}+{y}")
+
+        main_frame = ctk.CTkFrame(self, fg_color="#101B2B")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Header
+        ctk.CTkLabel(main_frame, text="🎓 ระบบบริหารวงจรชีวิตนักเรียนตามปีการศึกษา (v6.29)",
+                     font=ctk.CTkFont(size=18, weight="bold"), text_color="#5CACEE").pack(pady=(5, 10))
+
+        # Stats banner
+        self.stats_frame = ctk.CTkFrame(main_frame, fg_color="#1C2D42")
+        self.stats_frame.pack(fill="x", padx=10, pady=(0, 15))
+        self.lbl_stats = ctk.CTkLabel(self.stats_frame, text="", font=ctk.CTkFont(size=13, weight="bold"), text_color="#A2B5CD")
+        self.lbl_stats.pack(padx=10, pady=8)
+        self.refresh_stats()
+
+        # Tabview for 2 primary modes: Graduate vs Promote
+        tabview = ctk.CTkTabview(main_frame, fg_color="#162232")
+        tabview.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        tab_grad = tabview.add("🎓 บันทึกจบการศึกษา")
+        tab_promote = tabview.add("🚀 เลื่อนชั้นเรียน (Promote)")
+
+        # ----- TAB 1: บันทึกจบการศึกษา -----
+        ctk.CTkLabel(tab_grad, text="ระบุห้องเรียนที่สำเร็จการศึกษา (เช่น ม.3/1 หรือ ม.6/1):", font=ctk.CTkFont(size=14, weight="bold"), text_color="white").pack(anchor="w", padx=15, pady=(10, 5))
+
+        rooms = self.db.get_student_classrooms() or ["- ยังไม่มีห้องเรียน -"]
+        
+        grad_room_frame = ctk.CTkFrame(tab_grad, fg_color="transparent")
+        grad_room_frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(grad_room_frame, text="ห้องเรียนที่จบ:", width=130, anchor="w", text_color="#A2B5CD", font=ctk.CTkFont(size=13)).pack(side="left")
+        self.combo_grad_room = ctk.CTkOptionMenu(grad_room_frame, values=rooms, width=190)
+        self.combo_grad_room.pack(side="left", padx=5)
+
+        grad_yr_frame = ctk.CTkFrame(tab_grad, fg_color="transparent")
+        grad_yr_frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(grad_yr_frame, text="ปีการศึกษาที่จบ:", width=130, anchor="w", text_color="#A2B5CD", font=ctk.CTkFont(size=13)).pack(side="left")
+        self.entry_grad_academic_year = ctk.CTkEntry(grad_yr_frame, placeholder_text="เช่น 2568", width=190)
+        self.entry_grad_academic_year.pack(side="left", padx=5)
+
+        ctk.CTkLabel(tab_grad, 
+                     text="💡 ข้อแนะนำสำหรับงานจบการศึกษา:\n"
+                          "• นักเรียนในห้องที่เลือกจะถูกเปลี่ยนสถานะเป็น 'graduated' (จบการศึกษา)\n"
+                          "• ประวัติภาพถ่ายทั้งหมดในอดีต (detected_faces) จะไม่สูญหาย และค้นหาผ่านเว็บได้ 100%\n"
+                          "• การสแกนรูปภาพกิจกรรมใหม่หลังจากนี้ จะไม่นำใบหน้านักเรียนที่จบแล้วมาจับคู่ (Zero False Positive)",
+                     font=ctk.CTkFont(size=12), text_color="#6CA6CD", justify="left").pack(anchor="w", padx=15, pady=12)
+
+        btn_exec_grad = ctk.CTkButton(
+            tab_grad, text="🎓 ยืนยันบันทึกจบการศึกษาทั้งห้องเรียน",
+            fg_color="#E67E22", hover_color="#D35400", height=38,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.execute_batch_graduate
+        )
+        btn_exec_grad.pack(fill="x", padx=15, pady=(5, 10))
+
+        # ----- TAB 2: เลื่อนชั้นเรียน -----
+        ctk.CTkLabel(tab_promote, text="ระบุห้องเรียนเดิม และห้องเรียนใหม่ที่ต้องการเลื่อนชั้น:", font=ctk.CTkFont(size=14, weight="bold"), text_color="white").pack(anchor="w", padx=15, pady=(10, 5))
+
+        p_src_frame = ctk.CTkFrame(tab_promote, fg_color="transparent")
+        p_src_frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(p_src_frame, text="ห้องเรียนเดิม:", width=130, anchor="w", text_color="#A2B5CD", font=ctk.CTkFont(size=13)).pack(side="left")
+        self.combo_promote_src = ctk.CTkOptionMenu(p_src_frame, values=rooms, width=190)
+        self.combo_promote_src.pack(side="left", padx=5)
+
+        p_dst_frame = ctk.CTkFrame(tab_promote, fg_color="transparent")
+        p_dst_frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(p_dst_frame, text="เลื่อนไปห้องใหม่:", width=130, anchor="w", text_color="#A2B5CD", font=ctk.CTkFont(size=13)).pack(side="left")
+        self.entry_promote_dst = ctk.CTkEntry(p_dst_frame, placeholder_text="เช่น ม.2/1 หรือ ม.5/2", width=190)
+        self.entry_promote_dst.pack(side="left", padx=5)
+
+        ctk.CTkLabel(tab_promote, 
+                     text="💡 ข้อแนะนำสำหรับการเลื่อนชั้น:\n"
+                          "• ระบบจะปรับปรุงห้องเรียนของนักเรียนที่กำลังศึกษา (active) ในห้องเดิมทุกคน\n"
+                          "• ประวัติภาพถ่ายและเวกเตอร์ใบหน้าเดิมทั้งหมดจะยังคงอยู่ครบถ้วน\n"
+                          "• ดำเนินการเสร็จสิ้นในคลิกเดียวด้วยความเร็วระดับมิลลิวินาที",
+                     font=ctk.CTkFont(size=12), text_color="#6CA6CD", justify="left").pack(anchor="w", padx=15, pady=12)
+
+        btn_exec_promote = ctk.CTkButton(
+            tab_promote, text="🚀 ยืนยันดำเนินการเลื่อนชั้นเรียน",
+            fg_color="#27AE60", hover_color="#229954", height=38,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.execute_batch_promote
+        )
+        btn_exec_promote.pack(fill="x", padx=15, pady=(5, 10))
+
+        # Close button at bottom
+        ctk.CTkButton(main_frame, text="ปิดหน้าต่าง", width=100, fg_color="#7F8C8D", hover_color="#95A5A6", command=self.destroy).pack(side="right", padx=10, pady=(0, 5))
+
+    def refresh_stats(self):
+        stats = self.db.get_student_lifecycle_stats()
+        stats_text = f"📊 สถิติปัจจุบัน: กำลังศึกษา {stats['active_count']} คน | จบการศึกษา {stats['graduated_count']} คน | รวมทั้งหมด {stats['total_students']} คน ({stats['classroom_count']} ห้องเรียน)"
+        self.lbl_stats.configure(text=stats_text)
+
+    def execute_batch_graduate(self):
+        room = self.combo_grad_room.get()
+        grad_year = self.entry_grad_academic_year.get().strip()
+        if not room or room == "- ยังไม่มีห้องเรียน -":
+            messagebox.showwarning("คำเตือน", "กรุณาเลือกห้องเรียนที่ต้องการบันทึกจบการศึกษา", parent=self)
+            return
+        if not grad_year:
+            messagebox.showwarning("คำเตือน", "กรุณาระบุปีการศึกษาที่จบ (เช่น 2568)", parent=self)
+            return
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name FROM staff_members WHERE role = 'student' AND class_room = ? AND (status = 'active' OR status IS NULL OR status = '')", (room,))
+            stds = cursor.fetchall()
+
+        if not stds:
+            messagebox.showinfo("ไม่พบนักเรียน", f"ไม่พบนักเรียนที่มีสถานะกำลังศึกษาในห้อง '{room}'", parent=self)
+            return
+
+        confirm = messagebox.askyesno(
+            "ยืนยันการบันทึกจบการศึกษา",
+            f"คุณต้องการบันทึกจบการศึกษานักเรียนห้อง '{room}' จำนวน {len(stds)} คน\nปีการศึกษาที่จบ: {grad_year} ใช่หรือไม่?",
+            parent=self
+        )
+        if not confirm:
+            return
+
+        try:
+            ids = [s[0] for s in stds]
+            updated_count = self.db.batch_update_student_status(ids, 'graduated', grad_year)
+            self.refresh_stats()
+            self.parent.load_student_list(refresh_db=True)
+            messagebox.showinfo("สำเร็จ", f"บันทึกจบการศึกษานักเรียนห้อง '{room}' สำเร็จแล้วจำนวน {updated_count} คน", parent=self)
+        except Exception as e:
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถบันทึกจบการศึกษาได้: {e}", parent=self)
+
+    def execute_batch_promote(self):
+        src_room = self.combo_promote_src.get()
+        dst_room = self.entry_promote_dst.get().strip()
+        if not src_room or src_room == "- ยังไม่มีห้องเรียน -":
+            messagebox.showwarning("คำเตือน", "กรุณาเลือกห้องเรียนเดิม", parent=self)
+            return
+        if not dst_room:
+            messagebox.showwarning("คำเตือน", "กรุณาระบุห้องเรียนใหม่ที่จะเลื่อนไป", parent=self)
+            return
+        if src_room == dst_room:
+            messagebox.showwarning("คำเตือน", "ห้องเรียนใหม่ต้องไม่ตรงกับห้องเรียนเดิม", parent=self)
+            return
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(id) FROM staff_members WHERE role = 'student' AND class_room = ? AND (status = 'active' OR status IS NULL OR status = '')", (src_room,))
+            cnt = cursor.fetchone()[0]
+
+        if cnt == 0:
+            messagebox.showinfo("ไม่พบนักเรียน", f"ไม่พบนักเรียนที่กำลังศึกษาในห้อง '{src_room}'", parent=self)
+            return
+
+        confirm = messagebox.askyesno(
+            "ยืนยันการเลื่อนชั้น",
+            f"คุณต้องการเลื่อนชั้นนักเรียนห้อง '{src_room}' (จำนวน {cnt} คน)\nไปยังห้องใหม่ '{dst_room}' ใช่หรือไม่?",
+            parent=self
+        )
+        if not confirm:
+            return
+
+        try:
+            promoted_cnt = self.db.batch_promote_students(src_room, dst_room)
+            self.refresh_stats()
+            new_rooms = self.db.get_student_classrooms() or ["- ยังไม่มีห้องเรียน -"]
+            self.combo_grad_room.configure(values=new_rooms)
+            self.combo_promote_src.configure(values=new_rooms)
+            self.parent.load_student_list(refresh_db=True)
+            messagebox.showinfo("สำเร็จ", f"เลื่อนชั้นนักเรียนจากห้อง '{src_room}' ไปยัง '{dst_room}' สำเร็จ {promoted_cnt} คน", parent=self)
+        except Exception as e:
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเลื่อนชั้นได้: {e}", parent=self)
 
 class FaceSearchApp(ctk.CTk):
     def __init__(self):
@@ -675,7 +878,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.28 (Blazing Fast UI & SQLite WAL Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.29 (Student Lifecycle & Graduation Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -780,7 +983,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.28",
+            text="FACE MATCHING\nSYSTEM v6.29",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1410,31 +1613,70 @@ class FaceSearchApp(ctk.CTk):
             self.frame_student_registry, text="ลงทะเบียนใบหน้านักเรียน",
             font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
         )
-        lbl_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 20))
+
+        # ปุ่มเปิดหน้าต่างบริหารวงจรชีวิตนักเรียน (เลื่อนชั้น / บันทึกจบการศึกษา) (v6.29)
+        btn_lifecycle_header = ctk.CTkButton(
+            self.frame_student_registry,
+            text="🎓 จัดการเลื่อนชั้น / บันทึกจบการศึกษา",
+            height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#8E44AD",
+            hover_color="#7D3C98",
+            command=self.open_student_lifecycle_dialog
+        )
+        btn_lifecycle_header.grid(row=0, column=1, sticky="e", pady=(0, 20))
 
         # ซีกซ้าย: รายชื่อนักเรียนที่ลงทะเบียนไว้
         self.student_list_frame = ctk.CTkFrame(self.frame_student_registry, fg_color="#101B2B")
         self.student_list_frame.grid(row=1, column=0, padx=(0, 10), sticky="nsew")
-        self.student_list_frame.grid_rowconfigure(2, weight=1)
+        self.student_list_frame.grid_rowconfigure(3, weight=1)
         self.student_list_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self.student_list_frame, text="รายชื่อนักเรียนที่บันทึกแล้ว", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=12, sticky="w")
+        ctk.CTkLabel(self.student_list_frame, text="รายชื่อนักเรียนที่บันทึกแล้ว", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=(12, 6), sticky="w")
 
         # ช่องค้นหานักเรียน
         student_search_frame = ctk.CTkFrame(self.student_list_frame, fg_color="transparent")
-        student_search_frame.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
+        student_search_frame.grid(row=1, column=0, padx=10, pady=(0, 6), sticky="ew")
         student_search_frame.grid_columnconfigure(0, weight=1)
 
-        self.entry_student_search = ctk.CTkEntry(student_search_frame, placeholder_text="🔍 ค้นหารหัส หรือชื่อนักเรียน...", height=36, font=ctk.CTkFont(size=14))
+        self.entry_student_search = ctk.CTkEntry(student_search_frame, placeholder_text="🔍 ค้นหารหัส, ชื่อ หรือห้อง...", height=36, font=ctk.CTkFont(size=14))
         self.entry_student_search.grid(row=0, column=0, sticky="ew")
         self.entry_student_search.bind("<KeyRelease>", lambda event: self.filter_student_list())
 
         btn_clear_student_search = ctk.CTkButton(student_search_frame, text="✕", width=34, height=36, font=ctk.CTkFont(size=14, weight="bold"), fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_student_search)
         btn_clear_student_search.grid(row=0, column=1, padx=(5, 0))
 
+        # แถบตัวกรองสถานะ และห้องเรียน (v6.29 Student Lifecycle Filter Bar)
+        student_filter_frame = ctk.CTkFrame(self.student_list_frame, fg_color="transparent")
+        student_filter_frame.grid(row=2, column=0, padx=10, pady=(0, 8), sticky="ew")
+        student_filter_frame.grid_columnconfigure(0, weight=1)
+
+        self.student_status_segmented = ctk.CTkSegmentedButton(
+            student_filter_frame,
+            values=["กำลังศึกษา", "จบแล้ว", "ทั้งหมด"],
+            font=ctk.CTkFont(size=12, weight="bold"),
+            selected_color="#1F3A60",
+            selected_hover_color="#20334F",
+            command=lambda v: self.filter_student_list(immediate=True)
+        )
+        self.student_status_segmented.set("กำลังศึกษา")
+        self.student_status_segmented.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        self.option_student_classroom = ctk.CTkOptionMenu(
+            student_filter_frame,
+            values=["ห้อง: ทั้งหมด"],
+            width=130,
+            height=30,
+            font=ctk.CTkFont(size=12),
+            command=lambda v: self.filter_student_list(immediate=True)
+        )
+        self.option_student_classroom.set("ห้อง: ทั้งหมด")
+        self.option_student_classroom.pack(side="right")
+
         # Listbox แสดงรายชื่อ
         self.student_list_scrollable = ctk.CTkScrollableFrame(self.student_list_frame, fg_color="transparent")
-        self.student_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.student_list_scrollable.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
         self.selected_student_id = None
         self.selected_student_name = None
@@ -1466,7 +1708,15 @@ class FaceSearchApp(ctk.CTk):
         self.entry_student_name = ctk.CTkEntry(name_input_frame, placeholder_text="กรอกชื่อนักเรียน (เช่น นายรักเรียน มัธยม1)", height=36, font=ctk.CTkFont(size=14))
         self.entry_student_name.pack(side="left", fill="x", expand=True, padx=(5, 10))
 
-        btn_add_student = ctk.CTkButton(name_input_frame, text="เพิ่มชื่อ", width=95, height=36, font=ctk.CTkFont(size=14, weight="bold"), command=self.add_student_name)
+        # ฟิลด์ระดับชั้น/ห้องเรียน (v6.29)
+        class_input_frame = ctk.CTkFrame(self.student_form_frame, fg_color="transparent")
+        class_input_frame.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(class_input_frame, text="ระดับชั้น/ห้อง:", font=ctk.CTkFont(size=14), text_color="#A2B5CD", width=120, anchor="w").pack(side="left")
+        self.entry_student_classroom = ctk.CTkEntry(class_input_frame, placeholder_text="เช่น ม.1/1, ม.4/2 (ใส่หรือไม่ก็ได้)", height=36, font=ctk.CTkFont(size=14))
+        self.entry_student_classroom.pack(side="left", fill="x", expand=True, padx=(5, 10))
+
+        btn_add_student = ctk.CTkButton(class_input_frame, text="เพิ่มชื่อ", width=95, height=36, font=ctk.CTkFont(size=14, weight="bold"), command=self.add_student_name)
         btn_add_student.pack(side="right")
 
         # ปุ่มนำเข้าจาก Google Sheets
@@ -1539,6 +1789,10 @@ class FaceSearchApp(ctk.CTk):
         self.student_buttons = {}
         self.selected_student_id = None
         self.selected_student_name = None
+        self.selected_student_code = None
+        self.selected_student_classroom = ""
+        self.selected_student_status = "active"
+        self.selected_student_grad_year = ""
         self.btn_upload_student_photo.configure(state="disabled")
         if hasattr(self, 'btn_edit_student'):
             self.btn_edit_student.configure(state="disabled")
@@ -1550,44 +1804,71 @@ class FaceSearchApp(ctk.CTk):
         if hasattr(self, 'entry_student_search'):
             search_term = self.entry_student_search.get().strip().lower()
 
+        status_val = self.student_status_segmented.get() if hasattr(self, 'student_status_segmented') else "กำลังศึกษา"
+        class_val = self.option_student_classroom.get() if hasattr(self, 'option_student_classroom') else "ห้อง: ทั้งหมด"
+
         if refresh_db or getattr(self, '_cached_students_list', None) is None:
-            self._cached_students_list = self.db.get_all_students()
+            self._cached_students_list = self.db.get_all_students(status_filter='all')
+            if hasattr(self, 'option_student_classroom'):
+                current_rooms = self.db.get_student_classrooms()
+                room_values = ["ห้อง: ทั้งหมด"] + current_rooms
+                self.option_student_classroom.configure(values=room_values)
+
         students = self._cached_students_list
         rendered_count = 0
         for idx, s in enumerate(students):
+            st_status = s.get('status', 'active')
+            if status_val == "กำลังศึกษา" and st_status != 'active':
+                continue
+            elif status_val == "จบแล้ว" and st_status != 'graduated':
+                continue
+
+            st_room = s.get('class_room', '')
+            if class_val and class_val != "ห้อง: ทั้งหมด":
+                if st_room != class_val:
+                    continue
+
             if search_term:
                 name_match = search_term in s['name'].lower()
                 id_match = s['student_id'] and (search_term in s['student_id'].lower())
-                if not (name_match or id_match):
+                room_match = st_room and (search_term in st_room.lower())
+                if not (name_match or id_match or room_match):
                     continue
             
             if rendered_count >= 100:
-                # Add a label indicating there are more results
                 lbl_more = ctk.CTkLabel(self.student_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=13, slant="italic"))
                 lbl_more.pack(pady=5)
                 break
             
             rendered_count += 1
 
-            # สร้างเฟรมแถวรายชื่อนักเรียนแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
             row_frame = ctk.CTkFrame(self.student_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)
 
+            status_tag = ""
+            if st_status == 'graduated':
+                grad_yr = f" จบปี {s['graduation_year']}" if s.get('graduation_year') else " จบแล้ว"
+                status_tag = f" • 🎓{grad_yr}"
+            elif st_status == 'inactive':
+                status_tag = " • ⚪ ลาออก"
+
+            room_str = f" ({st_room})" if st_room else ""
+            btn_text = f"{s['name']} [{s['student_id']}]{room_str}{status_tag} ({s['photo_count']} รูป)"
+
             btn = ctk.CTkButton(
                 row_frame,
-                text=f"{s['name']} [{s['student_id']}] ({s['photo_count']} รูปภาพ)",
+                text=btn_text,
                 anchor="w",
                 height=34,
-                font=ctk.CTkFont(size=14),
+                font=ctk.CTkFont(size=13),
                 fg_color="transparent",
-                text_color="#A2B5CD",
+                text_color="#A2B5CD" if st_status == 'active' else "#85929E",
                 hover_color="#1F3A60",
-                command=lambda sid=s['id'], sname=s['name'], scode=s['student_id'], scnt=s['photo_count']: self.select_student_item(sid, sname, scode, scnt)
+                command=lambda sid=s['id'], sname=s['name'], scode=s['student_id'], scnt=s['photo_count'], sroom=st_room, sstat=st_status, sgy=s.get('graduation_year', ''): self.select_student_item(sid, sname, scode, scnt, sroom, sstat, sgy)
             )
             btn.pack(side="left", fill="x", expand=True)
             self.student_buttons[s['id']] = btn
 
-            # ปุ่มกากบาทสีแดงสำหรับการลบข้อมูลนักเรียนอย่างรวดเร็ว (Quick Delete)
             btn_delete_x = ctk.CTkButton(
                 row_frame,
                 text="❌",
@@ -1624,10 +1905,13 @@ class FaceSearchApp(ctk.CTk):
             self.entry_student_search.delete(0, "end")
             self.load_student_list(refresh_db=False)
 
-    def select_student_item(self, student_id, student_name, student_code, photo_count):
+    def select_student_item(self, student_id, student_name, student_code, photo_count, classroom='', status='active', grad_year=''):
         self.selected_student_id = student_id
         self.selected_student_name = student_name
         self.selected_student_code = student_code
+        self.selected_student_classroom = classroom
+        self.selected_student_status = status
+        self.selected_student_grad_year = grad_year
         self.selected_student_thumb_paths = set()
 
         # ไฮไลต์ปุ่มที่ถูกเลือก
@@ -1637,7 +1921,9 @@ class FaceSearchApp(ctk.CTk):
             else:
                 btn.configure(fg_color="transparent", text_color="#A2B5CD")
 
-        self.lbl_student_selected_info.configure(text=f"นักเรียนที่เลือก: {student_name} (รหัส: {student_code})")
+        status_display = "🟢 กำลังศึกษา" if status == 'active' else (f"🎓 จบการศึกษา ({grad_year})" if status == 'graduated' else "⚪ ลาออก/พักการเรียน")
+        room_display = f"ห้อง: {classroom}" if classroom else "ห้อง: ไม่ระบุ"
+        self.lbl_student_selected_info.configure(text=f"นักเรียนที่เลือก: {student_name} (รหัส: {student_code}) • {room_display} • {status_display}")
         self.lbl_student_photo_count_detail.configure(text=f"รูปภาพที่ลงทะเบียนแล้วในระบบ: {photo_count} รูป")
 
         self.btn_upload_student_photo.configure(state="normal")
@@ -1652,6 +1938,7 @@ class FaceSearchApp(ctk.CTk):
     def add_student_name(self):
         name = self.entry_student_name.get().strip()
         student_code = self.entry_student_id.get().strip()
+        classroom = self.entry_student_classroom.get().strip() if hasattr(self, 'entry_student_classroom') else ""
 
         if not name:
             messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อนักเรียน")
@@ -1666,12 +1953,14 @@ class FaceSearchApp(ctk.CTk):
             messagebox.showerror("ข้อผิดพลาด", f"รหัสประจำตัว {student_code} ถูกใช้ไปแล้ว")
             return
 
-        student_id = self.db.register_member(name, role='student', student_id=student_code)
+        student_id = self.db.register_member(name, role='student', student_id=student_code, class_room=classroom, status='active')
         if student_id:
-            logger.info(f"Registered new student '{name}' (ID: {student_code}) successfully.")
+            logger.info(f"Registered new student '{name}' (ID: {student_code}, Room: {classroom}) successfully.")
             self.entry_student_name.delete(0, "end")
             self.entry_student_id.delete(0, "end")
-            self.load_student_list()
+            if hasattr(self, 'entry_student_classroom'):
+                self.entry_student_classroom.delete(0, "end")
+            self.load_student_list(refresh_db=True)
         else:
             messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเพิ่มรายชื่อได้")
 
@@ -1729,49 +2018,81 @@ class FaceSearchApp(ctk.CTk):
             ))
 
     def edit_selected_student(self):
-        """แก้ไขชื่อและรหัสประจำตัวนักเรียน (v5.30)"""
+        """แก้ไขชื่อ รหัสประจำตัว ห้องเรียน และสถานะนักเรียน (v6.29)"""
         if self.selected_student_id is None:
             return
 
         student_id = self.selected_student_id
         old_name = self.selected_student_name or ""
         old_code = self.selected_student_code or ""
+        old_classroom = getattr(self, 'selected_student_classroom', '') or ""
+        old_status = getattr(self, 'selected_student_status', 'active') or "active"
+        old_grad_year = getattr(self, 'selected_student_grad_year', '') or ""
 
         # สร้างหน้าต่าง Popup Dialog
         dialog = ctk.CTkToplevel(self)
         dialog.title("แก้ไขข้อมูลนักเรียน")
-        dialog.geometry("450x260")
+        dialog.geometry("480x420")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
 
         # จัดกึ่งกลางหน้าจอหลัก
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 225
-        y = self.winfo_y() + (self.winfo_height() // 2) - 130
+        x = self.winfo_x() + (self.winfo_width() // 2) - 240
+        y = self.winfo_y() + (self.winfo_height() // 2) - 210
         dialog.geometry(f"+{x}+{y}")
 
-        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลนักเรียน", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
+        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลนักเรียน (v6.29)", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
 
         # รหัสประจำตัว
         frame_id = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame_id.pack(fill="x", padx=25, pady=5)
-        ctk.CTkLabel(frame_id, text="รหัสประจำตัว:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
+        frame_id.pack(fill="x", padx=25, pady=4)
+        ctk.CTkLabel(frame_id, text="รหัสประจำตัว:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=110, anchor="w").pack(side="left")
         entry_code = ctk.CTkEntry(frame_id, height=34, font=ctk.CTkFont(size=13))
         entry_code.pack(side="left", fill="x", expand=True)
         entry_code.insert(0, old_code)
 
         # ชื่อ-นามสกุล
         frame_name = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame_name.pack(fill="x", padx=25, pady=5)
-        ctk.CTkLabel(frame_name, text="ชื่อ-นามสกุล:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=100, anchor="w").pack(side="left")
+        frame_name.pack(fill="x", padx=25, pady=4)
+        ctk.CTkLabel(frame_name, text="ชื่อ-นามสกุล:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=110, anchor="w").pack(side="left")
         entry_name = ctk.CTkEntry(frame_name, height=34, font=ctk.CTkFont(size=13))
         entry_name.pack(side="left", fill="x", expand=True)
         entry_name.insert(0, old_name)
 
+        # ระดับชั้น / ห้องเรียน
+        frame_class = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_class.pack(fill="x", padx=25, pady=4)
+        ctk.CTkLabel(frame_class, text="ห้องเรียน:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=110, anchor="w").pack(side="left")
+        entry_classroom = ctk.CTkEntry(frame_class, height=34, font=ctk.CTkFont(size=13))
+        entry_classroom.pack(side="left", fill="x", expand=True)
+        entry_classroom.insert(0, old_classroom)
+
+        # สถานะการศึกษา
+        frame_status = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_status.pack(fill="x", padx=25, pady=4)
+        ctk.CTkLabel(frame_status, text="สถานะ:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=110, anchor="w").pack(side="left")
+        status_map = {"active": "กำลังศึกษา (active)", "graduated": "จบการศึกษาแล้ว (graduated)", "inactive": "ลาออก/พักการเรียน (inactive)"}
+        reverse_status_map = {v: k for k, v in status_map.items()}
+        combo_status = ctk.CTkOptionMenu(frame_status, values=list(status_map.values()), height=34)
+        combo_status.pack(side="left", fill="x", expand=True)
+        combo_status.set(status_map.get(old_status, "กำลังศึกษา (active)"))
+
+        # ปีการศึกษาที่จบ
+        frame_grad = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_grad.pack(fill="x", padx=25, pady=4)
+        ctk.CTkLabel(frame_grad, text="ปีที่จบ:", font=ctk.CTkFont(size=13), text_color="#A2B5CD", width=110, anchor="w").pack(side="left")
+        entry_grad = ctk.CTkEntry(frame_grad, height=34, font=ctk.CTkFont(size=13))
+        entry_grad.pack(side="left", fill="x", expand=True)
+        entry_grad.insert(0, old_grad_year)
+
         def save_edit():
             new_name = entry_name.get().strip()
             new_code = entry_code.get().strip()
+            new_classroom = entry_classroom.get().strip()
+            new_status_key = reverse_status_map.get(combo_status.get(), "active")
+            new_grad = entry_grad.get().strip()
 
             if not new_name:
                 messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อ-นามสกุล", parent=dialog)
@@ -1781,16 +2102,22 @@ class FaceSearchApp(ctk.CTk):
                 messagebox.showwarning("คำเตือน", "กรุณากรอกรหัสประจำตัวนักเรียน", parent=dialog)
                 return
 
-            success, msg = self.db.update_student_info(student_id, new_name, new_code)
+            success, msg = self.db.update_student_info(
+                student_id, new_name, new_code, 
+                status=new_status_key, class_room=new_classroom, graduation_year=new_grad
+            )
             if success:
-                logger.info(f"[SYSTEM] Student ID {student_id} updated to '{new_name}' (Code: {new_code})")
+                logger.info(f"[SYSTEM] Student ID {student_id} updated to '{new_name}' (Code: {new_code}, Room: {new_classroom}, Status: {new_status_key})")
                 dialog.destroy()
                 
                 # รีเฟรชข้อมูลในหน่วยความจำและหน้าจอ
                 self.selected_student_name = new_name
                 self.selected_student_code = new_code
-                self.load_student_list()
-                self.select_student_item(student_id, new_name, new_code, len(self.selected_student_thumb_paths or []))
+                self.selected_student_classroom = new_classroom
+                self.selected_student_status = new_status_key
+                self.selected_student_grad_year = new_grad
+                self.load_student_list(refresh_db=True)
+                self.select_student_item(student_id, new_name, new_code, len(self.selected_student_thumb_paths or []), new_classroom, new_status_key, new_grad)
                 
                 # ซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive อัตโนมัติ
                 def sync_drive():
@@ -2092,12 +2419,16 @@ class FaceSearchApp(ctk.CTk):
             logger.error(f"Error deleting student photo: {e}")
             messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการลบรูป: {e}")
 
+    def open_student_lifecycle_dialog(self):
+        """เปิด Dialog จัดการวงจรชีวิตนักเรียน (เลื่อนชั้น / บันทึกจบการศึกษา) (v6.29)"""
+        StudentLifecycleDialog(self)
+
     def open_sheets_import_dialog(self):
         """เปิด Dialog ตั้งค่าการนำเข้าจาก Google Sheets"""
         SheetsImportDialog(self, callback=self.batch_import_from_sheets)
 
     def batch_import_from_sheets(self, settings):
-        """นำเข้านักเรียนจาก Google Sheets พร้อมตรวจสอบข้อมูลเดิม"""
+        """นำเข้านักเรียนจาก Google Sheets พร้อมตรวจสอบข้อมูลเดิมและการผูกห้องเรียน (v6.29)"""
         def process_import():
             try:
                 sheet_id = settings["sheet_id"]
@@ -2121,6 +2452,8 @@ class FaceSearchApp(ctk.CTk):
                 }
                 col_id = col_map.get(settings["col_id"], 0)
                 col_name = col_map.get(settings["col_name"], 1)
+                col_class_char = settings.get("col_class")
+                col_class = col_map.get(col_class_char, None) if col_class_char and col_class_char != "- ไม่ระบุ -" else None
                 col_img1 = col_map.get(settings["col_img1"], 3)
                 col_img2 = col_map.get(settings["col_img2"], 4)
                 col_img3 = col_map.get(settings["col_img3"], 5)
@@ -2136,6 +2469,7 @@ class FaceSearchApp(ctk.CTk):
 
                     student_code = row[col_id].strip() if col_id < len(row) else ""
                     student_name = row[col_name].strip() if col_name < len(row) else ""
+                    student_classroom = row[col_class].strip() if col_class is not None and col_class < len(row) else ""
 
                     if not student_code or not student_name:
                         continue
@@ -2147,14 +2481,14 @@ class FaceSearchApp(ctk.CTk):
                         if url and url != "-":
                             photo_urls.append((chr(65 + col_idx), url))
 
-
-
                     if not photo_urls:
                         continue
 
                     key = (student_code, student_name)
                     if key not in student_dict:
-                        student_dict[key] = {"photos": photo_urls}
+                        student_dict[key] = {"photos": photo_urls, "classroom": student_classroom}
+                    elif student_classroom and not student_dict[key].get("classroom"):
+                        student_dict[key]["classroom"] = student_classroom
 
                 logger.info(f"Found {len(student_dict)} students from sheet")
 
@@ -2174,17 +2508,22 @@ class FaceSearchApp(ctk.CTk):
                     try:
                         # ตรวจสอบว่ามีข้อมูลอยู่แล้วหรือไม่
                         existing = self.db.find_student_by_code_and_name(student_code, student_name)
+                        st_classroom = data.get("classroom", "")
 
                         if existing is None:
-                            # กรณีที่ 1: ไม่มีข้อมูล → บันทึกใหม่
-                            student_id = self.db.register_member(student_name, role='student', student_id=student_code)
+                            # กรณีที่ 1: ไม่มีข้อมูล → บันทึกใหม่พร้อมห้องเรียนและสถานะ active
+                            student_id = self.db.register_member(student_name, role='student', student_id=student_code, class_room=st_classroom, status='active')
                             is_new = True
-                            logger.info(f"New student: {student_name} (ID: {student_code}, DB ID: {student_id})")
+                            logger.info(f"New student: {student_name} (ID: {student_code}, Room: {st_classroom}, DB ID: {student_id})")
                         else:
-                            # กรณีที่ 2-3: มีข้อมูลอยู่แล้ว → ใช้ ID เดิม
+                            # กรณีที่ 2-3: มีข้อมูลอยู่แล้ว → ใช้ ID เดิมและอัปเดตสถานะเป็น active พร้อมห้องใหม่
                             student_id = existing["id"]
                             is_new = False
-                            logger.info(f"Existing student: {student_name} (ID: {student_code}, DB ID: {student_id})")
+                            if st_classroom:
+                                self.db.update_student_info(student_id, student_name, student_code, status='active', class_room=st_classroom)
+                            else:
+                                self.db.update_student_info(student_id, student_name, student_code, status='active')
+                            logger.info(f"Existing student: {student_name} (ID: {student_code}, Room: {st_classroom}, DB ID: {student_id})")
 
                         if not student_id:
                             logger.error(f"Cannot resolve DB student_id for {student_name} (Student Code: {student_code})")
@@ -5777,8 +6116,12 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
-                # ตาราง staff_members (นักเรียน)
-                sort_col_map = {"id": "ts.id", "name": "ts.name", "student_id": "ts.student_id", "photos": "photos"}
+                # ตาราง staff_members (นักเรียน) — v6.29 เพิ่ม class_room, status, graduation_year
+                sort_col_map = {
+                    "id": "ts.id", "name": "ts.name", "student_id": "ts.student_id",
+                    "class_room": "ts.class_room", "status": "ts.status",
+                    "graduation_year": "ts.graduation_year", "photos": "photos"
+                }
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
 
                 if search_query:
@@ -5786,52 +6129,68 @@ class FaceSearchApp(ctk.CTk):
                         SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE s.role = 'student'
-                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR COALESCE(s.class_room, '') LIKE ? OR COALESCE(s.status, '') LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
 
                     cursor.execute(f"""
                         WITH top_students AS (
                             SELECT s.id, s.name, s.student_id,
+                                   COALESCE(s.class_room, '') as class_room,
+                                   COALESCE(s.status, 'active') as status,
+                                   COALESCE(s.graduation_year, '') as graduation_year,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'student'
-                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ?)
+                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR s.student_id LIKE ? OR COALESCE(s.class_room, '') LIKE ? OR COALESCE(s.status, '') LIKE ?)
                         )
-                        SELECT ts.id, ts.name, ts.student_id, ts.photos
+                        SELECT ts.id, ts.name, ts.student_id, ts.class_room, ts.status, ts.graduation_year, ts.photos
                         FROM top_students ts
                         {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     total_rows = get_total_rows("SELECT COUNT(*) FROM staff_members WHERE role = 'student'")
 
                     cursor.execute(f"""
                         WITH top_students AS (
                             SELECT s.id, s.name, s.student_id,
+                                   COALESCE(s.class_room, '') as class_room,
+                                   COALESCE(s.status, 'active') as status,
+                                   COALESCE(s.graduation_year, '') as graduation_year,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'student'
                         )
-                        SELECT ts.id, ts.name, ts.student_id, ts.photos
+                        SELECT ts.id, ts.name, ts.student_id, ts.class_room, ts.status, ts.graduation_year, ts.photos
                         FROM top_students ts
                         {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("id", "name", "student_id", "photos")
-                self.db_tree.column("id", width=80, anchor="center")
-                self.db_tree.column("name", width=250, anchor="w")
-                self.db_tree.column("student_id", width=150, anchor="center")
-                self.db_tree.column("photos", width=120, anchor="center")
+                self.db_tree["columns"] = ("id", "name", "student_id", "class_room", "status", "graduation_year", "photos")
+                self.db_tree.column("id", width=60, anchor="center")
+                self.db_tree.column("name", width=220, anchor="w")
+                self.db_tree.column("student_id", width=110, anchor="center")
+                self.db_tree.column("class_room", width=90, anchor="center")
+                self.db_tree.column("status", width=110, anchor="center")
+                self.db_tree.column("graduation_year", width=90, anchor="center")
+                self.db_tree.column("photos", width=100, anchor="center")
                 
                 set_tree_heading("id", "ID")
                 set_tree_heading("name", "ชื่อ-นามสกุล นักเรียน")
                 set_tree_heading("student_id", "รหัสประจำตัว")
-                set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
+                set_tree_heading("class_room", "ห้องเรียน")
+                set_tree_heading("status", "สถานะ")
+                set_tree_heading("graduation_year", "ปีที่จบ")
+                set_tree_heading("photos", "รูปที่ลงทะเบียน (รูป)")
                 
+                status_th_map = {"active": "🟢 กำลังศึกษา", "graduated": "🎓 จบการศึกษา", "inactive": "⚪ ย้าย/พัก"}
                 for r in rows:
-                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
+                    formatted_row = list(r)
+                    if len(formatted_row) >= 5:
+                        formatted_row[4] = status_th_map.get(formatted_row[4], formatted_row[4])
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in formatted_row])
                     
             elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:
                 # ตารางภาพที่ไม่พบใบหน้าคน (0 Faces เช่น สิ่งของ/ป้าย/วิว) — v6.28 ใช้ COALESCE(p.total_faces_detected, 0) = 0 แทน Correlated Subquery
@@ -6271,14 +6630,16 @@ class FaceSearchApp(ctk.CTk):
                     
                 elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
                     cursor.execute("""
-                        SELECT s.id, s.name, s.student_id, COUNT(e.id)
+                        SELECT s.id, s.name, s.student_id, COALESCE(s.class_room, ''),
+                               COALESCE(s.status, 'active'), COALESCE(s.graduation_year, ''),
+                               COUNT(e.id)
                         FROM staff_members s
                         LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                         WHERE s.role = 'student'
-                        GROUP BY s.id, s.name, s.student_id
+                        GROUP BY s.id, s.name, s.student_id, s.class_room, s.status, s.graduation_year
                         ORDER BY s.id ASC
                     """)
-                    writer.writerow(["ID", "ชื่อ-นามสกุล นักเรียน", "รหัสประจำตัว", "จำนวนรูปที่บันทึก"])
+                    writer.writerow(["ID", "ชื่อ-นามสกุล นักเรียน", "รหัสประจำตัว", "ห้องเรียน", "สถานะ", "ปีการศึกษาที่จบ", "จำนวนรูปที่บันทึก"])
                     writer.writerows(cursor.fetchall())
                     
                 elif "0 Faces" in selected_table_text or "ไม่พบใบหน้าคน" in selected_table_text or "ยังไม่มีแคชใบหน้า" in selected_table_text:

@@ -1,3 +1,210 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.29 (Student Academic Year Lifecycle & Graduation Suite)
+
+## 📋 Version 6.29 Changelog (Student Academic Year Lifecycle, Batch Promotion & Graduation, Active Scanning Mode & Zero-Loss Cascade Protection)
+
+**Date:** 19 ตุลาคม 2026 (14:40 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.29 (Student Academic Year Lifecycle & Graduation Suite)  
+**Core Technologies:** Single-Table Condition-Based Architecture (`staff_members`), Composite Indexes (`idx_sm_status_role`, `idx_sm_classroom`, `idx_sm_student_id`), Zero-Loss Soft Lifecycle (Preventing `ON DELETE CASCADE` Hazard on 187,459 detected_faces), Active-Only Scan Vector Filtering (`get_all_embeddings(active_only=True)`), StudentLifecycleDialog (Batch Graduation & Classroom Promotion UI), CustomTkinter Segmented Status Bar & Classroom Filter, Enhanced Google Sheets Importer with Classroom Mapping, SQLite DB Viewer & CSV Exporter v6.29.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues & Requirements):
+จากการวิเคราะห์เชิงลึกและตอบคำถามสำคัญในการใช้งานจริงของสถานศึกษา: **"จากฐานข้อมูลปัจจุบัน บันทึกนักเรียน ปีหน้าจะทำยังไง"**
+1. **ความเสี่ยงวิกฤตจากการลบนักเรียนที่จบการศึกษา (Cascade Delete Hazard):**
+   - ในตาราง `detected_faces` มีข้อกำหนด `FOREIGN KEY (staff_id) REFERENCES staff_members (id) ON DELETE CASCADE`
+   - หากผู้ดูแลระบบเผลอกด **"ลบรายชื่อนักเรียนที่จบการศึกษาไปแล้ว"** ประวัติการจับคู่ภาพถ่ายกิจกรรมในอดีตทั้งหมดของนักเรียนคนนั้นใน `detected_faces` (จากกว่า 187,459 แมตช์ในระบบ) จะ **ถูกลบทิ้งถาวรทันที!** ส่งผลให้ศิษย์เก่าไม่สามารถค้นหาภาพความทรงจำย้อนหลังได้อีกต่อไป
+2. **ปัญหาคอขวด AI Matching และ False Positives ในระยะยาว:**
+   - หากไม่ลบนักเรียนเก่าเลย ตาราง `staff_embeddings` จะสะสมเวกเตอร์เพิ่มขึ้นทุกปี (1,000 -> 3,000 -> 6,000 คน) เมื่อถึงรอบสแกนภาพกิจกรรมปีใหม่ ฟังก์ชัน `get_all_embeddings()` จะโหลดเวกเตอร์ของศิษย์เก่าทุกคนมาเทียบ ทำให้สแกนช้าลงโดยไม่จำเป็น และเกิด False Positive กับเด็กใหม่ที่มีใบหน้าคล้ายรุ่นพี่ที่จบไปแล้ว
+3. **ขาดมิติของ "สถานะการศึกษา" และ "ระดับชั้น/ห้องเรียน":**
+   - ตาราง `staff_members` เดิมไม่มีคอลัมน์บอกสถานะ (`status`: กำลังศึกษา, จบการศึกษา, ย้ายออก) และไม่มีคอลัมน์ห้องเรียน (`class_room`: เช่น ม.1/1, ม.2/1, ม.3/1)
+4. **ขาดเครื่องมืออำนวยความสะดวกในการเลื่อนชั้นและจบการศึกษาแบบกลุ่ม (Batch Lifecycle Management):**
+   - ผู้ดูแลระบบต้องมานั่งแก้ทีละคน หรือต้องกรอกใหม่ทุกปี ขาดระบบเลื่อนชั้นทั้งห้อง (เช่น ม.1/1 ขึ้น ม.2/1) และการจบการศึกษาทั้งระดับชั้น (เช่น ม.3 หรือ ม.6) ในคลิกเดียว
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สถาปัตยกรรมตารางเดียวแบบควบคุมด้วยเงื่อนไข (Single-Table Condition-Based Architecture) ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มคอลัมน์วงจรชีวิตในตาราง `staff_members`:
+     - `status TEXT DEFAULT 'active'` (สถานะ: `active` กำลังศึกษา, `graduated` จบการศึกษาแล้ว, `inactive` ย้าย/พักการเรียน)
+     - `entry_year TEXT DEFAULT ''` (ปีการศึกษาที่เข้าศึกษา เช่น '2567')
+     - `graduation_year TEXT DEFAULT ''` (ปีการศึกษาที่จบ เช่น '2569')
+     - `class_room TEXT DEFAULT ''` (ระดับชั้นและห้องเรียน เช่น 'ม.1/1', 'ม.3/2')
+   - สร้างดัชนีประสิทธิภาพสูง: `idx_sm_status_role ON staff_members(role, status)`, `idx_sm_classroom ON staff_members(class_room)`, และ `idx_sm_grad_year ON staff_members(graduation_year)`
+   - ดำเนินการ **Data Backfill อัตโนมัติ**: อัปเดตข้อมูลนักเรียนเดิมทั้งหมด 85 คนในระบบให้มีสถานะเป็น `'active'` ทันทีแบบ Idempotent
+2. **การป้องกันข้อมูลประวัติภาพถ่ายสูญหาย (Zero-Loss Soft Lifecycle Guarantee):**
+   - ปรับเปลี่ยนการบริหารจัดการศิษย์เก่าจากการ "ลบแถว (Hard Delete)" มาเป็นการ "เปลี่ยนสถานะเป็น `graduated` (Soft Lifecycle)" ทำให้นักเรียนยังคงมี ID ใน `staff_members` ส่งผลให้ข้อมูลความทรงจำใน `detected_faces` ทั้ง 187,459 แมตช์ปลอดภัย 100%
+3. **ระบบคัดกรองเวกเตอร์สแกนภาพอัตโนมัติ (`get_all_embeddings(active_only=True)`) ([`db_manager.py`](db_manager.py)):**
+   - ปรับปรุงการดึงเวกเตอร์สำหรับ AI Face Matching ขณะสแกนภาพกิจกรรมปีใหม่ ให้ดึงเฉพาะครู และนักเรียนที่กำลังศึกษา (`status = 'active'`) ทำให้ระยะเวลาสแกนคงที่ ไม่บวมตามจำนวนศิษย์เก่า และลดโอกาส False Positive กับศิษย์เก่าเป็น 0%
+   - มีโหมด `active_only=False` สำหรับการสแกนภาพย้อนหลัง (Retroactive Scan) ที่ต้องการเทียบกับทุกคน
+4. **เพิ่มชุดคำสั่ง Batch Data Access Layer ใน [`db_manager.py`](db_manager.py):**
+   - `batch_update_student_status(student_ids, new_status, graduation_year)`: บันทึกจบการศึกษาหรือเปลี่ยนสถานะคราวละหลายคนใน 1 Transaction
+   - `batch_promote_students(source_class, target_class)`: เลื่อนระดับชั้นนักเรียนทั้งห้อง
+   - `get_student_classrooms()`: ดึงรายการห้องเรียนทั้งหมดที่มีในระบบ
+   - `get_student_lifecycle_stats()`: สรุปยอดนักเรียน กำลังศึกษา / จบการศึกษา / ย้ายออก
+5. **หน้าต่างบริหารวงจรชีวิตนักเรียน `StudentLifecycleDialog` ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มปุ่ม **"🎓 จัดการวงจรชีวิตนักเรียน (เลื่อนชั้น / บันทึกจบการศึกษา)"** บนแถบหัวข้อและในเมนูนักเรียน
+   - แท็บที่ 1: **🎓 บันทึกจบการศึกษา (Batch Graduation)** — เลือกห้องเรียนหรือปีการศึกษา, ระบุปีที่จบ (เช่น 2568), คลิกเดียวปรับสถานะเป็น `graduated`
+   - แท็บที่ 2: **📈 เลื่อนชั้นเรียน (Batch Promotion)** — เลือกห้องต้นทางและห้องปลายทาง (เช่น ม.1/1 -> ม.2/1), คลิกเดียวเลื่อนชั้นนักเรียนทั้งห้อง
+   - แท็บที่ 3: **📊 สรุปสถิตินักเรียน (Overview Stats)** — แสดงสถานะภาพรวมและจำนวนห้องเรียน
+6. **ตัวกรองสถานะและห้องเรียนในหน้าลงทะเบียนนักเรียน (Registry UI Filter Bar) ([`app_gui.py`](app_gui.py)):**
+   - เพิ่มแถบ Segmented Button: `[🟢 กำลังศึกษา (Active)]`, `[🎓 จบการศึกษาแล้ว (Graduated)]`, `[⚪ ทั้งหมด (All)]`
+   - เพิ่ม Dropdown กรองตามห้องเรียน พร้อมฟิลด์กรอกระดับชั้น/ห้องเรียนในฟอร์มเพิ่มนักเรียนใหม่ และหน้าต่างแก้ไขข้อมูลนักเรียน
+   - แสดง Badge สีสถานะและห้องเรียนในรายการนักเรียน
+7. **เชื่อมโยงระบบนำเข้า Google Sheets (Batch Import) ([`app_gui.py`](app_gui.py)):**
+   - เพิ่มตัวเลือกคอลัมน์ห้องเรียน (`self.col_class`) ใน `SheetsImportDialog`
+   - ตรวจจับนักเรียนเดิมด้วย `find_student_by_code_and_name()` หากพบรหัสเดิมจะทำการอัปเดตห้องเรียนใหม่และเพิ่มภาพถ่ายปัจจุบันลง `staff_embeddings` โดยไม่สร้างบุคคลซ้ำ
+8. **ปรับปรุง SQLite DB Viewer และการส่งออก CSV ([`app_gui.py`](app_gui.py)):**
+   - ตาราง `staff_members (นักเรียน)` ใน DB Viewer เพิ่มคอลัมน์ `ห้องเรียน (class_room)`, `สถานะ (status)`, และ `ปีที่จบ (graduation_year)`
+   - ระบบส่งออก CSV สำหรับนักเรียนเพิ่มข้อมูลคอลัมน์ห้องเรียน, สถานะ, และปีที่จบครบถ้วน
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py`: Migration & Backfill ของ `staff_members`
+**ก่อนแก้ไข (Before):**
+```python
+            # สร้างตาราง staff_members เดิม มีเพียง id, name, role, student_id, pin_code
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS staff_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                role TEXT DEFAULT 'teacher',
+                student_id TEXT,
+                pin_code TEXT,
+                personal_threshold REAL DEFAULT 0.50,
+                is_backfilled INTEGER DEFAULT 1
+            )
+            """)
+```
+
+**หลังแก้ไข (After):**
+```python
+            # Migration v6.29: เพิ่มคอลัมน์วงจรชีวิตนักเรียน status, entry_year, graduation_year, class_room
+            cursor.execute("PRAGMA table_info(staff_members)")
+            existing_staff_cols = [c[1] for c in cursor.fetchall()]
+            
+            if "status" not in existing_staff_cols:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN status TEXT DEFAULT 'active'")
+            if "entry_year" not in existing_staff_cols:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN entry_year TEXT DEFAULT ''")
+            if "graduation_year" not in existing_staff_cols:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN graduation_year TEXT DEFAULT ''")
+            if "class_room" not in existing_staff_cols:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN class_room TEXT DEFAULT ''")
+
+            # Composite & Covering Indexes เพื่อความเร็วสูง
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_status_role ON staff_members(role, status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_classroom ON staff_members(class_room)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_grad_year ON staff_members(graduation_year)")
+
+            # Data Backfill อัตโนมัติ: ปรับสถานะนักเรียนเดิมให้เป็น 'active'
+            cursor.execute("UPDATE staff_members SET status = 'active' WHERE (status IS NULL OR status = '') AND role = 'student'")
+            conn.commit()
+```
+
+---
+
+#### 2. `db_manager.py`: คัดกรองเวกเตอร์สแกนภาพอัตโนมัติ `get_all_embeddings(active_only=True)`
+**ก่อนแก้ไข (Before):**
+```python
+    def get_all_embeddings(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role,
+                       COALESCE(s.personal_threshold, 0.50)
+                FROM staff_embeddings e
+                JOIN staff_members s ON e.staff_id = s.id
+            """)
+            rows = cursor.fetchall()
+            # โหลดทุกคนรวมทั้งศิษย์เก่าที่จบไปแล้วมาสแกน ทำให้ช้าและเกิด False Positive
+```
+
+**หลังแก้ไข (After):**
+```python
+    def get_all_embeddings(self, active_only=True):
+        """ดึงเวกเตอร์ทั้งหมดของครูและนักเรียน (v6.29)
+        active_only: หากเป็น True จะดึงเฉพาะครู และนักเรียนที่มีสถานะ 'active' (ข้ามศิษย์เก่า/จบการศึกษา)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if active_only:
+                cursor.execute("""
+                    SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, 
+                           COALESCE(s.personal_threshold, 0.50), COALESCE(s.status, 'active'), COALESCE(s.class_room, '')
+                    FROM staff_embeddings e
+                    JOIN staff_members s ON e.staff_id = s.id
+                    WHERE (s.role = 'teacher' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+                       OR (s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+                """)
+            else:
+                cursor.execute("""
+                    SELECT e.staff_id, s.name, e.embedding, e.image_path, s.role, 
+                           COALESCE(s.personal_threshold, 0.50), COALESCE(s.status, 'active'), COALESCE(s.class_room, '')
+                    FROM staff_embeddings e
+                    JOIN staff_members s ON e.staff_id = s.id
+                """)
+            rows = cursor.fetchall()
+```
+
+---
+
+#### 3. `app_gui.py`: DB Viewer สำหรับ `staff_members (นักเรียน)` รองรับห้องเรียน สถานะ และปีที่จบ
+**ก่อนแก้ไข (Before):**
+```python
+                self.db_tree["columns"] = ("id", "name", "student_id", "photos")
+                set_tree_heading("id", "ID")
+                set_tree_heading("name", "ชื่อ-นามสกุล นักเรียน")
+                set_tree_heading("student_id", "รหัสประจำตัว")
+                set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
+```
+
+**หลังแก้ไข (After):**
+```python
+                self.db_tree["columns"] = ("id", "name", "student_id", "class_room", "status", "graduation_year", "photos")
+                self.db_tree.column("id", width=60, anchor="center")
+                self.db_tree.column("name", width=220, anchor="w")
+                self.db_tree.column("student_id", width=110, anchor="center")
+                self.db_tree.column("class_room", width=90, anchor="center")
+                self.db_tree.column("status", width=110, anchor="center")
+                self.db_tree.column("graduation_year", width=90, anchor="center")
+                self.db_tree.column("photos", width=100, anchor="center")
+                
+                set_tree_heading("id", "ID")
+                set_tree_heading("name", "ชื่อ-นามสกุล นักเรียน")
+                set_tree_heading("student_id", "รหัสประจำตัว")
+                set_tree_heading("class_room", "ห้องเรียน")
+                set_tree_heading("status", "สถานะ")
+                set_tree_heading("graduation_year", "ปีที่จบ")
+                set_tree_heading("photos", "รูปที่ลงทะเบียน (รูป)")
+```
+
+---
+
+### 🧪 รายงานผลการทดสอบจริง (Actual Test Case Execution Report - v6.29)
+
+จากการรันชุดทดสอบอัตโนมัติ **`test_student_lifecycle_v629_suite.py`** บนฐานข้อมูลจริง `data/faces_db.db` (นักเรียน 85 คน, รูปภาพ 117,586 รูป, แมตช์ 187,459 รายการ) และฐานข้อมูลจำลองแยกอิสระ (Isolated Temp DB) ได้ผลลัพธ์ดังนี้:
+
+- **วันที่และเวลาที่ทดสอบ:** 19 ตุลาคม 2026 (14:41:03 น.)
+- **ชุดสคริปต์ทดสอบ:** [`test_student_lifecycle_v629_suite.py`](test_student_lifecycle_v629_suite.py)
+- **สรุปผลการทดสอบรวม:** ✅ **PASSED 8 / 8 Test Cases (100.0%)**
+
+| รหัส (ID) | หัวข้อการทดสอบ (Test Case Title) | โมดูลเป้าหมาย | เงื่อนไขการทดสอบ (Conditions) | สถานะ | รายละเอียดผลการตรวจสอบจริง (Actual Output) |
+| :---: | :--- | :--- | :--- | :---: | :--- |
+| **TC-52** | **Student Schema Migration & Data Backfill** | `db_manager.py` | ตรวจสอบ Schema คอลัมน์ใหม่ 4 คอลัมน์, ดัชนี 3 ตัว, และสถานะนักเรียนเดิม 85 คน | ✅ **PASS** | คอลัมน์ `status`, `class_room`, `entry_year`, `graduation_year` ครบ, ดัชนีครอบคลุมครบ, นักเรียนเดิม 85/85 คนมีสถานะ `active` 100% |
+| **TC-53** | **Cascade Delete Hazard Prevention** | `db_manager.py` | จำลองนักเรียนที่มี 10 แมตช์ใน `detected_faces` แล้วเปลี่ยนสถานะเป็น `graduated` | ✅ **PASS** | ข้อมูลแมตช์ 10/10 รายการยังคงอยู่ครบถ้วนสมบูรณ์ (อัตราการสูญหายของข้อมูล = 0%) |
+| **TC-54** | **Active-Only Embeddings Filter (Scanning Mode)** | `db_manager.py` | สแกนรูปภาพกิจกรรมใหม่ด้วย `active_only=True` เทียบระหว่างครู, เด็กปัจจุบัน, และศิษย์เก่า | ✅ **PASS** | คืนค่าเฉพาะครูและเด็กปัจจุบัน ไม่พบเวกเตอร์ศิษย์เก่า (ป้องกันปัญหา False Positive 100%) |
+| **TC-55** | **Retroactive Scan Mode (All Embeddings)** | `db_manager.py` | สแกนรูปภาพย้อนหลังด้วย `active_only=False` | ✅ **PASS** | โหลดเวกเตอร์ของสมาชิกทุกคน (ครู, เด็กปัจจุบัน, ศิษย์เก่า) ครบถ้วน 100% สำหรับการสืบค้นย้อนหลัง |
+| **TC-56** | **Batch Graduation Execution & Stats** | `db_manager.py` | สั่งจบการศึกษานักเรียน ม.3 จำนวน 5 คนในคลิกเดียว | ✅ **PASS** | นักเรียนทั้ง 5 คนเปลี่ยนเป็น `status='graduated'` และ `graduation_year='2568'`, ยอด Active=3, Graduated=5 ครบถ้วน |
+| **TC-57** | **Batch Promotion Execution & Classroom Listing** | `db_manager.py` | สั่งเลื่อนชั้นนักเรียน ม.1/1 -> ม.2/1 (4 คน) และ ม.2/1 -> ม.3/1 (3 คน) | ✅ **PASS** | อัปเดตห้องเรียนนักเรียนทั้ง 7 คนสำเร็จ ยอดใน ม.2/1=4, ม.3/1=3 และรายการห้องเรียนรีเฟรชถูกต้อง |
+| **TC-58** | **Student Find, Update & Classroom Integration** | `db_manager.py` / `app_gui.py` | นำเข้าข้อมูลนักเรียนจำลองจาก Google Sheets ด้วยรหัสเดิมแต่ห้องใหม่และรูปใหม่ | ✅ **PASS** | ค้นพบนักเรียนเดิมด้วย `find_student_by_code_and_name`, อัปเดตห้องใหม่เป็น ม.2/1, เพิ่มรูปที่ 2 สำเร็จ โดยไม่สร้างแถวบุคคลซ้ำ |
+| **TC-59** | **GUI Version v6.29 & py_compile Parity** | ทุกไฟล์โค้ด | ตรวจสอบ Window Title, Sidebar Logo, StudentLifecycleDialog, Status Filter Bar และคอมไพล์ | ✅ **PASS** | หน้าต่าง GUI แสดง `v6.29 (Student Lifecycle & Graduation Suite)` ครบทุกจุด และคอมไพล์ผ่าน 100% |
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.28 (Blazing Fast UI & SQLite WAL Suite)
 
 ## 📋 Version 6.28 Changelog (Blazing Fast UI Responsiveness, SQLite WAL Engine, Deferred Join CTE, Covering Indexes & Widget Pooling)

@@ -1116,5 +1116,234 @@ CREATE TABLE IF NOT EXISTS root_year_folders (
 | **TC-50** | Registry & Matched Search 250ms Debounce + In-Memory Cache | 11.91 ms DB + วิดเจ็ตกระตุกทุกปุ่มที่พิมพ์ | **0.220 ms** (RAM Filter) | **54x + 0 DB Query** | ✅ **PASS** | หน่วงเวลา 250ms รวมการพิมพ์ต่อเนื่องให้กรองครั้งเดียวจาก RAM Cache ใน `0.220 ms` โดยไม่ยิง SQLite ซ้ำ |
 | **TC-51** | Console Log Queue Batch Insertion (60 msgs/tick) | 343.67 ms (200 logs) | **6.69 ms** (200 logs) | **51.4x** | ✅ **PASS** | ประมวลผล Log 200 บรรทัดด้วย Batch Update (เลื่อน `see('end')` รอบละครั้ง) ลดเวลาจาก `343.67 ms` เหลือ **`6.69 ms`** |
 
+---
+
+## 17. การวิเคราะห์และออกแบบสถาปัตยกรรมจัดการข้อมูลนักเรียนข้ามปีการศึกษา (Student Academic Year Lifecycle Architecture)
+
+### 17.1 ที่มาของคำถามและบริบทเชิงลึก
+ผู้ใช้ได้ตั้งคำถามสำคัญต่อการใช้งานระบบจริงในระยะยาว: **"จากฐานข้อมูลปัจจุบัน บันทึกนักเรียน ปีหน้าจะทำยังไง"**
+
+ในบริบทของโรงเรียน ข้อมูลนักเรียนแตกต่างจากครูและบุคลากรทั่วไปอย่างมีนัยสำคัญ เนื่องจากมี **วงจรชีวิตที่มีการหมุนเวียนทุกปีการศึกษา (Annual Student Lifecycle)**:
+1. **นักเรียนใหม่เข้าเรียน (New Admissions):** มีนักเรียนเข้าใหม่ เช่น ชั้น ม.1, ม.4, อนุบาล 1 หรือ ป.1 ในทุกๆ ปีการศึกษา
+2. **นักเรียนเดิมเลื่อนชั้น (Promoted Students):** เลื่อนจาก ม.1 -> ม.2, ม.2 -> ม.3 โดยมีรหัสประจำตัวนักเรียนเดิม (`student_id` เดิม) แต่ใบหน้ามีการเจริญเติบโตตามวัย (Facial Aging) และต้องการเพิ่มรูปภาพต้นแบบใหม่
+3. **นักเรียนจบการศึกษา / ลาออก / ย้ายสถานศึกษา (Graduated / Withdrawn Students):** เช่น นักเรียน ม.3 หรือ ม.6 ที่จบการศึกษาไปแล้ว ไม่ได้อยู่ในโรงเรียนในปีการศึกษาถัดไป
+
+---
+
+### 17.2 การตรวจสอบโครงสร้างฐานข้อมูลปัจจุบัน (`data/faces_db.db`)
+
+จากการตรวจสอบโครงสร้าง Schema ปัจจุบัน:
+- **ตาราง `staff_members`:**
+  ```sql
+  CREATE TABLE staff_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      role TEXT DEFAULT 'teacher', -- 'teacher' หรือ 'student'
+      student_id TEXT,            -- รหัสประจำตัวนักเรียน เช่น '25747'
+      pin_code TEXT,
+      personal_threshold REAL DEFAULT 0.50,
+      is_backfilled INTEGER DEFAULT 1
+  );
+  ```
+- **ตาราง `staff_embeddings`:**
+  ```sql
+  CREATE TABLE staff_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      staff_id INTEGER NOT NULL,
+      image_path TEXT NOT NULL,
+      embedding BLOB NOT NULL,
+      source_url TEXT,
+      FOREIGN KEY (staff_id) REFERENCES staff_members (id) ON DELETE CASCADE
+  );
+  ```
+- **ตาราง `detected_faces`:**
+  ```sql
+  CREATE TABLE detected_faces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      photo_id TEXT NOT NULL,
+      staff_id INTEGER NOT NULL,
+      confidence REAL NOT NULL,
+      FOREIGN KEY (photo_id) REFERENCES scanned_photos (photo_id) ON DELETE CASCADE,
+      FOREIGN KEY (staff_id) REFERENCES staff_members (id) ON DELETE CASCADE
+  );
+  ```
+- **ตาราง `scanned_photos`:** มีคอลัมน์ `academic_year` (เช่น `'2568'`, `'2569'`) บันทึกปีการศึกษาของภาพกิจกรรม
+
+#### ⚠️ ข้อจำกัดและความเสี่ยงวิกฤตของฐานข้อมูลปัจจุบัน:
+1. **อันตรายจากการกด "❌ ลบรายชื่อนักเรียน" (Cascade Deletion Hazard):**
+   - เนื่องจาก `detected_faces` มีข้อกำหนด `FOREIGN KEY (staff_id) REFERENCES staff_members (id) ON DELETE CASCADE`
+   - หากโรงเรียนขึ้นปีใหม่ แล้วผู้ดูแลระบบไปกด **"ลบรายชื่อนักเรียนที่จบการศึกษาไปแล้ว"** ออกจากระบบ ข้อมูลภาพกิจกรรมในอดีตทั้งหมดของนักเรียนคนนั้นตั้งแต่ ม.1 ถึง ม.3 หรือ ม.4 ถึง ม.6 ที่เคยบันทึกไว้ใน `detected_faces` **จะถูกลบทิ้งหายไปจากฐานข้อมูลทั้งหมดทันที!**
+   - ส่งผลให้ในอนาคต หากศิษย์เก่าต้องการค้นหาภาพความทรงจำย้อนหลังผ่านหน้า Web Portal จะไม่พบข้อมูลรูปภาพใดๆ อีกเลย
+2. **ปัญหาคอขวด AI Matching และ False Positives ถ้าปล่อยไว้เฉยๆ:**
+   - หากไม่ลบและปล่อยสะสมไว้ ตาราง `staff_embeddings` จะมีเวกเตอร์ใบหน้าเพิ่มขึ้นทุกปี (เช่น 1,000 -> 3,000 -> 6,000 คน)
+   - เมื่อถึงรอบการสแกนภาพกิจกรรมของปีการศึกษาใหม่ (เช่น ปี 2570) ฟังก์ชัน `get_all_embeddings()` จะโหลดเวกเตอร์ของนักเรียนทั้งหมดรวมถึงคนที่จบการศึกษาไปแล้วมาเปรียบเทียบ ทำให้:
+     - การสแกนรูปภาพกิจกรรมปีใหม่ใช้เวลานานขึ้นโดยไม่จำเป็น
+     - มีโอกาสเกิด **False Positive (ความผิดพลาด)** เช่น นักเรียนใหม่ที่มีใบหน้าคล้ายรุ่นพี่ที่จบไปแล้ว ถูกระบบจับคู่ผิดเป็นรุ่นพี่คนนั้น
+3. **ขาดมิติของ "สถานะการศึกษา" และ "ระดับชั้น/ห้อง":**
+   - ปัจจุบันใน `staff_members` ยังไม่มีคอลัมน์บอกสถานะ เช่น กำลังศึกษา (`active`), จบการศึกษา (`graduated`), หรือย้ายสถานศึกษา (`inactive`)
+
+---
+
+### 17.3 แนวทางปฏิบัติและสถาปัตยกรรมแก้ไขปัญหา (Action Plan)
+
+เพื่อตอบคำถาม **"ปีหน้าจะทำยังไง"** ให้ครอบคลุมทั้งระยะสั้นและระยะยาว ขอแบ่งแนวทางออกเป็น 2 รูปแบบ:
+
+#### 🟢 แนวทางที่ 1: ขั้นตอนการทำงานด้วยระบบปัจจุบัน (Workaround ด้วยระบบที่มีอยู่เดิมโดยไม่ต้องแก้โค้ด)
+หากต้องการใช้งานระบบปัจจุบันต่อเนื่องโดยยังไม่ปรับแก้ Schema:
+1. **นักเรียนใหม่เข้าเรียน (เช่น ม.1 หรือ ม.4 ปีหน้า):**
+   - ใช้ฟังก์ชัน **"📊 นำเข้านักเรียนจาก Google Sheets (Batch Import)"** หรือป้อนรหัสและชื่อในหน้า **"👨‍🎓 ลงทะเบียนใบหน้านักเรียน"** ตามปกติ
+   - ระบบจะสร้าง `staff_members` แถวใหม่พร้อมรหัสประจำตัวและใบหน้าต้นแบบ
+2. **นักเรียนเดิมที่เลื่อนชั้น (เช่น ม.1 ขึ้น ม.2):**
+   - นักเรียนยังคงใช้รหัสประจำตัวนักเรียนเดิม (`student_id` เดิม)
+   - เมื่อต้องการเพิ่มภาพใบหน้าปัจจุบันที่มีความคมชัดหรือโตขึ้น สามารถนำเข้า Google Sheets ที่มีรหัสเดิมได้ทันที ฟังก์ชัน `batch_import_from_sheets` ตรวจจับ `find_student_by_code_and_name()` ให้อัตโนมัติ โดยจะไม่สร้างคนซ้ำ แต่จะเพิ่มเวกเตอร์ใบหน้าใหม่เข้าไปใน `staff_embeddings` ทำให้ AI จำหน้านักเรียนได้แม่นยำยิ่งขึ้น
+3. **นักเรียนที่จบการศึกษา (เช่น ม.3 หรือ ม.6):**
+   - **กฎเหล็กข้อห้ามเด็ดขาด:** **ห้ามกดปุ่ม "❌ ลบรายชื่อนักเรียน" โดยเด็ดขาด** เพื่อรักษาประวัติการจับคู่ภาพกิจกรรมในอดีต (`detected_faces`) ไว้สำหรับค้นหาผ่าน Web Portal
+
+---
+
+#### 🚀 แนวทางที่ 2: การพัฒนาสถาปัตยกรรมวงจรชีวิตนักเรียนที่สมบูรณ์แบบ (Recommended Architecture for v6.29)
+แนวทางนี้คือการแก้ปัญหาที่ต้นตอและทำให้ระบบรองรับการใช้งานของโรงเรียนได้ต่อเนื่องยาวนานหลายสิบปี:
+
+1. **เพิ่มคอลัมน์ระบุสถานะและชั้นปีในตาราง `staff_members` (Database Migration):**
+   ```sql
+   ALTER TABLE staff_members ADD COLUMN status TEXT DEFAULT 'active';       -- 'active' (กำลังศึกษา), 'graduated' (จบการศึกษา), 'inactive' (ย้าย/พักการเรียน)
+   ALTER TABLE staff_members ADD COLUMN entry_year TEXT DEFAULT '';         -- ปีการศึกษาที่เข้า เช่น '2567'
+   ALTER TABLE staff_members ADD COLUMN graduation_year TEXT DEFAULT '';    -- ปีการศึกษาที่จบ เช่น '2569'
+   ALTER TABLE staff_members ADD COLUMN class_room TEXT DEFAULT '';         -- ชั้น/ห้อง เช่น 'ม.3/1', 'ม.6/2'
+   CREATE INDEX IF NOT EXISTS idx_sm_status_role ON staff_members(role, status);
+   ```
+
+2. **ปรับปรุง AI Face Matching Engine ให้กรองเฉพาะนักเรียนปัจจุบัน (`active`):**
+   - ปรับเมธอด `get_all_embeddings(active_only=True)`:
+     ```python
+     # ตอนรันสแกนภาพกิจกรรมปีใหม่:
+     SELECT e.staff_id, s.name, e.embedding, s.role, s.personal_threshold
+     FROM staff_embeddings e
+     JOIN staff_members s ON e.staff_id = s.id
+     WHERE s.status = 'active' OR s.status IS NULL OR s.role = 'teacher'
+     ```
+   - **ประโยชน์มหาศาล:**
+     - AI จะนำเฉพาะใบหน้าของนักเรียนที่ยังเรียนอยู่มาเทียบ ทำให้ประหยัดเวลาสแกนและลดปัญหา False Positive กับศิษย์เก่าเหลือ 0%
+     - ในขณะที่นักเรียนที่สถานะเป็น `graduated` (จบการศึกษา) ข้อมูลประวัติภาพถ่ายในอดีตใน `detected_faces` ยังคงอยู่ครบถ้วน 100%
+
+3. **เพิ่มระบบจัดการสถานะนักเรียนในหน้า GUI (Batch Promote & Graduate UI):**
+   - เพิ่มปุ่มหรือหน้าต่าง **"🎓 จัดการเลื่อนชั้น / บันทึกจบการศึกษา"** ในแท็บนักเรียน:
+     - สามารถเลือกนักเรียนตามระดับชั้น/ห้อง หรือตามปีการศึกษา แล้วกด **"บันทึกจบการศึกษา (Mark as Graduated)"** ได้ในคลิกเดียว
+     - เพิ่มตัวกรองในหน้ารายชื่อนักเรียน: `[กำลังศึกษา (Active)]`, `[จบการศึกษาแล้ว (Graduated)]`, `[ทั้งหมด]`
+     - เพิ่มระบบนำเข้า Google Sheets ที่ระบุคอลัมน์ `สถานะ` และ `ห้องเรียน` ได้
+4. **การค้นหาบน Web Portal และ Google Drive JSON Index:**
+   - ใน `student_index.json` ยังคงมีรายชื่อของนักเรียนทุกคนทั้งปัจจุบันและศิษย์เก่า ทำให้นักเรียนที่จบการศึกษาไปแล้วยังสามารถเข้ามาค้นหาภาพความทรงจำตลอดช่วงเวลาที่เรียนอยู่ในโรงเรียนได้เสมอ
+
+---
+
+### 17.4 แผนผังสถาปัตยกรรมวงจรชีวิตนักเรียน (Student Lifecycle State Machine & Architecture)
+
+```mermaid
+stateDiagram-v2
+    [*] --> เข้าศึกษาใหม่ : นำเข้า Google Sheets / กรอกฟอร์ม GUI (status='active', entry_year)
+    เข้าศึกษาใหม่ --> กำลังศึกษา : สแกนกิจกรรมปีปัจจุบัน (Match ได้ปกติ)
+    กำลังศึกษา --> กำลังศึกษา : เลื่อนชั้นปี (Batch Promote เช่น ม.1 -> ม.2, เติมรูปหน้าใหม่)
+    กำลังศึกษา --> จบการศึกษา : บันทึกจบ (Batch Graduate เช่น ม.3/ม.6, status='graduated', grad_year)
+    กำลังศึกษา --> ย้ายออก_พักการเรียน : ปรับสถานะ (status='inactive')
+    
+    state "การสแกนภาพกิจกรรมปีใหม่ (AI Scanner)" as scan_state {
+        กำลังศึกษา --> ตรวจจับใบหน้า : โหลดเฉพาะ status='active' (active_only=True)
+        note right of ตรวจจับใบหน้า: AI สแกนเฉพาะเด็กปัจจุบัน ไม่เกิด False Positive กับศิษย์เก่า
+    }
+
+    state "การค้นหาภาพย้อนหลัง (Web Portal / Search)" as portal_state {
+        จบการศึกษา --> ค้นหาภาพในอดีต : ค้นหาได้ครบ 100% จาก detected_faces
+        กำลังศึกษา --> ค้นหาภาพในอดีต : ค้นหาได้ครบ 100%
+        note right of ค้นหาภาพในอดีต: ประวัติภาพกิจกรรมในอดีตไม่สูญหาย เพราะไม่ถูก Cascade Delete
+    }
+```
+
+---
+
+### 17.5 รายละเอียดขั้นตอนการดำเนินงานทีละข้อ (Step-by-Step Implementation Breakdown: v6.29)
+
+#### ข้อที่ 1: การอัปเกรดฐานข้อมูล SQLite และระบบ Migration (Database Schema Migration)
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในเมธอด `init_db()` ตรวจสอบคอลัมน์ของตาราง `staff_members` ผ่าน `PRAGMA table_info(staff_members)`
+  2. หากยังไม่มีคอลัมน์ ให้รันคำสั่ง `ALTER TABLE`:
+     - `ALTER TABLE staff_members ADD COLUMN status TEXT DEFAULT 'active'`
+     - `ALTER TABLE staff_members ADD COLUMN entry_year TEXT DEFAULT ''`
+     - `ALTER TABLE staff_members ADD COLUMN graduation_year TEXT DEFAULT ''`
+     - `ALTER TABLE staff_members ADD COLUMN class_room TEXT DEFAULT ''`
+  3. สร้างดัชนีเพื่อประสิทธิภาพการคิวรีสูง:
+     - `CREATE INDEX IF NOT EXISTS idx_sm_status_role ON staff_members(role, status)`
+     - `CREATE INDEX IF NOT EXISTS idx_sm_classroom ON staff_members(class_room)`
+     - `CREATE INDEX IF NOT EXISTS idx_sm_student_id ON staff_members(student_id)`
+  4. ทำ **Data Backfill** อัตโนมัติ: ปรับแถวนักเรียนเดิมที่มี `status IS NULL` หรือ `status = ''` ให้เป็น `'active'` เพื่อความเข้ากันได้ 100%
+
+#### ข้อที่ 2: เพิ่มเมธอดจัดการสถานะและชั้นเรียนใน Data Access Layer
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. ปรับปรุง `get_all_students(status_filter=None, class_room=None)` ให้ดึงคอลัมน์ `status`, `entry_year`, `graduation_year`, `class_room` และรองรับการกรองตามสถานะ (`'active'`, `'graduated'`, `'inactive'`) หรือห้องเรียน
+  2. ปรับปรุง `get_all_embeddings(active_only=True)`:
+     - เมื่อ `active_only=True` (ค่าเริ่มต้นตอนสแกนภาพกิจกรรม): คิวรีเฉพาะ `role='teacher'` หรือ `role='student' AND status='active'`
+     - เมื่อ `active_only=False` (กรณีต้องการสแกนย้อนหลังภาพกิจกรรมปีก่อนหน้า): คิวรีนักเรียนทุกคนรวมศิษย์เก่า
+  3. เพิ่มเมธอด `batch_update_student_status(student_ids, new_status, graduation_year="")` สำหรับอัปเดตสถานะนักเรียนคราวละหลายคน
+  4. เพิ่มเมธอด `batch_promote_students(promote_dict)` สำหรับเลื่อนระดับชั้น/ห้องเรียน (เช่น `{"ม.1/1": "ม.2/1", "ม.2/1": "ม.3/1"}`)
+  5. เพิ่มเมธอด `get_student_classrooms()` เพื่อดึงรายการห้องเรียนทั้งหมดที่มีในฐานข้อมูลมาสร้างตัวเลือก Dropdown
+  6. เพิ่มเมธอด `get_student_lifecycle_stats()` เพื่อสรุปยอดนักเรียน: กำลังศึกษา, จบการศึกษาแล้ว, ย้ายออก
+
+#### ข้อที่ 3: ปรับปรุงระบบนำเข้า Google Sheets (Batch Import)
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py) (`SheetsImportDialog`, `batch_import_from_sheets`)
+- **สิ่งที่ต้องทำ:**
+  1. ในหน้าต่าง `SheetsImportDialog` เพิ่มช่องเลือกคอลัมน์:
+     - **ระดับชั้น/ห้องเรียน (Class/Room)** (เช่น คอลัมน์ C)
+     - **ปีที่เข้าศึกษา (Entry Year)** หรือกำหนดปีการศึกษาเริ่มต้น
+  2. ในฟังก์ชัน `batch_import_from_sheets`:
+     - นำเข้าค่า `class_room` และ `status = 'active'`
+     - หากเป็นนักเรียนเดิม (`student_id` ตรงกัน): อัปเดต `class_room` และสถานะเป็น `'active'` พร้อมบันทึกภาพหน้าตรงเพิ่มเติมลง `staff_embeddings`
+     - หากเป็นนักเรียนใหม่: บันทึกข้อมูลครบทุกคอลัมน์ใหม่
+
+#### ข้อที่ 4: พัฒนาส่วนติดต่อผู้ใช้ (UI) สำหรับบริหารวงจรชีวิตนักเรียน
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. **แถบตัวกรองสถานะนักเรียน (Segmented Filter Bar):**
+     - เพิ่มปุ่มสลับสถานะ: `[🟢 กำลังศึกษา (Active)]`, `[🎓 จบการศึกษาแล้ว (Graduated)]`, `[⚪ ทั้งหมด (All)]`
+     - เพิ่ม Dropdown กรองตามห้องเรียน: `ทั้งหมด`, `ม.1/1`, `ม.1/2`, ...
+  2. **การแสดงผลรายการนักเรียน (Student List Item):**
+     - แสดง Badge ห้องเรียนและสถานะ: เช่น `นายสมชาย ใจดี [25747] (ม.2/1) • 🟢 กำลังศึกษา` หรือ `นายสมศักดิ์ รักดี [24086] • 🎓 จบปี 2568`
+  3. **ฟอร์มจัดการนักเรียน (Student Form):**
+     - เพิ่มฟิลด์กรอก: ระดับชั้น/ห้องเรียน (`entry_student_classroom`), สถานะ (`combo_student_status`), ปีที่จบ (`entry_student_grad_year`)
+  4. **หน้าต่างเครื่องมือเลื่อนชั้นและจบการศึกษาแบบกลุ่ม (Batch Promote & Graduate Dialog):**
+     - สร้างปุ่ม **"🎓 จัดการเลื่อนชั้น / บันทึกจบการศึกษา"**
+     - หน้าต่างมี 2 โหมด:
+       - **โหมดจบการศึกษา (Graduate):** เลือกห้องเรียน (เช่น ติ๊กเลือก ม.3 ทุกห้อง หรือ ม.6 ทุกห้อง) -> ระบุปีการศึกษาที่จบ (เช่น `2568`) -> กด **"บันทึกจบการศึกษา"** ระบบจะเปลี่ยนสถานะเป็น `'graduated'` ทันที
+       - **โหมดเลื่อนชั้น (Promote):** กำหนดการเลื่อนชั้น เช่น ม.1 เลื่อนเป็น ม.2, ม.2 เลื่อนเป็น ม.3 -> กด **"ดำเนินการเลื่อนชั้น"** ระบบจะอัปเดตห้องเรียนของนักเรียนทุกคนในคลิกเดียว
+
+#### ข้อที่ 5: ปรับปรุงหน้าดูฐานข้อมูล (DB Viewer) และการส่งออกข้อมูล
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในตาราง `staff_members (นักเรียน)`: เพิ่มคอลัมน์ `ห้องเรียน (class_room)`, `สถานะ (status)`, `ปีที่จบ (grad_year)`
+  2. เพิ่มตัวกรองสถานะในหน้า DB Viewer
+
+#### ข้อที่ 6: อัปเดตเลขเวอร์ชัน UI v6.29 และรายงานการเปลี่ยนแปลง
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py), [`README.md`](README.md)
+- **สิ่งที่ต้องทำ:**
+  1. อัปเดต Window Title และ Sidebar Logo Header เป็น **`v6.29 (Student Lifecycle & Graduation Suite)`**
+  2. ค้นหาตรวจสอบว่าไม่มีเลขเวอร์ชันเก่าตกค้าง (Zero-Omission Version Update ตามกฎข้อ 5)
+
+---
+
+### 17.6 แผนการทดสอบและกรณีทดสอบ (Comprehensive Test Case Specification: TC-52 ถึง TC-59)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-52** | **Student Schema Migration & Data Backfill** | `db_manager.py` | 1. ตรวจสอบ Schema ของ `staff_members` ว่ามีคอลัมน์ `status`, `entry_year`, `graduation_year`, `class_room`<br>2. ตรวจสอบข้อมูลเดิม 85 คน | คอลัมน์ใหม่ครบถ้วน, ดัชนี 3 ตัวถูกสร้าง, ข้อมูลเดิม 85 คนมี `status = 'active'` อัตโนมัติ |
+| **TC-53** | **Cascade Delete Hazard Prevention** | `db_manager.py` | 1. สร้างนักเรียนทดสอบพร้อมแมตช์ใน `detected_faces` 10 แมตช์<br>2. เปลี่ยนสถานะเป็น `graduated`<br>3. ตรวจสอบแมตช์ใน `detected_faces` | แมตช์ทั้ง 10 รายการยังคงอยู่ครบ 100% ไม่สูญหาย |
+| **TC-54** | **Active-Only Embeddings Filter (Scanning Mode)** | `db_manager.py` | 1. ปรับนักเรียน A เป็น `'active'`, นักเรียน B เป็น `'graduated'`<br>2. เรียก `get_all_embeddings(active_only=True)` | มีเฉพาะเวกเตอร์ของนักเรียน A เท่านั้น ไม่พบเวกเตอร์ของนักเรียน B (ป้องกัน False Positive 100%) |
+| **TC-55** | **Retroactive Scan Mode (All Embeddings)** | `db_manager.py` | เรียก `get_all_embeddings(active_only=False)` | มีเวกเตอร์ของนักเรียนทุกคนทั้ง A (`active`) และ B (`graduated`) ครบถ้วน |
+| **TC-56** | **Batch Graduation Execution** | `db_manager.py` / `app_gui.py` | เลือกนักเรียน 10 คนแล้วสั่ง `batch_update_student_status(ids, 'graduated', '2568')` | นักเรียนทั้ง 10 คนเปลี่ยนเป็น `status='graduated'` และ `graduation_year='2568'` ในการคิวรีครั้งเดียว |
+| **TC-57** | **Batch Promotion Execution** | `db_manager.py` / `app_gui.py` | สั่งเลื่อนชั้นห้อง `ม.1/1` -> `ม.2/1` | นักเรียนทุกคนในห้อง `ม.1/1` เปลี่ยนเป็น `ม.2/1` ครบถ้วน |
+| **TC-58** | **Google Sheets Import with Class & Status Integration** | `app_gui.py` | นำเข้าข้อมูลนักเรียนจำลองที่มีรหัสเดิมแต่ห้องใหม่และรูปใหม่ | อัปเดตห้องใหม่และเพิ่มเวกเตอร์ใบหน้าใหม่ลง `staff_embeddings` โดยไม่สร้างแถวซ้ำ |
+| **TC-59** | **GUI Version v6.29 & py_compile Parity** | ทุกไฟล์โค้ด | 1. รัน `py_compile`<br>2. ตรวจสอบ Window Title, Sidebar Badge, และ README.md | คอมไพล์ผ่าน 100%, แสดง `v6.29` ครบทุกจุดตามกฎข้อ 3 และ 5 |
+
+---
+
 
 
