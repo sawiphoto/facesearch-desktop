@@ -2,6 +2,7 @@ import sqlite3
 import re
 import os
 import json
+from datetime import datetime
 import numpy as np
 import logging
 
@@ -1409,6 +1410,146 @@ class DatabaseManager:
                 })
 
             return {
+                "photos": photo_entries,
+                "faces": [
+                    {
+                        "face_id": f[0],
+                        "person": f[1],
+                        "photo_id": f[2],
+                        "role": f[3] if f[3] else "teacher",
+                        "student_id": f[4] if f[4] else ""
+                    }
+                    for f in faces
+                ]
+            }
+
+    def get_sync_data_sharded(self, active_years=None):
+        """
+        ดึงข้อมูลทั้งหมดในฐานข้อมูลและจัดเตรียมพาร์ทิชันสำหรับ Sharded Architecture (v6.30)
+        - แยกข้อมูลนักเรียน: active_students (status != 'graduated') vs alumni_students (status == 'graduated')
+        - จัดกลุ่มรูปภาพแยกตามปีการศึกษา: photo_index_YYYY.json และ photo_index_archive.json
+        - สร้างข้อมูล photo_manifest.json
+        - คงรูปแบบเดิมสำหรับ Dual-Write (Legacy Compatibility 100%)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # ดึงข้อมูล scanned_photos
+            cursor.execute("SELECT photo_id, event_name, drive_link, photo_date, total_faces_detected, academic_year FROM scanned_photos")
+            photos = cursor.fetchall()
+            
+            # ดึงข้อมูล faces พร้อมสถานะ status และ student_id
+            cursor.execute("""
+                SELECT df.id, s.name, df.photo_id, s.role, s.student_id, COALESCE(s.status, 'active') as status
+                FROM detected_faces df
+                JOIN staff_members s ON df.staff_id = s.id
+            """)
+            faces = cursor.fetchall()
+            
+            photo_entries = []
+            photo_year_map = {}
+            for p in photos:
+                ev_name = p[1] or ""
+                p_date = p[3] if p[3] else ""
+                academic_year = p[5] if len(p) > 5 and p[5] else ""
+                year_val = academic_year.strip()
+                if not year_val:
+                    m_year = re.search(r'25\d\d', ev_name)
+                    year_val = m_year.group(0) if m_year else ""
+                    if not year_val:
+                        m_short = re.search(r'(?:ปี|พ\.ศ\.|\s|^)(6[0-9])(?:\s|$|[^\d])', ev_name)
+                        if m_short:
+                            year_val = "25" + m_short.group(1)
+                    if not year_val and p_date and len(p_date.split('-')) >= 1:
+                        try:
+                            y_ce = int(p_date.split('-')[0])
+                            if y_ce > 1900:
+                                year_val = str(y_ce + 543)
+                        except Exception:
+                            pass
+                entry = {
+                    "photo_id": p[0],
+                    "event": ev_name,
+                    "drive_link": p[2],
+                    "date": p_date,
+                    "year": year_val,
+                    "face_count": int(p[4]) if len(p) > 4 and p[4] is not None else 0
+                }
+                photo_entries.append(entry)
+                photo_year_map[p[0]] = year_val
+
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว
+            if not active_years:
+                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4}), reverse=True)
+                active_years = all_years[:4] if len(all_years) >= 4 else all_years
+
+            photos_by_shard = {y: {} for y in active_years}
+            photos_by_shard["archive"] = {}
+            shard_counts = {y: 0 for y in active_years}
+            shard_counts["archive"] = 0
+
+            for entry in photo_entries:
+                pid = entry["photo_id"]
+                y = entry["year"]
+                shard_key = y if y in active_years else "archive"
+                photos_by_shard[shard_key][pid] = entry
+                shard_counts[shard_key] += 1
+
+            # แยกกลุ่มนักเรียนและคุณครู
+            active_students = {}
+            alumni_students = {}
+            teachers = {}
+
+            for f in faces:
+                person_name = f[1]
+                pid = f[2]
+                role = f[3] if f[3] else "teacher"
+                student_id = f[4] if f[4] else ""
+                status = f[5] if f[5] else "active"
+                p_year = photo_year_map.get(pid, "")
+
+                if role == "student":
+                    target_dict = alumni_students if status == "graduated" else active_students
+                    if person_name not in target_dict:
+                        target_dict[person_name] = {
+                            "photos": [],
+                            "years": [],
+                            "student_id": student_id
+                        }
+                    if pid not in target_dict[person_name]["photos"]:
+                        target_dict[person_name]["photos"].append(pid)
+                    if p_year and p_year not in target_dict[person_name]["years"]:
+                        target_dict[person_name]["years"].append(p_year)
+                else:
+                    if person_name not in teachers:
+                        teachers[person_name] = []
+                    if pid not in teachers[person_name]:
+                        teachers[person_name].append(pid)
+
+            # เรียงลำดับปีของนักเรียนแต่ละคนจากล่าสุดไปหาอดีต
+            for s_dict in [active_students, alumni_students]:
+                for k, v in s_dict.items():
+                    v["years"] = sorted(v["years"], reverse=True)
+
+            available_shards = list(active_years) + ["archive"]
+            year_file_map = {y: f"photo_index_{y}.json" for y in active_years}
+            year_file_map["archive"] = "photo_index_archive.json"
+
+            manifest = {
+                "version": "v6.30",
+                "updated_at": datetime.now().isoformat(),
+                "available_years": available_shards,
+                "year_file_map": year_file_map,
+                "year_counts": shard_counts,
+                "total_photos": len(photo_entries)
+            }
+
+            return {
+                "active_students": active_students,
+                "alumni_students": alumni_students,
+                "teachers": teachers,
+                "photos_by_shard": photos_by_shard,
+                "manifest": manifest,
                 "photos": photo_entries,
                 "faces": [
                     {

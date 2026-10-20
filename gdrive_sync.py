@@ -433,9 +433,15 @@ class GoogleSyncManager:
 
     def update_json_indexes_on_drive(self, sync_data, json_folder_id, scan_mode="all"):
         """
-        สร้างข้อมูลดัชนี JSON สามไฟล์ (person_index.json (ครู), student_index.json (นักเรียน) และ photo_index.json) 
-        แล้วทำการอัปโหลดทับ (Overwrite) ไฟล์เป้าหมายที่มีอยู่แล้วบน Google Drive ในโฟลเดอร์ที่แอดมินระบุไว้
-        โดยจะเลือกสร้างและอัปโหลดเฉพาะไฟล์ที่มีส่วนเกี่ยวข้องกับการสแกนเพื่อลดโหลดเครือข่ายและ API
+        สร้างข้อมูลดัชนี JSON แบบ Sharded Architecture พร้อม Dual-Write (v6.30):
+        1. student_index_active.json (นักเรียนปัจจุบัน ~120 KB)
+        2. student_index_alumni.json (ศิษย์เก่า)
+        3. photo_index_YYYY.json (แยกรายปีการศึกษา เช่น 2569, 2568, 2567, 2566)
+        4. photo_index_archive.json (รูปภาพปีก่อนหน้า 2566 ลงไป)
+        5. photo_manifest.json (สารบัญระบุรายการปีและชื่อไฟล์สำหรับ Lazy Loading)
+        6. Dual-Write Legacy: student_index.json, photo_index.json, person_index.json
+        7. บีบอัดด้วย Compact JSON (separators=(',', ':')) ลดขนาดลง 15-20%
+        อัปโหลดทับ/สร้างในโฟลเดอร์ที่แอดมินกำหนด (json_folder_id)
         """
         if not self.connected or not self.drive_service:
             logger.error("Google Drive service not connected.")
@@ -446,43 +452,43 @@ class GoogleSyncManager:
             return False
 
         try:
-            # 🌟 ถ้า sync_data ส่งมาเป็น None ให้ดึงจาก SQLite DB ให้อัตโนมัติ (v4.19)
-            if sync_data is None:
-                from db_manager import DatabaseManager
-                db = DatabaseManager()
-                sync_data = db.get_all_sync_data()
+            from db_manager import DatabaseManager
+            db = DatabaseManager()
 
-            if not sync_data or not isinstance(sync_data, dict):
-                logger.warning("sync_data is empty or invalid. Skipping Drive JSON index update.")
+            # 🌟 ดึงข้อมูลแบบ Sharded เต็มรูปแบบ
+            sharded_data = db.get_sync_data_sharded()
+            if not sharded_data:
+                logger.warning("Could not extract sharded sync data from database.")
                 return False
 
-            # 1. แยกกลุ่มและสร้างดัชนีสำหรับ person_index.json (ครู) และ student_index.json (นักเรียน)
-            person_index = {}
-            student_index = {}
-            has_teachers = False
-            has_students = False
+            active_students = sharded_data["active_students"]
+            alumni_students = sharded_data["alumni_students"]
+            teachers = sharded_data["teachers"]
+            photos_by_shard = sharded_data["photos_by_shard"]
+            manifest = sharded_data["manifest"]
+            legacy_photos = sharded_data["photos"]
 
-            for item in sync_data["faces"]:
-                role = item.get("role", "teacher")
-                person = item["person"]
-                photo_id = item["photo_id"]
-                
-                if role == "student":
-                    has_students = True
-                    if person not in student_index:
-                        student_index[person] = []
-                    if photo_id not in student_index[person]:
-                        student_index[person].append(photo_id)
-                else:
-                    has_teachers = True
-                    if person not in person_index:
-                        person_index[person] = []
-                    if photo_id not in person_index[person]:
-                        person_index[person].append(photo_id)
+            # โครงสร้างสำหรับ Legacy student_index.json (Dual-Write)
+            # student_name: [photo_ids...] และเพิ่ม alias สำหรับ student_id
+            legacy_student_index = {}
+            for s_name, s_info in active_students.items():
+                p_list = s_info["photos"]
+                legacy_student_index[s_name] = p_list
+                s_id = s_info.get("student_id")
+                if s_id and s_id not in legacy_student_index:
+                    legacy_student_index[s_id] = p_list
 
-            # 2. สร้างโครงสร้างข้อมูลสำหรับ photo_index.json (แปลงลิงก์ให้เป็น Web View URL เสมอ, รวม face_count v6.23 และ academic_year v6.26)
-            photo_index = {}
-            for item in sync_data["photos"]:
+            for s_name, s_info in alumni_students.items():
+                p_list = s_info["photos"]
+                if s_name not in legacy_student_index:
+                    legacy_student_index[s_name] = p_list
+                s_id = s_info.get("student_id")
+                if s_id and s_id not in legacy_student_index:
+                    legacy_student_index[s_id] = p_list
+
+            # โครงสร้างสำหรับ Legacy photo_index.json (Dual-Write)
+            legacy_photo_index = {}
+            for item in legacy_photos:
                 photo_id = item["photo_id"]
                 raw_link = item["drive_link"]
                 entry = {
@@ -495,66 +501,79 @@ class GoogleSyncManager:
                     entry["year"] = str(item["year"]).strip()
                 if item.get("subfolder"):
                     entry["subfolder"] = item["subfolder"]
-                photo_index[photo_id] = entry
+                legacy_photo_index[photo_id] = entry
 
-            # พิจารณาการอัปโหลดตามโหมดสแกน
-            upload_person = False
-            upload_student = False
-
-            if scan_mode == "all":
-                # โหมดสแกนทั้งหมด/Manual Sync: อัปโหลดตามข้อมูลที่มีจริง
-                if has_teachers:
-                    upload_person = True
-                if has_students:
-                    upload_student = True
-            elif scan_mode in ["teachers", "selected_teachers"]:
-                # สแกนเฉพาะครู: อัปโหลดเฉพาะครู
-                upload_person = True
-            elif scan_mode in ["students", "selected_students"]:
-                # สแกนเฉพาะนักเรียน: อัปโหลดเฉพาะนักเรียน
-                upload_student = True
+            # จัดเตรียม Sharded Photo Indexes (แปลง drive_link ให้เป็น Web View URL)
+            formatted_shards = {}
+            for shard_key, shard_dict in photos_by_shard.items():
+                formatted_shard = {}
+                for pid, item in shard_dict.items():
+                    raw_link = item["drive_link"]
+                    entry = {
+                        "event": item["event"],
+                        "drive_link": self.format_drive_view_url(raw_link),
+                        "date": item.get("date", ""),
+                        "face_count": item.get("face_count", 0)
+                    }
+                    if item.get("year"):
+                        entry["year"] = str(item["year"]).strip()
+                    if item.get("subfolder"):
+                        entry["subfolder"] = item["subfolder"]
+                    formatted_shard[pid] = entry
+                formatted_shards[shard_key] = formatted_shard
 
             # ฟังก์ชันช่วยอัปโหลดทับไฟล์เดิมบน Google Drive
-            def upload_overwrite_json(file_name, data_dict):
-                json_content = json.dumps(data_dict, ensure_ascii=False, indent=2)
+            def upload_overwrite_json(file_name, data_dict, use_compact=True):
+                if use_compact:
+                    json_content = json.dumps(data_dict, ensure_ascii=False, separators=(',', ':'))
+                else:
+                    json_content = json.dumps(data_dict, ensure_ascii=False, indent=2)
                 
-                # ค้นหา ID ของไฟล์เดิมในโฟลเดอร์ที่แอดมินกำหนด
+                content_bytes = json_content.encode('utf-8')
+                content_size_mb = len(content_bytes) / (1024 * 1024)
+                
+                # ค้นหา ID ของไฟล์เดิมในโฟลเดอร์ที่กำหนด (json_folder_id)
                 query = f"'{json_folder_id}' in parents and name = '{file_name}' and trashed = false"
                 search_results = self.drive_service.files().list(q=query, fields="files(id)").execute()
                 files = search_results.get("files", [])
                 
                 media = MediaIoBaseUpload(
-                    io.BytesIO(json_content.encode('utf-8')),
+                    io.BytesIO(content_bytes),
                     mimetype='application/json',
                     resumable=True
                 )
                 
                 if files:
                     file_id = files[0]['id']
-                    logger.info(f"[GDRIVE JSON] Updating existing file '{file_name}' (ID: {file_id}) in specified folder...")
+                    logger.info(f"[GDRIVE JSON] Updating existing file '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB)...")
                     self.drive_service.files().update(
                          fileId=file_id,
                          media_body=media
                     ).execute()
                     logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
                 else:
-                    # ถ้าหาในโฟลเดอร์ที่ระบุไม่เจอ ให้ทำการค้นหาทั่วไดรฟ์ (Global search) เผื่อไปวางสลับที่กัน
-                    logger.warning(f"[GDRIVE JSON] File '{file_name}' not found in folder '{json_folder_id}'. Searching globally...")
-                    global_query = f"name = '{file_name}' and trashed = false"
-                    global_search_results = self.drive_service.files().list(q=global_query, fields="files(id)").execute()
-                    global_files = global_search_results.get("files", [])
-                    
-                    if global_files:
-                        file_id = global_files[0]['id']
-                        logger.info(f"[GDRIVE JSON] Found file globally (ID: {file_id}). Overwriting global file...")
+                    # ป้องกัน 403 Service Account Quota: ขอให้ Web App ช่วยสร้างไฟล์เปล่าเป็นของ sawiphoto@sawi.ac.th ก่อน
+                    logger.info(f"[GDRIVE JSON] File '{file_name}' not found in folder. Requesting placeholder creation via Web App...")
+                    try:
+                        import requests
+                        app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
+                        r = requests.get(app_url, params={'action': 'createPlaceholders', 'secret': 'sawi_sharding_2026', 'files': file_name}, timeout=30)
+                        if r.status_code == 200 and r.json().get('ok'):
+                            search_results = self.drive_service.files().list(q=query, fields="files(id)").execute()
+                            files = search_results.get("files", [])
+                    except Exception as ep:
+                        logger.warning(f"Could not request placeholder creation via Web App: {ep}")
+
+                    if files:
+                        file_id = files[0]['id']
+                        logger.info(f"[GDRIVE JSON] Updating newly created placeholder '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB)...")
                         self.drive_service.files().update(
-                            fileId=file_id,
-                            media_body=media
+                             fileId=file_id,
+                             media_body=media
                         ).execute()
-                        logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' globally on Google Drive.")
+                        logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
                     else:
-                        # สร้างไฟล์ใหม่ถ้ายังไม่พบเลย
-                        logger.warning(f"[GDRIVE JSON] File '{file_name}' not found anywhere. Creating in specified folder...")
+                        logger.info(f"[GDRIVE JSON] Creating new file '{file_name}' (Size: {content_size_mb:.2f} MB) in target folder '{json_folder_id}'...")
                         file_metadata = {
                             'name': file_name,
                             'mimeType': 'application/json',
@@ -567,16 +586,37 @@ class GoogleSyncManager:
                         ).execute()
                         logger.info(f"[GDRIVE JSON] Created new '{file_name}' (ID: {new_file.get('id')}) on Drive.")
 
-            # ดำเนินการอัปเดตไฟล์ตามความเกี่ยวข้อง
-            if upload_person:
-                upload_overwrite_json("person_index.json", person_index)
-            if upload_student:
-                upload_overwrite_json("student_index.json", student_index)
+            # พิจารณาการอัปโหลดตาม scan_mode
+            upload_teachers = (scan_mode in ["all", "teachers", "selected_teachers"])
+            upload_students = (scan_mode in ["all", "students", "selected_students"])
+
+            # 1. ดัชนีครู (person_index.json)
+            if upload_teachers:
+                upload_overwrite_json("person_index.json", teachers, use_compact=True)
+
+            # 2. ดัชนีนักเรียนแบบ Sharded และ Legacy
+            if upload_students:
+                # Sharded Students
+                upload_overwrite_json("student_index_active.json", active_students, use_compact=True)
+                upload_overwrite_json("student_index_alumni.json", alumni_students, use_compact=True)
+                # Legacy Student Index (Dual-Write)
+                upload_overwrite_json("student_index.json", legacy_student_index, use_compact=True)
+
+            # 3. ดัชนีรูปภาพแบบ Sharded และ Manifest
+            if upload_teachers or upload_students:
+                # Photo Manifest
+                upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
                 
-            # ดัชนีรูปภาพอัปโหลดเสมอหากมีการอัปเดต
-            if upload_person or upload_student:
-                upload_overwrite_json("photo_index.json", photo_index)
-                
+                # Sharded Photo Files
+                year_file_map = manifest["year_file_map"]
+                for shard_key, shard_data in formatted_shards.items():
+                    shard_filename = year_file_map.get(shard_key, f"photo_index_{shard_key}.json")
+                    upload_overwrite_json(shard_filename, shard_data, use_compact=True)
+
+                # Legacy Photo Index (Dual-Write)
+                upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
+
+            logger.info("[GDRIVE JSON] All Sharded & Dual-Write JSON Indexes successfully synchronized.")
             return True
         except Exception as e:
             logger.error(f"[GDRIVE JSON] Error updating JSON search indexes: {e}", exc_info=True)

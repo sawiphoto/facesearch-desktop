@@ -1328,8 +1328,6 @@ stateDiagram-v2
   1. อัปเดต Window Title และ Sidebar Logo Header เป็น **`v6.29 (Student Lifecycle & Graduation Suite)`**
   2. ค้นหาตรวจสอบว่าไม่มีเลขเวอร์ชันเก่าตกค้าง (Zero-Omission Version Update ตามกฎข้อ 5)
 
----
-
 ### 17.6 แผนการทดสอบและกรณีทดสอบ (Comprehensive Test Case Specification: TC-52 ถึง TC-59)
 
 | รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
@@ -1345,5 +1343,175 @@ stateDiagram-v2
 
 ---
 
+## 18. แผนงานสถาปัตยกรรมแบ่งไฟล์ดัชนีตามปีการศึกษาและสถานะ (Academic Year & Lifecycle Sharding Architecture: v6.30)
 
+### 18.1 ที่มาและเหตุผลความจำเป็น (Rationale & The Bloat Problem)
 
+จากการเติบโตของฐานข้อมูลโรงเรียนในระยะยาว:
+- **`photo_index.json`:** ปัจจุบันมี 124,813 รูปภาพ ขนาดไฟล์พุ่งสูงถึง **32.7 MB** (ใกล้ขีดจำกัด 50 MB ของ Google Apps Script) หากโรงเรียนเปิดดำเนินการต่อไปอีก 2–3 ปีและมีรูปเพิ่มเป็น 250,000 รูป ไฟล์จะโตเกิน 65 MB ซึ่งจะทำให้ Google Apps Script เกิดข้อผิดพลาด `Exceeded memory limit` หรือ `Blob too large` ทันที
+- **`student_index.json`:** ปัจจุบันมีขนาด 154 KB (นักเรียน 83 คน) แต่เนื่องจากระบบ v6.29 ใช้ **Soft Lifecycle** เพื่อรักษาภาพความทรงจำของศิษย์เก่า ทำให้เมื่อมีนักเรียนจบการศึกษาในแต่ละปี (ปีละ 500–1,000 คน) รายชื่อและรูปถ่ายจะสะสมเพิ่มขึ้นเรื่อยๆ โดยไม่มีการลบออก
+- **`person_index.json` (คุณครู):** มีขนาด **4.13 MB** จากครู 135 คนและภาพสะสม 156,912 แมตช์
+
+หากยังใช้สถาปัตยกรรมไฟล์ก้อนยักษ์ก้อนเดียว (Monolithic JSON Index) ทุกครั้งที่มีนักเรียนหรือครูค้นหาภาพ 1 ครั้ง ระบบจะต้องดาวน์โหลดไฟล์ขนาดรวมกว่า 37 MB ข้าม Google Drive API ส่งผลให้:
+1. การเปิดหน้าเว็บค้นหาช้าลงเรื่อยๆ บนอุปกรณ์มือถือของนักเรียนและผู้ปกครอง
+2. สิ้นเปลืองโควตา Google Drive API และ RAM ของ Google Apps Script V8 Engine
+3. เสี่ยงต่อการล่มของ Web Portal เมื่อขนาดไฟล์แตะขีดจำกัด
+
+---
+
+### 18.2 สถาปัตยกรรมการแบ่งพาร์ทิชัน (Partitioning & Sharding Architecture)
+
+เพื่อแก้ปัญหาอย่างยั่งยืนโดยไม่ต้องพึ่งพาเซิร์ฟเวอร์ภายนอกราคาแพง ระบบจะใช้ **สถาปัตยกรรม 3-Tier Sharding & Intelligent Lazy Loading**:
+
+```mermaid
+graph TD
+    subgraph Local_Admin["🖥️ ระบบแอดมิน (Python / SQLite)"]
+        DB[(faces_db.db)] --> Sync[gdrive_sync.py]
+    end
+
+    subgraph Google_Drive["☁️ Google Drive โฟลเดอร์: รวมไฟล์ JSON INDEX (ID: 1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L)"]
+        Sync -->|สร้างแยกสถานะ| S_Active["student_index_active.json<br>(เฉพาะเด็กปัจจุบัน ~0.3 - 1 MB ตลอดกาล)"]
+        Sync -->|สร้างแยกสถานะ| S_Alumni["student_index_alumni.json<br>(ศิษย์เก่าสะสม)"]
+        Sync -->|สร้างแยกรายปี| P_2569["photo_index_2569.json (~3.5 MB)"]
+        Sync -->|สร้างแยกรายปี| P_2568["photo_index_2568.json (~4.5 MB)"]
+        Sync -->|สร้างแยกรายปี| P_Arch["photo_index_archive.json (~15 MB)"]
+        Sync -->|สร้างไฟล์คุม| Manifest["manifest.json (~2 KB)"]
+        Sync -->|Dual-Write ป้องกันระบบเดิมพัง| Legacy["student_index.json & photo_index.json (Legacy)"]
+    end
+
+    subgraph Web_Portal["🌐 Web Portal (Google Apps Script)"]
+        User(["นักเรียน / ครู ค้นหา"]) --> Router{ตรวจสอบเงื่อนไข}
+        Router -->|นักเรียนปัจจุบัน| S_Active
+        Router -->|ศิษย์เก่า| S_Alumni
+        S_Active -->|Lazy Load เฉพาะปีที่พบรูป| P_2569
+        S_Active -->|Lazy Load เฉพาะปีที่พบรูป| P_2568
+    end
+```
+
+---
+
+### 18.3 รายละเอียดโครงสร้างไฟล์ที่แบ่งพาร์ทิชัน (Sharded File Specifications)
+
+#### 1. สำหรับนักเรียน (`Student Index Sharding`)
+- **ไฟล์ที่ 1: `student_index_active.json` (หัวใจสำคัญ):**
+  - **เนื้อหา:** บรรจุเฉพาะนักเรียนที่มี `status = 'active'` (กำลังศึกษาอยู่)
+  - **ขนาดไฟล์:** **~300 KB – 1.2 MB คงที่ตลอดไป** ไม่ว่าโรงเรียนจะเปิดไปอีกกี่สิบปี เพราะจำนวนนักเรียนในโรงเรียน ณ เวลาใดเวลาหนึ่งมีเพดานจำกัดตามขนาดโรงเรียน (เช่น 1,000 – 3,000 คน)
+  - **การใช้งาน:** หน้าเว็บ Web Portal ของนักเรียนจะโหลดไฟล์นี้เป็นค่าเริ่มต้น (Default) ทำให้เปิดหน้าเว็บได้เร็วระดับเสี้ยววินาที (< 0.2 วินาที)
+- **ไฟล์ที่ 2: `student_index_alumni.json`:**
+  - **เนื้อหา:** บรรจุเฉพาะนักเรียนที่มี `status = 'graduated'` (จบการศึกษาแล้ว)
+  - **การใช้งาน:** โหลดเฉพาะเมื่อผู้ใช้งานเลือกโหมด *"🎓 ศิษย์เก่า (Alumni Search)"* บนหน้าเว็บเท่านั้น ไม่รบกวนการใช้งานของเด็กปัจจุบัน
+- **ไฟล์ที่ 3: `student_index.json` (Legacy Fallback):**
+  - สร้างควบคู่กันไว้ตามแนวทาง **Dual-Write Pattern** เพื่อให้เว็บเวอร์ชันเก่าที่ยังไม่ได้อัปเดตยังคงทำงานได้ต่อเนื่อง 100%
+
+#### 2. สำหรับรูปกิจกรรม (`Photo Index Yearly Sharding`)
+- **ไฟล์แยกตามปีการศึกษา:**
+  - `photo_index_2569.json` (ปีปัจจุบัน ~3 – 4 MB)
+  - `photo_index_2568.json` (~4 – 5 MB)
+  - `photo_index_2567.json` (~4 MB)
+  - `photo_index_archive.json` (รวมปีก่อนหน้า 2566 ลงไป)
+- **ไฟล์สารบัญกลาง: `photo_manifest.json` (~2 KB):**
+  ```json
+  {
+    "version": "v6.30",
+    "updated_at": "2026-10-19T16:00:00",
+    "available_years": ["2569", "2568", "2567", "archive"],
+    "year_file_map": {
+      "2569": "photo_index_2569.json",
+      "2568": "photo_index_2568.json",
+      "2567": "photo_index_2567.json",
+      "archive": "photo_index_archive.json"
+    }
+  }
+  ```
+- **กลไก Intelligent Lazy Loading บน Web Portal:**
+  - เมื่อนักเรียน "สมชาย" ค้นหา ➔ ระบบพบว่ามีรูปอยู่ในปี `2569` และ `2568`
+  - Web Portal จะโหลดเฉพาะ `photo_index_2569.json` และ `photo_index_2568.json` (รวมกัน ~8 MB)
+  - **ผลลัพธ์:** ประหยัดเน็ตและหน่วยความจำทันที 75% โดยไม่ต้องโหลดรูปของปีอื่นๆ อีกกว่า 80,000 รูปมาเลย
+
+#### 3. การบีบอัดระดับข้อมูล (Compact & URL Optimization)
+- ใช้ `json.dumps(..., separators=(',', ':'))` ตัดช่องว่างและบรรทัดใหม่ทั้งหมด ประหยัดทันที 15–20%
+- ใน Shard รูปภาพ ตัดสตริง `"https://drive.google.com/file/d/"` และ `"/view"` ออก ให้เหลือเฉพาะรหัสรูปภาพ แล้วให้ Client-side เติม URL เอง ประหยัดเพิ่มอีก 5 MB
+
+---
+
+### 18.4 ขั้นตอนการดำเนินงานทีละข้อ (Step-by-Step Implementation Breakdown: v6.30)
+
+#### ข้อที่ 0: ปรับปรุงโฟลเดอร์ปลายทางใน `data/app_settings.json`
+- เปลี่ยน `"json_folder_id"` เป็น `"1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"` (โฟลเดอร์ชื่อ `"รวมไฟล์ JSON INDEX"`)
+- เพื่อให้การสร้างและซิงก์ไฟล์ JSON Index ทั้งหมด (ทั้ง Sharded และ Legacy Dual-Write) อัปโหลดไปยังโฟลเดอร์รวมศูนย์ที่กำหนดใหม่นี้โดยอัตโนมัติ
+
+#### ข้อที่ 1: ปรับปรุง Data Extraction ใน `db_manager.py`
+- เพิ่มเมธอด `get_sync_data_sharded()`:
+  - แยก `faces` ของนักเรียนออกเป็น 2 ชุด: `active_students` (`status='active'`) และ `alumni_students` (`status='graduated'`)
+  - จัดกลุ่ม `photos` แยกตาม `academic_year` (เช่น 2569, 2568, 2567, ...) โดยปีที่เก่ากว่า 3 ปีย้อนหลังให้รวมเข้ากลุ่ม `'archive'`
+  - รองรับโหมดสร้างทั้ง Sharded Data และ Legacy Data พร้อมกัน
+
+#### ข้อที่ 2: อัปเกรด `gdrive_sync.py` ให้รองรับการอัปโหลด Sharded Files
+- ในเมธอด `update_json_indexes_on_drive()`:
+  - อัปโหลด `student_index_active.json` และ `student_index_alumni.json`
+  - อัปโหลด `photo_index_YYYY.json` แยกตามปีที่มีการเปลี่ยนแปลง
+  - อัปโหลด `photo_manifest.json`
+  - อัปโหลด `student_index.json` และ `photo_index.json` แบบเดิมควบคู่ไปด้วย (Dual-Write Guarantee)
+  - ใช้ Compact JSON formatting (`separators=(',', ':')`)
+
+#### ข้อที่ 3: ปรับปรุง Google Apps Script ฝั่ง Web Portal นักเรียน (`07.55 ระบบค้นหาสำหรับนักเรียน`)
+- **โฟลเดอร์:** `d:\Projects\07.5 ระบบค้นหา appscript\07.55 ระบบค้นหาสำหรับนักเรียน`
+- **Script ID:** `1pl8rsosnuaU15vh8YLK3226x3u8u0wWTXLW8FZJ8MqwCc96iO9ffGW3L`
+- **Deployment ID เดิม:** `AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV`
+- **การแก้ไขใน `DatabaseService.gs`:**
+  1. ในฟังก์ชัน `searchStudent()`:
+     - ตรวจสอบสถานะนักเรียน ถ้าเป็น `graduated` ให้โหลด `student_index_alumni.json` ถ้าเป็น `active` ให้โหลด `student_index_active.json`
+     - มี Fallback อัตโนมัติ: หากไม่พบคู่ไฟล์แยก ให้โหลด `student_index.json` เดิม เพื่อความต่อเนื่อง 100%
+  2. โหลดรูปภาพกิจกรรมแบบ Lazy Load:
+     - ตรวจสอบ `photo_manifest.json` เพื่อโหลดเฉพาะ `photo_index_YYYY.json` ของปีที่มีรูปภาพของนักเรียนคนนั้น โดยไม่ต้องโหลดรูปภาพ 32.7 MB ของปีอื่นมาเลย
+  3. ปรับปรุงเวอร์ชันใน `Index.html` (Header / Badge) เป็น `v2.1` และบันทึกลงบนสุดของ `readme.md`
+- **ขั้นตอน Deployment (ตามกฎข้อ 4):**
+  - ทดสอบความถูกต้อง
+  - `clasp push --force`
+  - `clasp deploy -i 'AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV' -d 'v2.1: Sharded Student & Photo Index Lazy Loading Support'`
+
+#### ข้อที่ 4: ปรับปรุง Google Apps Script ฝั่ง Web Portal ครู/บุคลากร (`07.5 ระบบค้นหา appscript`)
+- **โฟลเดอร์:** `d:\Projects\07.5 ระบบค้นหา appscript`
+- **Script ID:** `1YKIQ5-JuGUP4uJ0rijwamhcULNZO-QgKTkHrxk-GHzxkedrSy6LopqDR`
+- **Deployment ID เดิม:** `AKfycby-QaHCIv2M7VCr4VRNsRtdYKbNaDD0fhJe1vLoJXJC1hOlWATuCpOWyIZGUur9oo0DUw`
+- **การแก้ไขใน `DatabaseService.gs`:**
+  1. ในฟังก์ชัน `loadJsonFile` หรือ `syncDataFromDrive`:
+     - รองรับการโหลด `photo_manifest.json` และดึงเฉพาะ Shard รูปภาพที่เกี่ยวข้อง หรือโหลดแบบรวม Shard อัตโนมัติ
+     - มี Fallback โหลด `photo_index.json` เดิม (ซึ่งตอนนี้เป็น Compact Format มีขนาดลดลง 20%)
+  2. ปรับปรุงเวอร์ชันใน `Index.html` (Header / Version Badge) เป็น `v10.5` และบันทึกลงบนสุดของ `README.md`
+- **ขั้นตอน Deployment (ตามกฎข้อ 4):**
+  - ทดสอบความถูกต้อง
+  - `clasp push --force`
+  - `clasp deploy -i 'AKfycby-QaHCIv2M7VCr4VRNsRtdYKbNaDD0fhJe1vLoJXJC1hOlWATuCpOWyIZGUur9oo0DUw' -d 'v10.5: Sharded Photo Index & Compact JSON Support'`
+
+#### ข้อที่ 5: อัปเกรด GUI และรายงานสถิติขนาดไฟล์ในหน้าแอดมิน (`app_gui.py`)
+- แสดงขนาดไฟล์ JSON แต่ละ Shard ในหน้าต่างตั้งค่าหรือในแถบรายงานการซิงก์
+- แสดงแถบเตือนสถานะขนาดไฟล์ (Health Status): สีเขียว (< 5 MB), สีส้ม (5–15 MB), สีแดง (> 25 MB)
+- อัปเดต Window Title และ Sidebar Header เป็น **`v6.30 (Full Sharding & Multi-Web Sync Suite)`**
+
+---
+
+### 18.5 ตารางเปรียบเทียบขนาดและประสิทธิภาพ ก่อน vs หลัง
+
+| รายการดัชนี (Index Item) | สถาปัตยกรรมเดิม (v6.29 Monolithic) | สถาปัตยกรรมใหม่ (v6.30 Sharded & Compact) | ประสิทธิภาพที่ดีขึ้น |
+| :--- | :---: | :---: | :---: |
+| **`student_index` (เด็กปัจจุบัน)** | 154 KB (และจะโตขึ้นเรื่อยๆ ทุกปี) | **~120 KB (คงที่ตลอดกาล)** | ไม่บวมตามจำนวนรุ่นศิษย์เก่า |
+| **`student_index` (ศิษย์เก่า)** | ปนอยู่ในไฟล์หลัก | แยกเก็บต่างหาก (~50–300 KB) | ไม่รบกวนเด็กปัจจุบัน |
+| **`photo_index` ต่อการค้นหา 1 ครั้ง** | โหลดไฟล์ยักษ์ **32.7 MB** ทุกครั้ง | โหลดเฉพาะปีที่พบรูป **~3.5 – 7.0 MB** | **โหลดเร็วขึ้น 4.5 – 9 เท่า** |
+| **RAM Usage บน Google Apps Script** | สูงมาก (~100–150 MB) เสี่ยงแครช | ต่ำมาก (~15–30 MB) ปลอดภัย 100% | **ลดการใช้ RAM ลง 80%** |
+| **การรองรับระบบเดิม (Backward Compatibility)** | - | มี Dual-Write (ทำงานร่วมกับระบบเดิมได้ 100%) | ปลอดภัย ไม่เกิดข้อผิดพลาด |
+
+---
+
+### 18.6 แผนการทดสอบและกรณีทดสอบ (Comprehensive Test Cases: TC-60 ถึง TC-65)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-60** | **Student Index Sharding Generation** | `gdrive_sync.py` / `db_manager.py` | จำลองนักเรียน 5 คน (Active 3 คน, Graduated 2 คน) แล้วรันแยก Shard | `student_index_active.json` มีเฉพาะ 3 คน, `student_index_alumni.json` มีเฉพาะ 2 คน ไม่ปะปนกัน |
+| **TC-61** | **Photo Index Yearly Sharding** | `gdrive_sync.py` / `db_manager.py` | จัดกลุ่มรูปภาพปี 2569, 2568, 2567 และปีก่อนหน้า | สร้างไฟล์แยกปีถูกต้อง แต่ละไฟล์มีขนาดเล็กลง และมี `photo_manifest.json` สมบูรณ์ |
+| **TC-62** | **Dual-Write Backward Compatibility** | `gdrive_sync.py` | ตรวจสอบไฟล์ผลลัพธ์หลังสั่ง Sync | ทั้งไฟล์ Sharded และไฟล์ Legacy (`student_index.json`, `photo_index.json`) ถูกสร้างครบถ้วน |
+| **TC-63** | **Compact JSON Minification Rate** | `gdrive_sync.py` | วัดขนาดไฟล์ก่อนและหลัง Compact | ขนาดไฟล์ลดลงอย่างน้อย 15% – 20% โดยข้อมูล JSON Parse ได้ตรงกัน 100% |
+| **TC-64** | **Apps Script Intelligent Lazy Load Simulation** | `test_sharded_sync_suite.py` | จำลองการค้นหานักเรียนที่มีรูปเฉพาะปี 2568 | โหลดเฉพาะ `student_index_active` และ `photo_index_2568` โดยไม่โหลดปี 2569 หรือ archive |
+| **TC-65** | **Zero Data Loss Integrity Check** | `test_sharded_sync_suite.py` | เปรียบเทียบผลรวมรูปและแมตช์ทั้งหมดระหว่างไฟล์รวมเดิมกับไฟล์ Shard ใหม่ | ข้อมูลตรงกัน 100% ทุกรายการ ไม่ตกหล่นแม้แต่รูปเดียว |
+
+---
