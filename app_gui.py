@@ -23,6 +23,101 @@ from scheduler_task import SchedulerTask
 from gradient_chart import GradientBarChart, get_gradient_color
 import unknown_analyzer
 
+# ==================== (v6.33) ระบบแยกวิเคราะห์ชื่อไฟล์คุณครูอัจฉริยะ (Smart Teacher Filename Parser) ====================
+THAI_PREFIXES = [
+    r'ว่าที่\s*ร้อยตรี\s*หญิง',
+    r'ว่าที่\s*ร้อยตรี',
+    r'ว่าที่\s*ร\.ต\.หญิง',
+    r'ว่าที่\s*ร\.ต\.',
+    r'นางสาว',
+    r'น\.ส\.',
+    r'นาย',
+    r'นาง',
+    r'ดร\.',
+    r'ผศ\.ดร\.',
+    r'รศ\.ดร\.',
+    r'ศ\.ดร\.',
+    r'ผศ\.',
+    r'รศ\.',
+    r'ศ\.',
+    r'อาจารย์',
+    r'อ\.',
+    r'คุณครู',
+    r'ครู',
+    r'Mr\.',
+    r'Mrs\.',
+    r'Miss',
+    r'Ms\.',
+]
+
+def parse_teacher_filename(filename):
+    """
+    แยกวิเคราะห์ชื่อไฟล์ครูออกเป็น (main_name, department, photo_index)
+    ตัวอย่าง:
+      'นายสมชาย ใจดี วิทยาศาสตร์  1.jpg' -> ('นายสมชาย ใจดี', 'วิทยาศาสตร์', 1)
+      'นายสมชาย ใจดี วิทยาศาสตร์  2.jpg' -> ('นายสมชาย ใจดี', 'วิทยาศาสตร์', 2)
+      'นางสาวสมหญิง สดใส คณิตศาสตร์ (2).png' -> ('นางสาวสมหญิง สดใส', 'คณิตศาสตร์', 2)
+      'นายวิชาญ การงาน ภาษาไทย.jpg' -> ('นายวิชาญ การงาน', 'ภาษาไทย', 1)
+      'นายสมศักดิ์ รักดี 1.jpg' -> ('นายสมศักดิ์ รักดี', '', 1)
+    """
+    base_name = os.path.splitext(os.path.basename(filename))[0].strip()
+    photo_index = 1
+    idx_match = re.search(r'[\s_\-\(\[\{]+(\d+)[\s\)\]\}]*$', base_name)
+    if idx_match:
+        try:
+            photo_index = int(idx_match.group(1))
+            base_name = base_name[:idx_match.start()].strip()
+        except Exception:
+            photo_index = 1
+            
+    clean_text = re.sub(r'\s+', ' ', base_name).strip()
+    if not clean_text:
+        return ("", "", photo_index)
+        
+    prefix_matched = None
+    had_space = False
+    remaining_after_prefix = clean_text
+    
+    for prefix_pat in THAI_PREFIXES:
+        match = re.match(r'^(' + prefix_pat + r')(\s*)(.*)$', clean_text, re.IGNORECASE)
+        if match:
+            prefix_matched = match.group(1).strip()
+            had_space = bool(match.group(2))
+            remaining_after_prefix = match.group(3).strip()
+            break
+            
+    if prefix_matched:
+        tokens = [t for t in remaining_after_prefix.split(' ') if t]
+        no_space_prefixes = ('นาย', 'นาง', 'นางสาว', 'น.ส.', 'ครู', 'คุณครู', 'ดร.')
+        join_char = "" if (prefix_matched in no_space_prefixes and not had_space) else " "
+        
+        if len(tokens) == 0:
+            main_name = prefix_matched
+            department = ""
+        elif len(tokens) == 1:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]}".strip()
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = ""
+        else:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = " ".join(tokens[2:]).strip()
+    else:
+        tokens = [t for t in clean_text.split(' ') if t]
+        if len(tokens) == 1:
+            main_name = tokens[0]
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = ""
+        else:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = " ".join(tokens[2:]).strip()
+            
+    return (main_name.strip(), department.strip(), photo_index)
+
+
 # ตั้งค่าการบันทึก Log หลัก
 logger = logging.getLogger("FaceSearchApp")
 logger.setLevel(logging.DEBUG)
@@ -878,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.32 (Nested Event Healing & Anti-Generic Guard Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.33 (Smart Batch Teacher Import & Department Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -983,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.32",
+            text="FACE MATCHING\nSYSTEM v6.33",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1543,13 +1638,19 @@ class FaceSearchApp(ctk.CTk):
         ctk.CTkLabel(self.form_frame, text="1. เพิ่มรายชื่อครูใหม่", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(anchor="w", padx=20, pady=(20, 5))
         
         add_input_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        add_input_frame.pack(fill="x", padx=20, pady=5)
+        add_input_frame.pack(fill="x", padx=20, pady=2)
         
-        self.entry_staff_name = ctk.CTkEntry(add_input_frame, placeholder_text="กรอกชื่อคุณครู (เช่น ครูสมชาย ใจดี)", height=36, font=ctk.CTkFont(size=14))
+        self.entry_staff_name = ctk.CTkEntry(add_input_frame, placeholder_text="กรอกชื่อคุณครู (เช่น ครูสมชาย ใจดี หรือ นายสมชาย ใจดี วิทยาศาสตร์)", height=36, font=ctk.CTkFont(size=14))
         self.entry_staff_name.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
         btn_add_staff = ctk.CTkButton(add_input_frame, text="เพิ่มชื่อ", width=95, height=36, font=ctk.CTkFont(size=14, weight="bold"), command=self.add_staff_name)
         btn_add_staff.pack(side="right")
+
+        add_input_frame2 = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        add_input_frame2.pack(fill="x", padx=20, pady=(2, 6))
+
+        self.entry_staff_department = ctk.CTkEntry(add_input_frame2, placeholder_text="กลุ่มสาระ/สังกัด (เช่น วิทยาศาสตร์, คณิตศาสตร์ - เสริม)", height=32, font=ctk.CTkFont(size=13))
+        self.entry_staff_department.pack(fill="x", expand=True)
 
         # ปุ่มนำเข้ายกโฟลเดอร์อัตโนมัติ
         btn_batch_import = ctk.CTkButton(
@@ -1594,13 +1695,24 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_delete_photo.pack(fill="x", padx=20, pady=(5, 10))
 
-        # ลบชื่อครูที่เลือก
+        # 3. การดำเนินการอื่น ๆ (แก้ไข และ ลบ)
         ctk.CTkLabel(self.form_frame, text="3. การดำเนินการอื่น ๆ", font=ctk.CTkFont(size=16, weight="bold"), text_color="#E74C3C").pack(anchor="w", padx=20, pady=(15, 5))
+        
+        staff_actions_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        staff_actions_frame.pack(fill="x", padx=20, pady=10)
+        staff_actions_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.btn_edit_staff = ctk.CTkButton(
+            staff_actions_frame, text="✏️ แก้ไขข้อมูลคุณครู", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            state="disabled", fg_color="#F39C12", hover_color="#D68910", text_color="#101B2B", command=self.edit_selected_staff
+        )
+        self.btn_edit_staff.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
         self.btn_delete_staff = ctk.CTkButton(
-            self.form_frame, text="ลบรายชื่อคุณครู (ลบข้อมูลและภาพทั้งหมด)", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+            staff_actions_frame, text="🗑️ ลบรายชื่อคุณครู", height=38, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", fg_color="#C0392B", hover_color="#962D22", command=self.delete_selected_staff
         )
-        self.btn_delete_staff.pack(fill="x", padx=20, pady=10)
+        self.btn_delete_staff.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     # ==================== (3) หน้าลงทะเบียนนักเรียน (Student Registry) ====================
     def setup_student_registry_ui(self):
@@ -2938,8 +3050,11 @@ class FaceSearchApp(ctk.CTk):
         self.staff_buttons = {}
         self.selected_staff_id = None
         self.selected_staff_name = None
+        self.selected_staff_department = ""
         self.btn_upload_photo.configure(state="disabled")
         self.btn_delete_staff.configure(state="disabled")
+        if hasattr(self, 'btn_edit_staff'):
+            self.btn_edit_staff.configure(state="disabled")
         self.lbl_selected_info.configure(text="กรุณาเลือกคุณครูจากรายชื่อซ้ายมือเพื่อจัดการรูปภาพ")
         self.lbl_photo_count_detail.configure(text="")
 
@@ -2952,7 +3067,8 @@ class FaceSearchApp(ctk.CTk):
         staff = self._cached_teachers_list
         rendered_count = 0
         for idx, s in enumerate(staff):
-            if search_term and search_term not in s['name'].lower():
+            dep = s.get('department', '') or ''
+            if search_term and (search_term not in s['name'].lower() and search_term not in dep.lower()):
                 continue
             
             if rendered_count >= 100:
@@ -2966,16 +3082,17 @@ class FaceSearchApp(ctk.CTk):
             row_frame = ctk.CTkFrame(self.staff_list_scrollable, fg_color="transparent")
             row_frame.pack(fill="x", pady=2)
             
+            dep_badge = f" ({dep})" if dep else ""
             btn = ctk.CTkButton(
                 row_frame, 
-                text=f"{s['name']} ({s['photo_count']} รูปภาพ)", 
+                text=f"{s['name']}{dep_badge} • {s['photo_count']} รูป", 
                 anchor="w",
                 height=34,
                 font=ctk.CTkFont(size=14),
                 fg_color="transparent",
                 text_color="#A2B5CD",
                 hover_color="#1F3A60",
-                command=lambda sid=s['id'], sname=s['name'], scnt=s['photo_count']: self.select_staff_item(sid, sname, scnt)
+                command=lambda sid=s['id'], sname=s['name'], scnt=s['photo_count'], sdep=dep: self.select_staff_item(sid, sname, scnt, sdep)
             )
             btn.pack(side="left", fill="x", expand=True)
             self.staff_buttons[s['id']] = btn
@@ -3016,9 +3133,10 @@ class FaceSearchApp(ctk.CTk):
             self.entry_staff_search.delete(0, "end")
             self.load_staff_list(refresh_db=False)
 
-    def select_staff_item(self, staff_id, staff_name, photo_count):
+    def select_staff_item(self, staff_id, staff_name, photo_count, department=""):
         self.selected_staff_id = staff_id
         self.selected_staff_name = staff_name
+        self.selected_staff_department = department
         self.selected_thumb_paths = set()
         
         # ไฮไลต์ปุ่มที่ถูกเลือก
@@ -3028,26 +3146,41 @@ class FaceSearchApp(ctk.CTk):
             else:
                 btn.configure(fg_color="transparent", text_color="#A2B5CD")
 
-        self.lbl_selected_info.configure(text=f"คุณครูที่เลือก: {staff_name}")
+        dep_info = f" ({department})" if department else ""
+        self.lbl_selected_info.configure(text=f"คุณครูที่เลือก: {staff_name}{dep_info}")
         self.lbl_photo_count_detail.configure(text=f"รูปภาพที่ลงทะเบียนแล้วในระบบ: {photo_count} รูป")
         
         self.btn_upload_photo.configure(state="normal")
         self.btn_delete_staff.configure(state="normal")
+        if hasattr(self, 'btn_edit_staff'):
+            self.btn_edit_staff.configure(state="normal")
         self.btn_delete_photo.configure(state="disabled", text="❌ ลบรูปภาพที่เลือก")
 
         # ดึงภาพย่อมาแสดงผล
         self.show_staff_thumbnails(staff_id)
 
     def add_staff_name(self):
-        name = self.entry_staff_name.get().strip()
-        if not name:
+        raw_input = self.entry_staff_name.get().strip()
+        if not raw_input:
             messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อคุณครู")
             return
             
-        staff_id = self.db.register_staff_member(name)
+        m_name, parsed_dep, _ = parse_teacher_filename(raw_input)
+        if not m_name:
+            m_name = raw_input
+            
+        final_dep = parsed_dep
+        if hasattr(self, 'entry_staff_department'):
+            manual_dep = self.entry_staff_department.get().strip()
+            if manual_dep:
+                final_dep = manual_dep
+                
+        staff_id = self.db.register_staff_member(m_name, department=final_dep)
         if staff_id:
-            logger.info(f"Registered new teacher '{name}' successfully.")
+            logger.info(f"Registered new teacher '{m_name}' (department: '{final_dep}') successfully.")
             self.entry_staff_name.delete(0, "end")
+            if hasattr(self, 'entry_staff_department'):
+                self.entry_staff_department.delete(0, "end")
             self.load_staff_list()
         else:
             messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเพิ่มรายชื่อได้")
@@ -3113,6 +3246,88 @@ class FaceSearchApp(ctk.CTk):
             ))
 
         threading.Thread(target=process_upload, daemon=True).start()
+
+    def edit_selected_staff(self):
+        """แก้ไขชื่อและกลุ่มสาระ/สังกัดของคุณครู (v6.33)"""
+        if self.selected_staff_id is None:
+            return
+
+        staff_id = self.selected_staff_id
+        old_name = self.selected_staff_name or ""
+        old_department = getattr(self, 'selected_staff_department', '') or ""
+
+        # ดึงข้อมูลล่าสุดจากฐานข้อมูล SQLite
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, COALESCE(department, '') FROM staff_members WHERE id = ?", (staff_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            old_name = row[0] or old_name
+            old_department = row[1] or ""
+
+        # สร้างหน้าต่าง Popup Dialog
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("แก้ไขข้อมูลคุณครู")
+        dialog.geometry("450x260")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 225
+        y = self.winfo_y() + (self.winfo_height() // 2) - 130
+        dialog.geometry(f"+{x}+{y}")
+
+        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลคุณครู (v6.33)", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
+
+        # ชื่อคุณครู
+        frame_name = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_name.pack(fill="x", padx=25, pady=6)
+        ctk.CTkLabel(frame_name, text="ชื่อคุณครู:", width=110, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        entry_name = ctk.CTkEntry(frame_name, width=260, font=ctk.CTkFont(size=13))
+        entry_name.pack(side="left", fill="x", expand=True)
+        entry_name.insert(0, old_name)
+
+        # กลุ่มสาระ / สังกัด
+        frame_dep = ctk.CTkFrame(dialog, fg_color="transparent")
+        frame_dep.pack(fill="x", padx=25, pady=6)
+        ctk.CTkLabel(frame_dep, text="กลุ่มสาระ/สังกัด:", width=110, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        entry_dep = ctk.CTkEntry(frame_dep, width=260, font=ctk.CTkFont(size=13))
+        entry_dep.pack(side="left", fill="x", expand=True)
+        entry_dep.insert(0, old_department)
+
+        # ปุ่มบันทึกและยกเลิก
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=25, pady=(20, 15))
+
+        def save_teacher_changes():
+            new_name = entry_name.get().strip()
+            new_dep = entry_dep.get().strip()
+            if not new_name:
+                messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อคุณครู", parent=dialog)
+                return
+
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE staff_members SET name = ?, department = ? WHERE id = ?", (new_name, new_dep, staff_id))
+                conn.commit()
+
+            self.selected_staff_name = new_name
+            self.selected_staff_department = new_dep
+            dep_info = f" ({new_dep})" if new_dep else ""
+            self.lbl_selected_info.configure(text=f"คุณครูที่เลือก: {new_name}{dep_info}")
+            self.load_staff_list()
+            dialog.destroy()
+            messagebox.showinfo("สำเร็จ", "บันทึกการแก้ไขข้อมูลคุณครูเรียบร้อยแล้ว")
+
+        btn_save = ctk.CTkButton(btn_frame, text="💾 บันทึกการแก้ไข", fg_color="#2ECC71", hover_color="#27AE60",
+                                 font=ctk.CTkFont(size=13, weight="bold"), command=save_teacher_changes)
+        btn_save.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        btn_cancel = ctk.CTkButton(btn_frame, text="ยกเลิก", fg_color="#7F8C8D", hover_color="#95A5A6",
+                                   font=ctk.CTkFont(size=13), command=dialog.destroy)
+        btn_cancel.pack(side="right", padx=(5, 0))
 
     def delete_selected_staff(self):
         if self.selected_staff_id is None:
@@ -5946,7 +6161,7 @@ class FaceSearchApp(ctk.CTk):
             self.db_sort_desc = not self.db_sort_desc
         else:
             self.db_sort_col = col_id
-            if col_id in ("name", "event", "file_name", "file_ext", "brand_ext"):
+            if col_id in ("name", "department", "event", "file_name", "file_ext", "brand_ext"):
                 self.db_sort_desc = False
             else:
                 self.db_sort_desc = True
@@ -6070,8 +6285,8 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
 
             elif "staff_members" in selected_table_text and "ครู" in selected_table_text:
-                # ตาราง staff_members (ครู)
-                sort_col_map = {"id": "ts.id", "name": "ts.name", "photos": "photos"}
+                # ตาราง staff_members (ครู) — v6.33 เพิ่ม department (กลุ่มสาระ/สังกัด)
+                sort_col_map = {"id": "ts.id", "name": "ts.name", "department": "ts.department", "photos": "photos"}
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
 
                 if search_query:
@@ -6079,46 +6294,48 @@ class FaceSearchApp(ctk.CTk):
                         SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
-                    """, (f"%{search_query}%", f"%{search_query}%"))
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
 
                     cursor.execute(f"""
                         WITH top_staff AS (
-                            SELECT s.id, s.name,
+                            SELECT s.id, s.name, COALESCE(s.department, '') as department,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ?)
+                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ?)
                         )
-                        SELECT ts.id, ts.name, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.photos
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     total_rows = get_total_rows("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
 
                     cursor.execute(f"""
                         WITH top_staff AS (
-                            SELECT s.id, s.name,
+                            SELECT s.id, s.name, COALESCE(s.department, '') as department,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         )
-                        SELECT ts.id, ts.name, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.photos
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("id", "name", "photos")
+                self.db_tree["columns"] = ("id", "name", "department", "photos")
                 self.db_tree.column("id", width=80, anchor="center")
-                self.db_tree.column("name", width=350, anchor="w")
+                self.db_tree.column("name", width=300, anchor="w")
+                self.db_tree.column("department", width=200, anchor="w")
                 self.db_tree.column("photos", width=120, anchor="center")
                 
                 set_tree_heading("id", "ID ครู")
                 set_tree_heading("name", "ชื่อ-นามสกุล คุณครู")
+                set_tree_heading("department", "กลุ่มสาระ / สังกัด")
                 set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
                 
                 for r in rows:
@@ -7628,8 +7845,8 @@ class FaceSearchApp(ctk.CTk):
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถลบภาพได้: {e}")
 
     def batch_import_teachers(self):
-        """เลือกโฟลเดอร์หลักแล้วนำเข้าโฟลเดอร์ย่อยเป็นรายชื่อครูและรูปภาพย่อยแบบอัตโนมัติ"""
-        main_dir = filedialog.askdirectory(title="เลือกโฟลเดอร์หลักที่มีโฟลเดอร์ย่อยเป็นชื่อครู")
+        """เลือกโฟลเดอร์หลักแล้วนำเข้าโฟลเดอร์ย่อยหรือไฟล์ภาพโดยตรงเป็นรายชื่อครูและรูปภาพย่อยแบบอัตโนมัติ (v6.33)"""
+        main_dir = filedialog.askdirectory(title="เลือกโฟลเดอร์รูปภาพคุณครู (รองรับทั้งไฟล์ภาพโดยตรงและโฟลเดอร์ย่อย)")
         if not main_dir:
             return
             
@@ -7643,7 +7860,7 @@ class FaceSearchApp(ctk.CTk):
         threading.Thread(target=self._batch_import_thread, args=(main_dir,), daemon=True).start()
 
     def _batch_import_thread(self, main_dir):
-        logger.info(f"[INIT] เริ่มนำเข้าข้อมูลใบหน้าครูอัตโนมัติแบบกลุ่ม (Batch Import) จาก: {main_dir}")
+        logger.info(f"[INIT] เริ่มนำเข้าข้อมูลใบหน้าครูอัตโนมัติแบบกลุ่ม (Smart Batch Import v6.33) จาก: {main_dir}")
         
         try:
             # 1. โหลดระบบวิเคราะห์ใบหน้า AI (ป้องกัน NoneType)
@@ -7655,30 +7872,135 @@ class FaceSearchApp(ctk.CTk):
                 self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเปิดระบบตรวจจับใบหน้า AI ได้"))
                 return
                 
-            # 2. กวาดหาโฟลเดอร์ย่อยทั้งหมด
-            subdirs = []
-            for item in os.listdir(main_dir):
-                full_path = os.path.join(main_dir, item)
-                if os.path.isdir(full_path):
-                    subdirs.append((item, full_path))
-                    
-            if not subdirs:
-                logger.warning(f"[UI] ไม่พบโฟลเดอร์ย่อยในโฟลเดอร์หลักที่เลือก: {main_dir}")
-                self.after(0, lambda: messagebox.showwarning("คำเตือน", "ไม่พบโฟลเดอร์ย่อย (โฟลเดอร์ครู) ในโฟลเดอร์ที่เลือก"))
+            valid_extensions = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tif", ".tiff")
+            
+            # ตรวจสอบไฟล์รูปภาพโดยตรงในโฟลเดอร์หลัก
+            direct_files = [
+                f for f in os.listdir(main_dir) 
+                if os.path.splitext(f)[1].lower() in valid_extensions and os.path.isfile(os.path.join(main_dir, f))
+            ]
+            
+            # ตรวจสอบโฟลเดอร์ย่อย
+            subdirs = [
+                (item, os.path.join(main_dir, item)) 
+                for item in os.listdir(main_dir) 
+                if os.path.isdir(os.path.join(main_dir, item))
+            ]
+            
+            if not direct_files and not subdirs:
+                logger.warning(f"[UI] ไม่พบไฟล์รูปภาพหรือโฟลเดอร์ย่อยในโฟลเดอร์หลักที่เลือก: {main_dir}")
+                self.after(0, lambda: messagebox.showwarning("คำเตือน", "ไม่พบไฟล์รูปภาพหรือโฟลเดอร์ย่อยในโฟลเดอร์ที่เลือก"))
                 return
                 
-            logger.info(f"[SYSTEM] ตรวจพบข้อมูลโฟลเดอร์ครูทั้งหมด {len(subdirs)} คน")
-            
-            import rawpy
-            import cv2
-            
             total_imported_photos = 0
             
-            for idx, (teacher_name, path) in enumerate(subdirs):
-                logger.info(f"[INIT] ({idx+1}/{len(subdirs)}) กำลังตรวจสอบโฟลเดอร์ครู: '{teacher_name}'")
+            # ==================== MODE 1: Smart Direct Files Mode (ไฟล์ภาพโดยตรงในโฟลเดอร์) ====================
+            if direct_files:
+                logger.info(f"[SMART_BATCH] พบไฟล์ภาพโดยตรง {len(direct_files)} ไฟล์ -> เข้าสู่โหมดจำแนกชื่อและสังกัดอัตโนมัติ")
                 
-                # ตรวจเช็คหรือสร้างชื่อคนในระบบ SQLite (หากชื่อซ้ำจะได้ ID ของคนเดิม)
-                staff_id = self.db.register_staff_member(teacher_name)
+                # จัดกลุ่มไฟล์ตามคุณครูแต่ละท่าน (main_name)
+                teachers_map = {} # main_name -> {'department': str, 'files': [(photo_index, file_name, full_path)]}
+                for f in direct_files:
+                    full_path = os.path.join(main_dir, f)
+                    m_name, dept, p_idx = parse_teacher_filename(f)
+                    if not m_name:
+                        m_name = os.path.splitext(f)[0]
+                    if m_name not in teachers_map:
+                        teachers_map[m_name] = {'department': dept, 'files': []}
+                    elif dept and not teachers_map[m_name]['department']:
+                        teachers_map[m_name]['department'] = dept
+                    teachers_map[m_name]['files'].append((p_idx, f, full_path))
+                    
+                # เรียงลำดับรูปภาพของคุณครูแต่ละท่านตาม photo_index
+                for m_name in teachers_map:
+                    teachers_map[m_name]['files'].sort(key=lambda x: (x[0], x[1]))
+                    
+                teachers_count = len(teachers_map)
+                logger.info(f"[SMART_BATCH] จำแนกคุณครูได้ทั้งหมด {teachers_count} ท่าน จากภาพ {len(direct_files)} รูป")
+                
+                for t_idx, (m_name, info) in enumerate(teachers_map.items()):
+                    dept = info['department']
+                    files = info['files']
+                    logger.info(f"[BATCH_IMPORT] ({t_idx+1}/{teachers_count}) กำลังประมวลผลครู: '{m_name}' สังกัด: '{dept or 'ทั่วไป'}' ({len(files)} รูป)")
+                    
+                    # 1. ลงทะเบียนหรือดึง ID ครู พร้อมบันทึกกลุ่มสาระ
+                    staff_id = self.db.register_staff_member(m_name, department=dept)
+                    
+                    # 2. ดึงรายชื่อภาพเดิมใน DB เพื่อตรวจซ้ำ
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT image_path FROM staff_embeddings WHERE staff_id = ?", (staff_id,))
+                    existing_paths = [row[0] for row in cursor.fetchall()]
+                    conn.close()
+                    
+                    for p_idx, orig_file, full_path in files:
+                        orig_base = os.path.splitext(orig_file)[0]
+                        orig_clean = "".join(c for c in orig_base if c.isalnum() or c in ('-', '_'))
+                        seq_clean = "".join(c for c in f"{m_name}_{p_idx}" if c.isalnum() or c in ('-', '_'))
+                        
+                        already_imported = False
+                        for ep in existing_paths:
+                            ep_base = os.path.basename(ep)
+                            if orig_clean in ep_base or seq_clean in ep_base:
+                                already_imported = True
+                                break
+                                
+                        if already_imported:
+                            logger.info(f"[BATCH_IMPORT] รูปภาพ '{orig_file}' (ลำดับ {p_idx}) ของครู '{m_name}' เคยนำเข้าแล้ว -> ข้าม")
+                            continue
+                            
+                        logger.info(f"[FACE_AI] ({p_idx}/{len(files)}) กำลังตรวจหาพิกัดใบหน้าจาก: {orig_file}")
+                        try:
+                            faces_in_img = self.analyzer.detect_and_extract_faces(full_path)
+                            if not faces_in_img:
+                                logger.warning(f"[FACE_AI] ไม่พบใบหน้าเด่นชัดในรูปภาพ: {orig_file}")
+                                continue
+                                
+                            best_face = max(faces_in_img, key=lambda x: x["det_score"])
+                            
+                            # บันทึกรูปครอปใบหน้าโดยระบุชื่อครูและลำดับรูป เช่น นายสมชาย ใจดี 1
+                            cropped_path = self.save_cropped_face(
+                                staff_id=staff_id,
+                                original_path=full_path,
+                                bbox=best_face["bbox"],
+                                count=p_idx,
+                                orig_filename=f"{m_name}_{p_idx}"
+                            )
+                            
+                            self.db.add_staff_embedding(
+                                staff_id=staff_id,
+                                image_path=cropped_path,
+                                embedding_vector=best_face["embedding"]
+                            )
+                            
+                            total_imported_photos += 1
+                            logger.info(f"[MATCH_OK] ลงทะเบียนใบหน้า '{m_name} {p_idx}' สำเร็จ!")
+                            
+                        except Exception as img_err:
+                            logger.error(f"[FACE_AI] เกิดข้อผิดพลาดขณะประมวลผลภาพ {orig_file}: {img_err}")
+                            
+                logger.info(f"[SYSTEM] นำเข้าครูและใบหน้าทั้งหมดเสร็จสิ้น รวมลงทะเบียน {total_imported_photos} รูป จากครู {teachers_count} ท่าน")
+                self.after(0, lambda: messagebox.showinfo(
+                    "นำเข้าสำเร็จ", 
+                    f"นำเข้าข้อมูลครูแบบกลุ่มเสร็จสิ้น!\n"
+                    f"• ตรวจพบคุณครูทั้งหมด: {teachers_count} ท่าน\n"
+                    f"• ลงทะเบียนใบหน้าสำเร็จ: {total_imported_photos} ภาพ"
+                ))
+                self.after(0, self.load_staff_list)
+                return
+
+            # ==================== MODE 2: Legacy Subfolder Mode (1 โฟลเดอร์ต่อครู 1 ท่าน) ====================
+            logger.info(f"[SYSTEM] ตรวจพบข้อมูลโฟลเดอร์ครูทั้งหมด {len(subdirs)} คน")
+            
+            for idx, (folder_name, path) in enumerate(subdirs):
+                m_name, dept, _ = parse_teacher_filename(folder_name)
+                if not m_name:
+                    m_name = folder_name
+                    
+                logger.info(f"[INIT] ({idx+1}/{len(subdirs)}) กำลังตรวจสอบโฟลเดอร์ครู: '{m_name}' สังกัด: '{dept}'")
+                
+                # ตรวจเช็คหรือสร้างชื่อคนในระบบ SQLite พร้อมสังกัด
+                staff_id = self.db.register_staff_member(m_name, department=dept)
                 
                 # ดึงรายชื่อภาพที่บันทึกไว้แล้วทั้งหมดสำหรับครูคนนี้ เพื่อนำมาตรวจไฟล์ซ้ำ
                 conn = self.db.get_connection()
@@ -7687,57 +8009,45 @@ class FaceSearchApp(ctk.CTk):
                 existing_paths = [row[0] for row in cursor.fetchall()]
                 conn.close()
                 
-                # กวาดหาภาพถ่ายทั้งหมดในโฟลเดอร์ครูคนนั้น (อัปเดต v1.7.8: ข้ามไฟล์ RAW)
-                valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
                 files = [f for f in os.listdir(path) if os.path.splitext(f)[1].lower() in valid_extensions]
-                
                 if not files:
-                    logger.warning(f"[UI] โฟลเดอร์ของ '{teacher_name}' ไม่มีรูปภาพที่เหมาะสม")
+                    logger.warning(f"[UI] โฟลเดอร์ของ '{m_name}' ไม่มีรูปภาพที่เหมาะสม")
                     continue
                     
-                logger.info(f"[SCAN_INFO] พบรูปภาพ {len(files)} รูปในโฟลเดอร์ครู '{teacher_name}'")
+                logger.info(f"[SCAN_INFO] พบรูปภาพ {len(files)} รูปในโฟลเดอร์ครู '{m_name}'")
                 
                 for f_idx, file in enumerate(files):
-                    # ตรวจสอบว่าไฟล์ชื่อนี้เคยถูกนำเข้าแล้วหรือยัง
                     already_imported = False
-                    file_base = os.path.splitext(file)[0].lower() # ดึงชื่อไฟล์ตัดนามสกุลออก รองรับการแปลง CR2 -> JPG
+                    file_base = os.path.splitext(file)[0].lower()
                     for ep in existing_paths:
                         ep_base = os.path.basename(ep).lower()
-                        # เช็คว่ามีคำว่า _ชื่อไฟล์ดั้งเดิม. ฝังอยู่ในพาธไฟล์ย่อยหรือไม่
                         if f"_{file_base}." in ep_base or ep_base.endswith(f"_{file_base}"):
                             already_imported = True
                             break
                             
                     if already_imported:
-                        logger.info(f"[SYSTEM] รูปภาพ '{file}' ของครู '{teacher_name}' เคยนำเข้าแล้ว -> ข้ามการทำงาน")
+                        logger.info(f"[SYSTEM] รูปภาพ '{file}' ของครู '{m_name}' เคยนำเข้าแล้ว -> ข้ามการทำงาน")
                         continue
                         
                     filepath = os.path.join(path, file)
                     logger.info(f"[FACE_AI] ({f_idx+1}/{len(files)}) กำลังตรวจหาพิกัดใบหน้าจาก: {file}")
                     
-                    process_path = filepath
-                            
                     try:
-                        # ค้นหาเวกเตอร์ใบหน้าในรูปภาพ
-                        faces_in_img = self.analyzer.detect_and_extract_faces(process_path)
-                        
+                        faces_in_img = self.analyzer.detect_and_extract_faces(filepath)
                         if not faces_in_img:
                             logger.warning(f"[FACE_AI] ไม่พบใบหน้าเด่นชัดในรูปภาพ: {file}")
                             continue
                             
-                        # ดึงใบหน้าที่มีคะแนนดีที่สุด (Best face in photo)
                         best_face = max(faces_in_img, key=lambda x: x["det_score"])
                         
-                        # ครอปตัดใบหน้า และบันทึกรูปภาพใบหน้าย่อยลงเครื่อง
                         cropped_path = self.save_cropped_face(
                             staff_id=staff_id,
-                            original_path=process_path,
+                            original_path=filepath,
                             bbox=best_face["bbox"],
-                            count=len(existing_paths) + total_imported_photos,
+                            count=len(existing_paths) + total_imported_photos + 1,
                             orig_filename=file
                         )
                         
-                        # บันทึกข้อมูลลง SQLite Database
                         self.db.add_staff_embedding(
                             staff_id=staff_id,
                             image_path=cropped_path,
@@ -7745,14 +8055,19 @@ class FaceSearchApp(ctk.CTk):
                         )
                         
                         total_imported_photos += 1
-                        logger.info(f"[MATCH_OK] ลงทะเบียนใบหน้าครู '{teacher_name}' จากรูป {file} สำเร็จ!")
+                        logger.info(f"[MATCH_OK] ลงทะเบียนใบหน้าครู '{m_name}' จากรูป {file} สำเร็จ!")
                         
                     except Exception as img_err:
                         logger.error(f"[FACE_AI] เกิดข้อผิดพลาดขณะประมวลผลภาพ {file}: {img_err}")
                                 
-            # 3. นำเข้าจบกระบวนการ -> รีเฟรชหน้า GUI เธรดหลัก
+            # นำเข้าจบกระบวนการ -> รีเฟรชหน้า GUI เธรดหลัก
             logger.info(f"[SYSTEM] นำเข้าครูและใบหน้าทั้งหมดเสร็จสิ้น รวมลงทะเบียน {total_imported_photos} รูป")
-            self.after(0, lambda: messagebox.showinfo("นำเข้าสำเร็จ", f"นำเข้าข้อมูลครูแบบกลุ่มเสร็จสิ้น!\nลงทะเบียนใบหน้าสำเร็จทั้งหมด {total_imported_photos} ภาพ"))
+            self.after(0, lambda: messagebox.showinfo(
+                "นำเข้าสำเร็จ", 
+                f"นำเข้าข้อมูลครูแบบกลุ่มเสร็จสิ้น!\n"
+                f"• ตรวจพบโฟลเดอร์ครู: {len(subdirs)} ท่าน\n"
+                f"• ลงทะเบียนใบหน้าสำเร็จทั้งหมด: {total_imported_photos} ภาพ"
+            ))
             self.after(0, self.load_staff_list)
             
         except Exception as thread_err:

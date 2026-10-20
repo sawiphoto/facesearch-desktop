@@ -1,6 +1,198 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.32 (Nested Event Healing & Anti-Generic Guard Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.33 (Smart Batch Teacher Import & Department Suite)
 
-## 📋 Version 6.32 Changelog (Nested Subfolder Event Healing, Anti-Generic Guard Architecture & Drive Shards Re-sync)
+## 📋 Version 6.33 Changelog (Smart Batch Teacher Import with Multi-Photo & Department Parsing Suite)
+
+**Date:** 20 ตุลาคม 2026 (16:35 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.33 (Smart Batch Teacher Import & Department Suite)  
+**Core Technologies:** Smart Teacher Filename Parsing (`parse_teacher_filename` with Thai Title/Prefix Detection), Multi-Photo Face Registration per Teacher (`staff_embeddings` linked to single `staff_id`), SQLite Schema Migration (`department` column & `idx_sm_department` index in `staff_members`), UI Enhancements (`edit_selected_staff` modal dialog, department badges in teacher list, department search filtering, and DB Viewer column integration), Comprehensive Test Suite TC-76 to TC-81 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ระบบนำเข้าครูแบบกลุ่มเดิมรองรับเฉพาะโฟลเดอร์ย่อย (Legacy Subfolder Only):**
+   - โค้ดเดิมใน `app_gui.py` (`batch_import_teachers`) กำหนดให้ต้องสร้างโฟลเดอร์ย่อย 1 โฟลเดอร์ต่อคุณครู 1 ท่าน หากผู้ใช้นำไฟล์รูปภาพทั้งหมดมารวมกันในโฟลเดอร์เดียว ระบบเดิมจะแจ้งเตือนว่าไม่พบโฟลเดอร์ย่อยและหยุดทำงานทันที
+2. **ความต้องการจำแนกชื่อ สังกัด และหลายรูปภาพจากชื่อไฟล์โดยอัตโนมัติ (Smart Filename Parsing):**
+   - ตัวอย่างชื่อไฟล์:
+     - `นายสมชาย ใจดี วิทยาศาสตร์  1.jpg`
+     - `นายสมชาย ใจดี วิทยาศาสตร์  2.jpg`
+   - **ชื่อหลักของคุณครู (Teacher Main Name):** ต้องสกัดออกมาเป็น `นายสมชาย ใจดี` เพื่อใช้ลงทะเบียนในตาราง `staff_members` (เป็นครูคนเดียวกัน ไม่สร้างรายการซ้ำซ้อน)
+   - **สังกัด/กลุ่มสาระ (Department):** ต้องสกัดคำว่า `วิทยาศาสตร์` เพื่อบันทึกเป็นสังกัดของคุณครูท่านนั้น
+   - **การเพิ่มภาพใบหน้าหลายภาพ (Multi-Photo Registration):** ต้องลงทะเบียนใบหน้าทั้งภาพที่ 1 และภาพที่ 2 ในระบบ โดยบันทึกชื่อไฟล์ระบุลำดับภาพชัดเจน เช่น `นายสมชาย ใจดี 1` และ `นายสมชาย ใจดี 2`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **อัปเกรดฐานข้อมูล SQLite Schema Migration ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มคอลัมน์ `department TEXT DEFAULT ''` ในตาราง `staff_members` พร้อมดัชนีครอบคลุม `CREATE INDEX IF NOT EXISTS idx_sm_department ON staff_members(department);`
+   - ปรับปรุง `register_staff_member(name, department="")` ให้บันทึกหรืออัปเดตกลุ่มสาระ/สังกัดโดยไม่สร้างแถวซ้ำซ้อน
+   - ปรับปรุง `get_all_teachers()` ให้ดึงคอลัมน์ `COALESCE(s.department, '') as department` ออกมาด้วย
+   - เพิ่มเมธอด `update_teacher_department(staff_id, department)` สำหรับการแก้ไขผ่าน UI
+2. **พัฒนาฟังก์ชัน `parse_teacher_filename(filename)` ใน [`app_gui.py`](app_gui.py):**
+   - รองรับคำนำหน้าชื่อไทย (`นาย`, `นาง`, `นางสาว`, `น.ส.`, `ดร.`, `ว่าที่ ร.ต.`, `อาจารย์`, `ครู`, ฯลฯ)
+   - สกัดหมายเลขลำดับภาพท้ายชื่อไฟล์ (เช่น ` 1`, ` 2`, `(1)`, `_2`) ได้อย่างแม่นยำ
+   - ดึงชื่อหลัก `[ชื่อ นามสกุล]` และสังกัด `[กลุ่มสาระ]` ได้ 100%
+3. **ปรับปรุงกระบวนการนำเข้าแบบกลุ่ม `_batch_import_thread` ใน [`app_gui.py`](app_gui.py):**
+   - รองรับ **Smart Direct Files Mode**: เมื่อเลือกโฟลเดอร์ที่มีไฟล์ภาพโดยตรง ระบบจะจัดกลุ่มไฟล์ตามคุณครูแต่ละท่าน เรียงลำดับรูปตามตัวเลขท้าย และบันทึกรูปครอป `teacher_{id}_{timestamp}_{idx}_{name}_{idx}.jpg`
+   - รองรับ **Legacy Subfolder Mode**: หากมีโฟลเดอร์ย่อย จะใช้โหมดเดิมพร้อมสกัดสังกัดจากชื่อโฟลเดอร์อัตโนมัติ
+   - แสดง Popup Dialog สรุปยอดจำนวนครูและจำนวนรูปถ่ายที่ลงทะเบียนสำเร็จ
+4. **พัฒนาส่วนติดต่อผู้ใช้ (UI Enhancements in [`app_gui.py`](app_gui.py)):**
+   - แถบรายชื่อครู (`load_staff_list`): แสดง Badge สังกัด เช่น `นายสมชาย ใจดี (วิทยาศาสตร์) • 2 รูป`
+   - ช่องค้นหาครู (`entry_staff_search`): รองรับการค้นหาทั้งจากชื่อครู หรือจากชื่อกลุ่มสาระ (เช่น พิมพ์ `วิทย` กรองครูวิทยาศาสตร์ทันที)
+   - หน้าต่างแก้ไขข้อมูลครู (`edit_selected_staff`): เพิ่มปุ่ม `✏️ แก้ไขข้อมูลคุณครู` เพื่อเปิดหน้าต่าง Modal แก้ไขชื่อและกลุ่มสาระได้ทันที
+   - ตาราง DB Viewer: เพิ่มคอลัมน์ `กลุ่มสาระ / สังกัด` ในตาราง `staff_members (ครู)` พร้อมรองรับการเรียงลำดับและค้นหา
+5. **พัฒนาสวีททดสอบการทำงานจริง ([`test_smart_teacher_batch_import_suite.py`](test_smart_teacher_batch_import_suite.py)):**
+   - ผ่านการทดสอบ TC-76 ถึง TC-81 ครบ 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การแยกวิเคราะห์ชื่อไฟล์ครูอัจฉริยะใน [`app_gui.py`](app_gui.py):
+**Before (ไม่มีฟังก์ชันแยกวิเคราะห์ชื่อไฟล์):**
+```python
+# ไม่มีฟังก์ชัน parse_teacher_filename
+```
+**After (v6.33 Smart Filename Parser):**
+```python
+THAI_PREFIXES = [
+    r'ว่าที่\s*ร้อยตรี\s*หญิง', r'ว่าที่\s*ร้อยตรี', r'ว่าที่\s*ร\.ต\.หญิง', r'ว่าที่\s*ร\.ต\.',
+    r'นางสาว', r'น\.ส\.', r'นาย', r'นาง', r'ดร\.', r'ผศ\.ดร\.', r'รศ\.ดร\.', r'ศ\.ดร\.',
+    r'ผศ\.', r'รศ\.', r'ศ\.', r'อาจารย์', r'อ\.', r'คุณครู', r'ครู',
+    r'Mr\.', r'Mrs\.', r'Miss', r'Ms\.'
+]
+
+def parse_teacher_filename(filename):
+    base_name = os.path.splitext(os.path.basename(filename))[0].strip()
+    photo_index = 1
+    idx_match = re.search(r'[\s_\-\(\[\{]+(\d+)[\s\)\]\}]*$', base_name)
+    if idx_match:
+        try:
+            photo_index = int(idx_match.group(1))
+            base_name = base_name[:idx_match.start()].strip()
+        except Exception:
+            photo_index = 1
+            
+    clean_text = re.sub(r'\s+', ' ', base_name).strip()
+    if not clean_text:
+        return ("", "", photo_index)
+        
+    prefix_matched = None
+    had_space = False
+    remaining_after_prefix = clean_text
+    
+    for prefix_pat in THAI_PREFIXES:
+        match = re.match(r'^(' + prefix_pat + r')(\s*)(.*)$', clean_text, re.IGNORECASE)
+        if match:
+            prefix_matched = match.group(1).strip()
+            had_space = bool(match.group(2))
+            remaining_after_prefix = match.group(3).strip()
+            break
+            
+    if prefix_matched:
+        tokens = [t for t in remaining_after_prefix.split(' ') if t]
+        no_space_prefixes = ('นาย', 'นาง', 'นางสาว', 'น.ส.', 'ครู', 'คุณครู', 'ดร.')
+        join_char = "" if (prefix_matched in no_space_prefixes and not had_space) else " "
+        
+        if len(tokens) == 0:
+            main_name = prefix_matched
+            department = ""
+        elif len(tokens) == 1:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]}".strip()
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = ""
+        else:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = " ".join(tokens[2:]).strip()
+    else:
+        tokens = [t for t in clean_text.split(' ') if t]
+        if len(tokens) == 1:
+            main_name = tokens[0]
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = ""
+        else:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = " ".join(tokens[2:]).strip()
+            
+    return (main_name.strip(), department.strip(), photo_index)
+```
+
+#### 2. การลงทะเบียนครูพร้อมกลุ่มสาระใน [`db_manager.py`](db_manager.py):
+**Before (รับเฉพาะชื่อครู):**
+```python
+def register_staff_member(self, name):
+    name_clean = (name or "").strip()
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM staff_members WHERE name = ? AND role = 'teacher'", (name_clean,))
+        existing = cursor.fetchone()
+        if existing:
+            return existing[0]
+        cursor.execute("INSERT INTO staff_members (name, role, is_backfilled) VALUES (?, 'teacher', 0)", (name_clean,))
+        conn.commit()
+        return cursor.lastrowid
+```
+**After (v6.33 รับกลุ่มสาระและอัปเดตให้อัตโนมัติ):**
+```python
+def register_staff_member(self, name, department=""):
+    name_clean = (name or "").strip()
+    dep_clean = (department or "").strip()
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, department FROM staff_members WHERE name = ? AND role = 'teacher'", (name_clean,))
+        existing = cursor.fetchone()
+        if existing:
+            staff_id, curr_dep = existing[0], existing[1]
+            if dep_clean and (not curr_dep or curr_dep != dep_clean):
+                cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (dep_clean, staff_id))
+                conn.commit()
+            return staff_id
+        cursor.execute("INSERT INTO staff_members (name, role, is_backfilled, department) VALUES (?, 'teacher', 0, ?)", (name_clean, dep_clean))
+        conn.commit()
+        return cursor.lastrowid
+```
+
+#### 3. สถาปัตยกรรมนำเข้าแบบกลุ่มใน [`app_gui.py`](app_gui.py) (`_batch_import_thread`):
+**Before (รองรับเฉพาะโฟลเดอร์ย่อย):**
+```python
+subdirs = []
+for item in os.listdir(main_dir):
+    full_path = os.path.join(main_dir, item)
+    if os.path.isdir(full_path):
+        subdirs.append((item, full_path))
+if not subdirs:
+    messagebox.showwarning("คำเตือน", "ไม่พบโฟลเดอร์ย่อย (โฟลเดอร์ครู) ในโฟลเดอร์ที่เลือก")
+    return
+```
+**After (v6.33 รองรับทั้งไฟล์ภาพโดยตรงและโฟลเดอร์ย่อย):**
+```python
+# ตรวจสอบไฟล์รูปภาพโดยตรงในโฟลเดอร์หลัก
+direct_files = [f for f in os.listdir(main_dir) if os.path.splitext(f)[1].lower() in valid_extensions and os.path.isfile(os.path.join(main_dir, f))]
+subdirs = [(item, os.path.join(main_dir, item)) for item in os.listdir(main_dir) if os.path.isdir(os.path.join(main_dir, item))]
+
+if direct_files:
+    # MODE 1: Smart Direct Files Mode
+    teachers_map = {}
+    for f in direct_files:
+        full_path = os.path.join(main_dir, f)
+        m_name, dept, p_idx = parse_teacher_filename(f)
+        if m_name not in teachers_map:
+            teachers_map[m_name] = {'department': dept, 'files': []}
+        teachers_map[m_name]['files'].append((p_idx, f, full_path))
+    # เรียงลำดับรูปภาพและลงทะเบียนเข้าสู่ระบบ
+    for m_name in teachers_map:
+        teachers_map[m_name]['files'].sort(key=lambda x: (x[0], x[1]))
+        ...
+```
+
+---
+
+
 
 **Date:** 20 ตุลาคม 2026 (11:50 น.)  
 **AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  

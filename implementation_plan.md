@@ -1702,3 +1702,154 @@ graph TD
 
 #### ข้อที่ 5: อัปเดตเอกสารและบันทึกประวัติการเปลี่ยนแปลง
 - Prepend ลงบนสุดของ [`README.md`](README.md) และ Commit Git
+
+---
+
+## 21. แผนงานการพัฒนาระบบนำเข้าใบหน้าครูแบบกลุ่มอัจฉริยะ (Smart Batch Teacher Import with Multi-Photo & Department Parsing: v6.33)
+
+### 21.1 ที่มาและขอบเขตความต้องการ (Background & Scope)
+1. **การนำเข้ารายชื่อและรูปถ่ายครูแบบกลุ่มจากโฟลเดอร์เดียว (Single-Folder Batch Import):**
+   - โค้ดเดิมใน `app_gui.py` (`batch_import_teachers`) ออกแบบไว้สำหรับโครงสร้างที่ผู้ใช้สร้างโฟลเดอร์ย่อยข้างใน (1 โฟลเดอร์ต่อครู 1 ท่าน) หากผู้ใช้นำไฟล์รูปภาพทั้งหมดมารวมกันในโฟลเดอร์เดียว ระบบเดิมจะแจ้งเตือนว่าไม่พบโฟลเดอร์ย่อยและหยุดการทำงาน
+2. **ความต้องการใหม่ในการจำแนกชื่อและสังกัดจากชื่อไฟล์ (Smart Filename Parsing):**
+   - รูปแบบชื่อไฟล์ตัวอย่าง:
+     - `นายสมชาย ใจดี วิทยาศาสตร์  1.jpg`
+     - `นายสมชาย ใจดี วิทยาศาสตร์  2.jpg`
+   - **ชื่อหลักของคุณครู (Teacher Main Name):** ต้องสกัดออกมาเป็น `นายสมชาย ใจดี` เพื่อใช้ลงทะเบียนในตาราง `staff_members` (ชื่อเดียว ไม่สร้างรายการครูซ้ำซ้อน)
+   - **กลุ่มสาระ/สังกัด (Department):** ต้องสกัดคำว่า `วิทยาศาสตร์` ออกมาเพื่อบันทึกเป็นสังกัดของคุณครูท่านนั้น
+   - **การเพิ่มรูปภาพใบหน้าหลายภาพ (Multi-Photo Face Registration):** ภาพที่ 1 และภาพที่ 2 ต้องถูกตรวจจับใบหน้า AI และเพิ่มเข้าไปในตาราง `staff_embeddings` ภายใต้ `staff_id` ของคุณครูท่านเดียวกัน โดยบันทึกชื่อไฟล์ระบุลำดับภาพชัดเจน เช่น `นายสมชาย ใจดี 1` และ `นายสมชาย ใจดี 2`
+
+---
+
+### 21.2 การออกแบบโครงสร้างฐานข้อมูล SQLite (Database Schema Migration)
+- **ตาราง `staff_members`:**
+  - เพิ่มคอลัมน์ `department TEXT DEFAULT ''` (กลุ่มสาระฯ / สังกัด เช่น วิทยาศาสตร์, คณิตศาสตร์, ภาษาไทย ฯลฯ)
+  - เพิ่มดัชนีการค้นหา: `CREATE INDEX IF NOT EXISTS idx_sm_department ON staff_members(department);`
+- **ระบบ Auto-Migration ใน [`db_manager.py`](db_manager.py):**
+  - ในฟังก์ชัน `init_db()` ตรวจสอบผ่าน `PRAGMA table_info(staff_members)` หากยังไม่มีคอลัมน์ `department` ให้รันคำสั่ง `ALTER TABLE` ทันที ปลอดภัย 100% ไม่กระทบข้อมูลเดิม
+
+---
+
+### 21.3 การออกแบบตรรกะการแยกวิเคราะห์ชื่อไฟล์ (Smart Filename Parsing Algorithm)
+พัฒนาฟังก์ชัน `parse_teacher_filename(filename)` ในโมดูลกลาง หรือใน `app_gui.py`:
+
+```python
+def parse_teacher_filename(filename):
+    """
+    แยกวิเคราะห์ชื่อไฟล์ครูออกเป็น (main_name, department, photo_index)
+    ตัวอย่าง:
+      'นายสมชาย ใจดี วิทยาศาสตร์  1.jpg' -> ('นายสมชาย ใจดี', 'วิทยาศาสตร์', 1)
+      'นางสาวสมหญิง สดใส คณิตศาสตร์ (2).png' -> ('นางสาวสมหญิง สดใส', 'คณิตศาสตร์', 2)
+      'นายวิชาญ การงาน ภาษาไทย.jpg' -> ('นายวิชาญ การงาน', 'ภาษาไทย', 1)
+      'นายสมศักดิ์ รักดี 1.jpg' -> ('นายสมศักดิ์ รักดี', '', 1)
+    """
+```
+
+**ขั้นตอนการทำงานของฟังก์ชัน:**
+1. ตัดนามสกุลไฟล์ออก (`.jpg`, `.jpeg`, `.png`, `.webp`, `.heic` ฯลฯ)
+2. สกัดหมายเลขลำดับภาพท้ายชื่อไฟล์ (Regex: `r'[\s_\-\(\)]*(\d+)[\s\)]*$'`) หากพบตัวเลข ให้เก็บเป็น `photo_index` หากไม่พบ ให้ตั้งเป็น `1`
+3. ตัดช่องว่างที่ซ้ำซ้อนออก (`re.sub(r'\s+', ' ', text).strip()`)
+4. แยกคำ (Tokens):
+   - ตรวจจับคำนำหน้าภาษาไทย (`นาย`, `นาง`, `นางสาว`, `น.ส.`, `ดร.`, `ว่าที่ ร.ต.`, `ว่าที่ร้อยตรี`, `อาจารย์`, `อ.`, `ครู`)
+   - รวมคำนำหน้ากับชื่อตัว เป็น Token ที่ 1
+   - นามสกุล เป็น Token ที่ 2
+   - **`main_name`** = `Token1 + ' ' + Token2`
+   - ข้อความที่เหลือหลังจากนามสกุลทั้งหมด = **`department`** (กลุ่มสาระ/สังกัด)
+
+---
+
+### 21.4 สถาปัตยกรรมการนำเข้าแบบกลุ่ม (Batch Import Pipeline)
+
+```mermaid
+flowchart TD
+    Start["ผู้ใช้กดปุ่ม '📁 นำเข้าคุณครูยกโฟลเดอร์อัตโนมัติ'"] --> PickDir["เลือกโฟลเดอร์ที่มีรูปภาพ"]
+    PickDir --> Scan["สแกนไฟล์ภาพทั้งหมด (.jpg, .png, .webp, .heic)"]
+    Scan --> CheckFiles{"พบไฟล์ภาพโดยตรง หรือมีโฟลเดอร์ย่อย?"}
+    
+    CheckFiles -- "พบไฟล์ภาพโดยตรงในโฟลเดอร์" --> Parse["แยกวิเคราะห์ชื่อไฟล์ด้วย parse_teacher_filename()"]
+    CheckFiles -- "พบโฟลเดอร์ย่อย" --> LegacyMode["โหมดเดิม: ใช้ชื่อโฟลเดอร์ย่อยเป็นชื่อครู"]
+    
+    Parse --> Group["จัดกลุ่มภาพตาม teacher_main_name"]
+    Group --> Sort["เรียงลำดับภาพของครูแต่ละท่านตามลำดับ (1, 2, 3...)"]
+    
+    Sort --> LoopTeachers["วนลูปทีละท่าน: teacher_main_name"]
+    LoopTeachers --> CheckDB{"ครูมีในระบบแล้วหรือไม่?"}
+    CheckDB -- "ยังไม่มี" --> RegNew["เพิ่มครูใหม่ staff_members (name, department, role='teacher', is_backfilled=0)"]
+    CheckDB -- "มีอยู่แล้ว" --> UpdateDep["ดึง staff_id เดิม และอัปเดต department ให้เป็นปัจจุบัน"]
+    
+    RegNew --> LoopImgs["วนลูปแต่ละรูปภาพของครูท่านนี้ (1, 2...)"]
+    UpdateDep --> LoopImgs
+    
+    LoopImgs --> AI["สแกนใบหน้าด้วย InsightFace FaceAnalyzer (Multi-Format)"]
+    AI --> Crop["ครอปใบหน้าและบันทึกไฟล์เป็น teacher_{id}_{name}_{index}.jpg"]
+    Crop --> SaveEmb["บันทึก embedding ลง staff_embeddings"]
+    SaveEmb --> NextImg{"มีรูปถัดไป?"}
+    NextImg -- "มี" --> LoopImgs
+    NextImg -- "หมดแล้ว" --> NextTeacher{"มีครูท่านถัดไป?"}
+    NextTeacher -- "มี" --> LoopTeachers
+    NextTeacher -- "ครบทุกคน" --> Finish["รีเฟรชหน้าจอ UI + แสดง Popup รายงานสรุปผลสำเร็จ"]
+```
+
+---
+
+### 21.5 รายละเอียดขั้นตอนการดำเนินงานทีละข้อ (Step-by-Step Implementation Breakdown: v6.33)
+
+#### ข้อที่ 1: อัปเกรดฐานข้อมูล SQLite และ Data Access Layer
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. ใน `init_db()` เพิ่มคำสั่งตรวจสอบและเพิ่มคอลัมน์ `department TEXT DEFAULT ''` ในตาราง `staff_members` พร้อม Index `idx_sm_department`
+  2. ปรับปรุง `register_staff_member(name, department="")`:
+     - หากเป็นครูใหม่: บันทึกทั้ง `name` และ `department`
+     - หากมีครูชื่อนี้อยู่แล้ว: อัปเดต `department` หากมีการระบุสังกัดเข้ามาใหม่
+  3. ปรับปรุง `get_all_teachers()`:
+     - ดึงคอลัมน์ `COALESCE(s.department, '') as department` เพิ่มเติมออกมาด้วย
+  4. เพิ่มเมธอด `update_teacher_department(staff_id, department)` เพื่อรองรับการแก้ไขสังกัดผ่าน UI
+
+#### ข้อที่ 2: พัฒนาฟังก์ชัน `parse_teacher_filename`
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py) (หรือโมดูลแยก)
+- **สิ่งที่ต้องทำ:**
+  1. รองรับการตัดคำนำหน้าไทย (นาย, นาง, นางสาว, น.ส., ดร., ว่าที่ ร.ต. ฯลฯ)
+  2. ดึงชื่อหลัก `[ชื่อ นามสกุล]` ได้อย่างแม่นยำ
+  3. สกัดกลุ่มสาระ `[สังกัด]` แม้มีช่องว่างคั่นหลายวรรค
+  4. ดึงหมายเลขลำดับภาพ `[1, 2, 3...]` เพื่อเรียงลำดับการนำเข้า
+
+#### ข้อที่ 3: ปรับปรุงกระบวนการ `batch_import_teachers` และ `_batch_import_thread`
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. ตรวจสอบไฟล์ภาพโดยตรงใน `main_dir` ก่อน (ถ้ามีไฟล์ภาพโดยตรง ให้เข้าสู่โหมด **Smart Filename Parser**)
+  2. หากไม่มีไฟล์ภาพโดยตรง แต่มีโฟลเดอร์ย่อย ให้ใช้โหมดเดิม (Subfolder Mode) เพื่อความเข้ากันได้ 100%
+  3. จัดกลุ่มภาพตามคุณครูแต่ละท่าน และประมวลผลเพิ่มภาพที่ 1, 2 ตามลำดับ
+  4. ตั้งชื่อไฟล์ภาพใบหน้าที่ตัดครอปให้มีชื่อครูและลำดับรูปชัดเจน เช่น `teacher_{id}_{name}_{index}.jpg`
+  5. เมื่อนำเข้าเสร็จสิ้น ให้รีเฟรชรายชื่อคุณครูบนหน้าจอ และเปิด Dialog สรุปยอดจำนวนครูและจำนวนรูปทั้งหมด
+
+#### ข้อที่ 4: พัฒนาส่วนติดต่อผู้ใช้ (UI Enhancements)
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในแถบรายชื่อครู (`load_staff_list`): แสดง Badge สังกัด เช่น `นายสมชาย ใจดี (วิทยาศาสตร์) • 2 รูป`
+  2. ในช่องค้นหารายชื่อครู (`entry_staff_search`): สามารถพิมพ์ค้นหาด้วยชื่อครู หรือพิมพ์ค้นหาด้วยชื่อกลุ่มสาระ (เช่น พิมพ์ `วิทย์`) แล้วระบบจะกรองครูในกลุ่มสาระนั้นทันที
+  3. ในหน้าต่างแก้ไขข้อมูลคุณครู (`show_edit_staff_dialog`): เพิ่มช่องกรอกแก้ไข `กลุ่มสาระ/สังกัด`
+  4. ในหน้า DB Viewer: แสดงคอลัมน์ `กลุ่มสาระ/สังกัด` ในตาราง `staff_members (ครู)`
+
+#### ข้อที่ 5: พัฒนาสวีททดสอบการทำงานจริง (Execution Path Runtime Verification: TC-76 ถึง TC-80)
+- **ไฟล์เป้าหมาย:** `test_smart_teacher_batch_import_suite.py`
+  - **TC-76:** Filename Parser Unit Verification (ทดสอบชื่อหลากหลายแพทเทิร์น)
+  - **TC-77:** Database Schema Migration (`department` column & index)
+  - **TC-78:** Multi-Photo Batch Registration for Single Teacher (ทดสอบการรวมภาพ 1 และ 2 เข้าครูคนเดียวกัน)
+  - **TC-79:** Department Search & Filter Integration (ค้นหากลุ่มสาระแล้วกรองผลได้ถูกต้อง)
+  - **TC-80:** GUI Version v6.33 Parity & py_compile
+
+#### ข้อที่ 6: อัปเดตเอกสารและบันทึกประวัติการเปลี่ยนแปลง
+- อัปเดต Window Title และ Sidebar Logo เป็น `v6.33 (Smart Batch Teacher Import & Department Suite)`
+- บันทึกประวัติการเปลี่ยนแปลงลงบนสุดของ `README.md`
+- นำส่งขึ้น GitHub Repository (`sawiphoto/facesearch-desktop`)
+
+---
+
+### 21.6 ตารางกรณีทดสอบ (Test Cases Matrix: TC-76 ถึง TC-80)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-76** | **Teacher Filename Parsing Accuracy** | `app_gui.py` | ทดสอบแยกชื่อ `นายสมชาย ใจดี วิทยาศาสตร์  1.jpg`, `นางสาวสมหญิง สดใส คณิตศาสตร์ 2.png`, `นายวิชาญ การงาน ภาษาไทย.jpg` | ได้ `main_name`, `department`, `photo_index` ตรงตามเงื่อนไข 100% |
+| **TC-77** | **Teacher Department Schema Migration** | `db_manager.py` | ตรวจสอบ Schema ของ `staff_members` ผ่าน `PRAGMA table_info` | มีคอลัมน์ `department` ชนิด TEXT และ Index `idx_sm_department` |
+| **TC-78** | **Multi-Photo Registration Integrity** | `app_gui.py` / `db_manager.py` | จำลองนำเข้าภาพครูคนเดียวกัน 2 ภาพ (`1.jpg` และ `2.jpg`) | สร้างครูใน `staff_members` เพียง 1 แถว พร้อมเวกเตอร์ 2 รายการใน `staff_embeddings` |
+| **TC-79** | **Department Search Filtering** | `app_gui.py` | ทดสอบค้นหาคำว่า `วิทยาศาสตร์` ในช่องค้นหาครู | กรองแสดงเฉพาะครูที่สังกัดวิทยาศาสตร์ถูกต้อง |
+| **TC-80** | **Version v6.33 & py_compile Parity** | ทุกไฟล์ | ตรวจสอบคอมไพล์ผ่าน 100% และแสดงเลข `v6.33` ครบทุกจุด | คอมไพล์ผ่าน และเวอร์ชันตรงกัน 100% |

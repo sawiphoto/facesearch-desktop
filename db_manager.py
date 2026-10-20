@@ -390,6 +390,18 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create student lifecycle indexes: {e}")
 
+            # Migration v6.33: เพิ่มคอลัมน์ department (กลุ่มสาระ/สังกัด) ใน staff_members
+            try:
+                cursor.execute("ALTER TABLE staff_members ADD COLUMN department TEXT DEFAULT ''")
+                logger.info("Executed database migration v6.33: added department to staff_members.")
+            except Exception:
+                pass
+
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_department ON staff_members(department)")
+            except Exception as e:
+                logger.warning(f"Could not create department index: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -608,19 +620,44 @@ class DatabaseManager:
 
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
-    def register_staff_member(self, name):
-        """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match)"""
+    def register_staff_member(self, name, department=""):
+        """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match) พร้อมบันทึกกลุ่มสาระ/สังกัด (v6.33)"""
+        name_clean = (name or "").strip()
+        dep_clean = (department or "").strip()
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            # ตรวจสอบว่ามีครูชื่อนี้อยู่แล้วหรือไม่
+            cursor.execute("SELECT id, department FROM staff_members WHERE name = ? AND role = 'teacher'", (name_clean,))
+            existing = cursor.fetchone()
+            if existing:
+                staff_id, curr_dep = existing[0], existing[1]
+                if dep_clean and (not curr_dep or curr_dep != dep_clean):
+                    cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (dep_clean, staff_id))
+                    conn.commit()
+                    logger.info(f"Updated department for existing staff member: {name_clean} -> {dep_clean}")
+                return staff_id
+
             try:
-                cursor.execute("INSERT INTO staff_members (name, role, is_backfilled) VALUES (?, 'teacher', 0)", (name,))
+                cursor.execute("INSERT INTO staff_members (name, role, is_backfilled, department) VALUES (?, 'teacher', 0, ?)", (name_clean, dep_clean))
                 conn.commit()
-                logger.info(f"Registered new staff member: {name}")
+                logger.info(f"Registered new staff member: {name_clean} (Department: '{dep_clean}')")
                 return cursor.lastrowid
             except sqlite3.IntegrityError:
-                cursor.execute("SELECT id FROM staff_members WHERE name = ?", (name,))
+                cursor.execute("SELECT id FROM staff_members WHERE name = ?", (name_clean,))
                 row = cursor.fetchone()
-                return row[0]
+                staff_id = row[0]
+                if dep_clean:
+                    cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (dep_clean, staff_id))
+                    conn.commit()
+                return staff_id
+
+    def update_teacher_department(self, staff_id, department):
+        """อัปเดตกลุ่มสาระ/สังกัดของคุณครู (v6.33)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", ((department or "").strip(), staff_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def check_embedding_url_exists(self, staff_id, source_url):
         """
@@ -674,31 +711,31 @@ class DatabaseManager:
             logger.debug(f"Saved embedding for staff_id {staff_id} from {os.path.basename(image_path)}")
 
     def get_all_staff_members(self):
-        """ดึงข้อมูลรายชื่อครูทั้งหมดพร้อมจำนวนรูปภาพที่ลงทะเบียนไว้"""
+        """ดึงข้อมูลรายชื่อครูทั้งหมดพร้อมจำนวนรูปภาพที่ลงทะเบียนไว้ และกลุ่มสาระ (v6.33)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.id, s.name, COUNT(e.id) as photo_count
+                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                GROUP BY s.id, s.name
+                GROUP BY s.id, s.name, s.department
                 ORDER BY s.name ASC
             """)
-            return [{"id": row[0], "name": row[1], "photo_count": row[2]} for row in cursor.fetchall()]
+            return [{"id": row[0], "name": row[1], "department": row[2], "photo_count": row[3]} for row in cursor.fetchall()]
 
     def get_all_teachers(self):
-        """ดึงรายชื่อครูทั้งหมด (role = 'teacher')"""
+        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมกลุ่มสาระ (v6.33)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.id, s.name, COUNT(e.id) as photo_count
+                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                 WHERE s.role = 'teacher'
-                GROUP BY s.id, s.name
+                GROUP BY s.id, s.name, s.department
                 ORDER BY s.name ASC
             """)
-            return [{"id": row[0], "name": row[1], "photo_count": row[2]} for row in cursor.fetchall()]
+            return [{"id": row[0], "name": row[1], "department": row[2], "photo_count": row[3]} for row in cursor.fetchall()]
 
     def get_all_students(self, status_filter=None, class_filter=None):
         """ดึงรายชื่อนักเรียนทั้งหมด (role = 'student') พร้อม student_id, status, class_room, grad_year (v6.29)"""
@@ -1538,7 +1575,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.32",
+                "version": "v6.33",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
