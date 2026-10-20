@@ -19,6 +19,18 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets'
 ]
 
+GENERIC_SUBFOLDER_KEYWORDS = {
+    'นักเรียน', 'ครู', 'ภาพ', 'รวม', 'targetfolder', 'doc', 'คำสั่ง', 
+    'vdo', 'ไวนิล', 'ภาพถ่าย', 'รูปภาพ', 'ภาพอำเภอ', 'ผลงานครู',
+    'thana', "jim's", 'ครูธนา', 'ครูอ้อย', 'น้านัน', 'อาสุ', 'unknown', 'unknown folder'
+}
+
+def is_generic_folder_name(name):
+    if not name:
+        return True
+    cleaned = str(name).strip().lower()
+    return cleaned in GENERIC_SUBFOLDER_KEYWORDS or cleaned.startswith("targetfolder")
+
 class GoogleSyncManager:
     def __init__(self, credentials_path=None):
         if credentials_path is None:
@@ -320,7 +332,15 @@ class GoogleSyncManager:
                     or curr_event_name in known_root_names
                     or curr_folder_id in known_root_ids
                 )
-                next_event_name = subdir_name if is_root_or_year else curr_event_name
+                if is_root_or_year:
+                    next_event_name = subdir_name
+                else:
+                    next_event_name = curr_event_name
+
+                # Anti-Generic Guard (v6.32): หาก next_event_name เป็นคำ Generic และ curr_event_name ไม่ใช่ Root Year ให้คงชื่อกิจกรรมหลักเดิมไว้
+                if is_generic_folder_name(next_event_name) and not is_root_or_year:
+                    next_event_name = curr_event_name
+
                 walk_folder(subdir_id, next_event_name)
 
         walk_folder(folder_id, root_folder_name)

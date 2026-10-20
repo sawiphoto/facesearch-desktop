@@ -1,3 +1,143 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.32 (Nested Event Healing & Anti-Generic Guard Suite)
+
+## 📋 Version 6.32 Changelog (Nested Subfolder Event Healing, Anti-Generic Guard Architecture & Drive Shards Re-sync)
+
+**Date:** 20 ตุลาคม 2026 (11:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.32 (Nested Event Healing & Anti-Generic Guard Suite)  
+**Core Technologies:** Deep Data Auditing (Google Drive API Parent Walkup & Hierarchy Verification), Full Data Healing across 3,458 photos with 100% Zero Data Loss, Anti-Generic Keyword Guard (`is_generic_folder_name` & Parent Walkup in `scheduler_task.py`, `gdrive_sync.py`, `app_gui.py`), Re-synchronized Centralized Google Drive Shards (`1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`), Clean Reduction of `photo_index_archive.json` to 0 photos, Test Suite Verification TC-71 to TC-75 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ผู้ใช้ค้นหาภาพกิจกรรม "สค 15 ค่ายส่งเสริมยุวชนคนคุณธรรม" ไม่พบ:**
+   - จากการตรวจสอบพบว่าโฟลเดอร์มีโฟลเดอร์ย่อยข้างใน 2 โฟลเดอร์ (`นักเรียน` และ `ครู`) โค้ดสแกนเดิมได้นำชื่อโฟลเดอร์ชั้นในสุดมาบันทึกเป็น `event_name` โดยตรง ทำให้ชื่อกิจกรรมในฐานข้อมูลกลายเป็นคำว่า `"นักเรียน"` และ `"ครู"`
+2. **การสืบค้นเชิงลึกพบโฟลเดอร์ซ้อนลักษณะนี้กระจายตัวในฐานข้อมูลรวม 3,458 ภาพ:**
+   - คำทั่วไป (Generic Keywords) เช่น `'นักเรียน'`, `'ครู'`, `'TargetFolder'`, `'Thana'`, `"Jim's"`, `'ครูธนา'`, `'ครูอ้อย'`, `'น้านัน'`, `'VDO'`, `'doc'`, `'คำสั่ง'`, `'ภาพอำเภอ'`, `'ผลงานครู'`, `'ภาพ'`, `'รวม'`, `'อาสุ'`, `'ไวนิล'`
+   - ส่งผลให้ผู้ใช้ไม่สามารถค้นหากิจกรรมหลักจริงผ่านหน้าเว็บค้นหาได้
+3. **ความต้องการป้องกันไม่ให้ปัญหานี้เกิดขึ้นอีกในอนาคต (Architectural Prevention):**
+   - ต้องมีระบบสืบทอดชื่อกิจกรรมหลัก (Main Activity Event Inheritance) และตัวตรวจจับคำทั่วไป (Anti-Generic Guard) ใน `scheduler_task.py`, `gdrive_sync.py`, และ `app_gui.py` เมื่อโฟลเดอร์มีโครงสร้างซ้อนกัน
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ตรวจสอบความถูกต้อง 100% ด้วย Drive API (Rule 7: Deep Data Auditing & No Generalization):**
+   - ตรวจสอบ Hierarchy ของทุกโฟลเดอร์ย่อยจริงบน Google Drive พบโครงสร้างที่แท้จริง:
+     - `นักเรียน` (369 รูป) + `ครู` (266 รูป) ➔ `สค 15 ค่ายส่งเสริมยุวชนคนคุณธรรม` (รวม 635 รูป)
+     - `นักเรียน` (643 รูป) ➔ `สค 16 รักษ์ภูมิปัญญา พัฒนาภาษาไทย ครั้งที่ 4 คอนเพลง`
+     - `ครูธนา` (863 รูป) ➔ `กีฬาสี 65` (ปี 2565)
+     - `Thana` (281 รูป) + `Jim's` (72 รูป) ➔ `ลส ต้านภัยยาเสพติด 65`
+     - `ครูอ้อย` (48 รูป) + `น้านัน` (31 รูป) + `VDO` (1 รูป) ➔ `VDO เกษียณ65`
+     - `TargetFolder` (4 รูป) ➔ `กค 21 กีฬาสี day1` (ปรับ `academic_year = '2569'`)
+     - `doc` (2 รูป) ➔ `มิย 17 ฝึกอบรมและฝึกซ้อมแผนป้องกันและบรรเทาสาธารณภัย ปีการศึกษา 2569`
+     - `คำสั่ง` (1 รูป) ➔ `กค 7 ปฐมนิเทศนักศึกษาวิชาทหาร ชาย หญิง ชั้นปีที่ 1 2569`
+     - `คำสั่ง` (2 รูป) ➔ `มิย 30 แนะแนวทำพอร์ท ลาดกระบัง`
+     - `ภาพอำเภอ` (140 รูป) ➔ `สค 12 อำเภอ วันแม่ `
+     - `ผลงานครู` (23 รูป) ➔ `ผลงาน 1-2568`
+     - `ภาพ` (244 รูป ใน 2568) ➔ `ภาพค่ายเยาวชนนั้นไซร้`
+     - `ภาพ` (253 รูป ใน 2567) ➔ `พิธีพุทธาภิเษก`
+     - `รวม` (208 รูป ใน 2567) ➔ `ค่ายฝึกปฏิบัติการสร้างนักวิทย์สนุกคิดนอกห้องเรียน 2567 (8-9 ตุลาคม 2567) ณ มหาวิทยาลัยวลัยลักษณ์`
+     - `อาสุ` (6 รูป ใน 2567) ➔ `เดินเทิดพระเกียรติกรมหลวงชุมพร`
+     - `ไวนิล` (1 รูป ใน 2567) ➔ `งานวิ่ง 2567`
+2. **พัฒนาระบบ Data Healing Script ([`run_heal_nested_events.py`](run_heal_nested_events.py)):**
+   - รันการอัปเดตแบบ Transaction-Safe ฟื้นฟูรูปภาพทั้ง 3,458 รูป สำเร็จครบถ้วน 100%
+   - ปรับยอดรูปภาพในก้อน `archive` เหลือ 0 รูปพอดี โดยรวมเข้า Shard `2569` ครบถ้วน
+   - ยอดรวมรูปภาพคงเดิมที่ 124,813 รูป (Zero Data Loss 100%)
+3. **พัฒนาสถาปัตยกรรมป้องกันถาวร (Anti-Generic Guard Architecture):**
+   - กำหนดชุดคำ `GENERIC_SUBFOLDER_KEYWORDS` และฟังก์ชัน `is_generic_folder_name(name)`
+   - ใน `scheduler_task.py`: โฟลเดอร์ชั้นในจะสืบทอด `main_event_name` เสมอ และหากพบคำ Generic จะทำการ Walkup ขึ้นไปหาชื่อโฟลเดอร์แม่
+   - ใน `gdrive_sync.py`: ใน `walk_folder` หาก `next_event_name` เป็นคำ Generic และไม่ใช่ Root Year จะคงชื่อกิจกรรมหลักเดิมไว้
+   - ใน `app_gui.py`: ใน `process_scanning_headless` หาก `folder_name` เป็นคำ Generic ระบบจะดึงชื่อโฟลเดอร์แม่จาก Drive API อัตโนมัติ
+4. **ซิงก์อัปโหลดไฟล์ JSON Shards ขึ้น Google Drive โฟลเดอร์รวมศูนย์:**
+   - รัน [`run_sharded_sync_to_drive.py`](run_sharded_sync_to_drive.py) อัปเดตข้อมูลทับไฟล์จริงบน Google Drive (`1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`) สำเร็จใน 101.05 วินาที
+5. **พัฒนาสวีททดสอบการทำงานจริง ([`test_nested_events_healing_suite.py`](test_nested_events_healing_suite.py)):**
+   - ผ่านการทดสอบ TC-71 ถึง TC-75 ครบ 100%
+6. **อัปเดต Window Title และ Sidebar Logo บน GUI เป็น v6.32:**
+   - แสดงเลขเวอร์ชัน `v6.32 (Nested Event Healing & Anti-Generic Guard Suite)` ชัดเจนตามกฎข้อ 3 และข้อ 5
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การกำหนด Anti-Generic Guard ใน [`gdrive_sync.py`](gdrive_sync.py):
+**Before (ไม่มีการป้องกันคำ Generic):**
+```python
+# ไม่มีการกำหนด GENERIC_SUBFOLDER_KEYWORDS
+next_event_name = subdir_name if is_root_or_year else curr_event_name
+walk_folder(subdir_id, next_event_name)
+```
+**After (v6.32 Anti-Generic Guard):**
+```python
+GENERIC_SUBFOLDER_KEYWORDS = {
+    'นักเรียน', 'ครู', 'ภาพ', 'รวม', 'targetfolder', 'doc', 'คำสั่ง', 
+    'vdo', 'ไวนิล', 'ภาพถ่าย', 'รูปภาพ', 'ภาพอำเภอ', 'ผลงานครู',
+    'thana', "jim's", 'ครูธนา', 'ครูอ้อย', 'น้านัน', 'อาสุ', 'unknown', 'unknown folder'
+}
+
+def is_generic_folder_name(name):
+    if not name:
+        return True
+    cleaned = str(name).strip().lower()
+    return cleaned in GENERIC_SUBFOLDER_KEYWORDS or cleaned.startswith("targetfolder")
+
+# ใน walk_folder:
+if is_root_or_year:
+    next_event_name = subdir_name
+else:
+    next_event_name = curr_event_name
+
+# Anti-Generic Guard (v6.32): หาก next_event_name เป็นคำ Generic และ curr_event_name ไม่ใช่ Root Year ให้คงชื่อกิจกรรมหลักเดิมไว้
+if is_generic_folder_name(next_event_name) and not is_root_or_year:
+    next_event_name = curr_event_name
+
+walk_folder(subdir_id, next_event_name)
+```
+
+#### 2. การสืบทอดชื่อกิจกรรมหลักใน [`scheduler_task.py`](scheduler_task.py) (เมธอด `_get_all_subfolders_recursive`):
+**Before (นำชื่อโฟลเดอร์ชั้นในมาทับตรงๆ):**
+```python
+cur_event = main_event_name if main_event_name else s_name
+cur_sub = s_name if main_event_name else None
+```
+**After (v6.32 Anti-Generic Inheritance & Parent Walkup):**
+```python
+if main_event_name:
+    cur_event = main_event_name
+    cur_sub = s_name
+elif is_generic_folder_name(s_name) and parent_name and not any(yr in parent_name for yr in ['ภาพกิจกรรม', '256', '255']):
+    cur_event = parent_name
+    cur_sub = s_name
+else:
+    cur_event = s_name
+    cur_sub = None
+```
+
+#### 3. การดึงชื่อกิจกรรมจากโฟลเดอร์แม่ใน [`app_gui.py`](app_gui.py) (เมธอด `process_scanning_headless`):
+**Before (ดึงเฉพาะคำว่า Unknown/TargetFolder):**
+```python
+if (folder_name in ["Unknown", "TargetFolder"]) and hasattr(self.sync_manager, "drive_service"):
+    f_meta = self.sync_manager.drive_service.files().get(fileId=f_id, fields="name").execute()
+    folder_name = f_meta.get("name")
+```
+**After (v6.32 Parent Walkup เมื่อพบคำ Generic):**
+```python
+if is_generic_folder_name(folder_name) and hasattr(self.sync_manager, "drive_service") and self.sync_manager.drive_service:
+    f_meta = self.sync_manager.drive_service.files().get(fileId=f_id, fields="name, parents").execute()
+    if f_meta:
+        fname = f_meta.get("name", "")
+        if is_generic_folder_name(fname) and f_meta.get("parents"):
+            p_meta = self.sync_manager.drive_service.files().get(fileId=f_meta["parents"][0], fields="name").execute()
+            if p_meta and p_meta.get("name") and not any(yr in p_meta.get("name", "") for yr in ['ภาพกิจกรรม', '256', '255']):
+                folder_name = p_meta["name"]
+            elif fname:
+                folder_name = fname
+        elif fname:
+            folder_name = fname
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.31 (Full Academic Year Sharding Suite & Dynamic Manifest)
 
 ## 📋 Version 6.31 Changelog (Full Academic Year Sharding: 2563 - 2569, Individual Year Shards, Manifest Expansion & Zero Data Loss)

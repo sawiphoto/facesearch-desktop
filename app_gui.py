@@ -18,7 +18,7 @@ import requests
 # นำเข้าโมดูลหลังบ้านที่เราพัฒนาไว้
 from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
-from gdrive_sync import GoogleSyncManager
+from gdrive_sync import GoogleSyncManager, is_generic_folder_name
 from scheduler_task import SchedulerTask
 from gradient_chart import GradientBarChart, get_gradient_color
 import unknown_analyzer
@@ -878,7 +878,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.31 (Full Academic Year Sharding & Multi-Web Sync Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.32 (Nested Event Healing & Anti-Generic Guard Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -983,7 +983,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.31",
+            text="FACE MATCHING\nSYSTEM v6.32",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -3919,12 +3919,21 @@ class FaceSearchApp(ctk.CTk):
             # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
             # วนลูปโฟลเดอร์ย่อยที่ส่งเข้ามา
             for f_id in folder_ids:
-                # ดึงชื่อโฟลเดอร์จริงจาก Google Drive API หากระบุชื่อเป็น TargetFolder หรือ Unknown
-                if (folder_name in ["Unknown", "TargetFolder"]) and hasattr(self.sync_manager, "drive_service") and self.sync_manager.drive_service:
+                # ดึงชื่อโฟลเดอร์จริงจาก Google Drive API หากระบุชื่อเป็น TargetFolder หรือ Unknown หรือคำ Generic (v6.32 Anti-Generic Guard)
+                if is_generic_folder_name(folder_name) and hasattr(self.sync_manager, "drive_service") and self.sync_manager.drive_service:
                     try:
-                        f_meta = self.sync_manager.drive_service.files().get(fileId=f_id, fields="name").execute()
-                        if f_meta and f_meta.get("name"):
-                            folder_name = f_meta["name"]
+                        f_meta = self.sync_manager.drive_service.files().get(fileId=f_id, fields="name, parents").execute()
+                        if f_meta:
+                            fname = f_meta.get("name", "")
+                            # หากชื่อโฟลเดอร์เป็นคำ Generic ให้ไต่ระดับขึ้นหาโฟลเดอร์แม่
+                            if is_generic_folder_name(fname) and f_meta.get("parents"):
+                                p_meta = self.sync_manager.drive_service.files().get(fileId=f_meta["parents"][0], fields="name").execute()
+                                if p_meta and p_meta.get("name") and not any(yr in p_meta.get("name", "") for yr in ['ภาพกิจกรรม', '256', '255']):
+                                    folder_name = p_meta["name"]
+                                elif fname:
+                                    folder_name = fname
+                            elif fname:
+                                folder_name = fname
                     except Exception:
                         pass
 

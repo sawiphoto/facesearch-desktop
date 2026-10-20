@@ -14,6 +14,7 @@ from datetime import datetime
 import re
 from face_analyzer import decode_image_bytes, read_image_file, get_project_root
 from db_manager import RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
+from gdrive_sync import is_generic_folder_name
 
 logger = logging.getLogger("FaceSearchApp")
 
@@ -448,9 +449,17 @@ class SchedulerTask:
                 logger.error(f"Error fetching subdirs for {root_folder_id}: {e}")
                 break
 
-        # ถ้า root_folder_id ไม่มีโฟลเดอร์ย่อย ให้คืนค่า root_folder เองหากมีรูป
+        # ถ้า root_folder_id ไม่มีโฟลเดอร์ย่อย ให้คืนค่า root_folder เองหากมีรูป (พร้อมดึงชื่อจริงจาก Drive)
         if not subdirs:
-            subdirs = [{"id": root_folder_id, "name": "TargetFolder"}]
+            real_name = "TargetFolder"
+            try:
+                if hasattr(self.sync_manager, "drive_service") and self.sync_manager.drive_service:
+                    f_meta = self.sync_manager.drive_service.files().get(fileId=root_folder_id, fields="name").execute()
+                    if f_meta and f_meta.get("name"):
+                        real_name = f_meta["name"]
+            except Exception:
+                pass
+            subdirs = [{"id": root_folder_id, "name": real_name}]
                 
         # ดึงรายชื่อไฟล์ที่สแกนแล้วจาก DB (เฉพาะรูปที่สแกนสำเร็จจริง v5.80 + RAW files v6.10)
         with self.db.get_connection() as conn:
@@ -1020,8 +1029,16 @@ class SchedulerTask:
                 s_name = subdir['name']
                 
                 # ถ้ายังไม่มี main_event_name แสดงว่า subdir นี้คือโฟลเดอร์กิจกรรมหลัก (Level 2 ใต้ปี)
-                cur_event = main_event_name if main_event_name else s_name
-                cur_sub = s_name if main_event_name else None
+                # Anti-Generic Guard (v6.32): หาก s_name เป็นคำ generic และ parent_name ไม่ใช่ Root Year ให้ใช้ parent_name เป็นชื่อกิจกรรมหลัก
+                if main_event_name:
+                    cur_event = main_event_name
+                    cur_sub = s_name
+                elif is_generic_folder_name(s_name) and parent_name and not any(yr in parent_name for yr in ['ภาพกิจกรรม', '256', '255']):
+                    cur_event = parent_name
+                    cur_sub = s_name
+                else:
+                    cur_event = s_name
+                    cur_sub = None
                 
                 all_subfolders.append({
                     "id": s_id, 
