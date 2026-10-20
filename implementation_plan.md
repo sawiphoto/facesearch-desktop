@@ -1515,3 +1515,128 @@ graph TD
 | **TC-65** | **Zero Data Loss Integrity Check** | `test_sharded_sync_suite.py` | เปรียบเทียบผลรวมรูปและแมตช์ทั้งหมดระหว่างไฟล์รวมเดิมกับไฟล์ Shard ใหม่ | ข้อมูลตรงกัน 100% ทุกรายการ ไม่ตกหล่นแม้แต่รูปเดียว |
 
 ---
+
+
+---
+
+## 19. แผนงานการแบ่งพาร์ทิชันรูปภาพแยกเดี่ยวทุกปีการศึกษาครบถ้วน (Full Academic Year Sharding: 2563 - 2569 & Future Years) & ขยาย Manifest
+
+### 19.1 ที่มาและขอบเขตความต้องการ (Background & Scope)
+- **ปัญหาเดิม:** ใน `v6.30` โค้ดใน `db_manager.py` ดึงเฉพาะ 4 ปีย้อนหลังล่าสุด (`all_years[:4]`) มาสร้างเป็น Shard เดี่ยว ได้แก่ `2569`, `2568`, `2567`, `2566` ส่วนปีก่อนหน้าทั้งหมด (`2565`, `2564`, `2563`) ถูกนำไปรวมอยู่ในก้อน `"archive"` (ทำให้ไฟล์ `photo_index_archive.json` มีขนาด 5.55 MB และใน `photo_manifest.json` ไม่แสดงชื่อปี 2565, 2564, 2563 ให้เห็นชัดเจน)
+- **ความต้องการใหม่ของผู้ใช้:**
+  1. **สร้างไฟล์แยกเดี่ยวให้ครบทุกปีการศึกษา** ตั้งแต่ 2563 ถึง 2569 และพร้อมรองรับปีอนาคต (2570+) หรือปีอดีต (2562-):
+     - `photo_index_2569.json` (23,815 รูป, ~5.45 MB)
+     - `photo_index_2568.json` (27,299 รูป, ~5.65 MB)
+     - `photo_index_2567.json` (23,676 รูป, ~5.65 MB)
+     - `photo_index_2566.json` (22,997 รูป, ~5.04 MB)
+     - `photo_index_2565.json` (17,273 รูป, ~3.70 MB)
+     - `photo_index_2564.json` (7,227 รูป, ~1.50 MB)
+     - `photo_index_2563.json` (2,522 รูป, ~0.60 MB)
+     - `photo_index_archive.json` (4 รูปที่ยังไม่มีการระบุปี, ~1 KB)
+  2. **ปรับปรุง `photo_manifest.json`**:
+     - แสดงชื่อปี `2565`, `2564`, `2563` ใน `available_years`, `year_file_map`, และ `year_counts` อย่างชัดเจนทุกปี
+  3. **การจัดการโฟลเดอร์ "ภาพกิจกรรม 2562- 25xx ในอดีต"** (ID: `1seCE5Uh5pvvKXiYeP8479wNynF2ZEYe1`):
+     - ตรวจสอบและรับรองความพร้อมใน `config/year_folders.json` และตาราง `root_year_folders` ในฐานข้อมูล
+     - ออกแบบการแบ่งพาร์ทิชันแบบ Dynamic 100% (หากมีรูปภาพที่สแกนจากโฟลเดอร์นี้และพบชื่อปี เช่น 2562 หรือ 2561 ระบบจะสร้าง Shard แยกปีนั้นๆ ให้อัตโนมัติทันที ส่วนรูปที่ระบุเป็น `25xx` หรือไม่พบปี จะถูกจัดเก็บลง `photo_index_archive.json`)
+
+---
+
+### 19.2 สถาปัตยกรรมโครงสร้างไฟล์และการกระจายข้อมูล (Shard Data Distribution)
+
+```mermaid
+graph TD
+    subgraph Database["ฐานข้อมูล SQLite (124,813 รูปภาพ)"]
+        DB[(faces_db.db)]
+    end
+
+    subgraph Dynamic_Shards["Google Drive: รวมไฟล์ JSON INDEX (ID: 1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L)"]
+        P69["photo_index_2569.json (23,815 รูป / 5.45 MB)"]
+        P68["photo_index_2568.json (27,299 รูป / 5.65 MB)"]
+        P67["photo_index_2567.json (23,676 รูป / 5.65 MB)"]
+        P66["photo_index_2566.json (22,997 รูป / 5.04 MB)"]
+        P65["photo_index_2565.json (17,273 รูป / 3.70 MB) ⭐ ใหม่"]
+        P64["photo_index_2564.json (7,227 รูป / 1.50 MB) ⭐ ใหม่"]
+        P63["photo_index_2563.json (2,522 รูป / 0.60 MB) ⭐ ใหม่"]
+        P_Arch["photo_index_archive.json (4 รูป / 1 KB)"]
+        Manifest["photo_manifest.json (สารบัญระบุทุกปี 2563-2569)"]
+        Legacy["photo_index.json (27.34 MB) & student_index.json (Dual-Write)"]
+    end
+
+    DB --> P69
+    DB --> P68
+    DB --> P67
+    DB --> P66
+    DB --> P65
+    DB --> P64
+    DB --> P63
+    DB --> P_Arch
+    DB --> Manifest
+    DB --> Legacy
+```
+
+---
+
+### 19.3 รายละเอียดขั้นตอนการดำเนินงานทีละข้อ (Step-by-Step Implementation Breakdown)
+
+#### ข้อที่ 1: ปรับปรุงตรรกะการจัดกลุ่มปีใน `db_manager.py`
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในฟังก์ชัน `get_sync_data_sharded()`:
+     - เปลี่ยนจากการนำเฉพาะ 4 ปีล่าสุด (`all_years[:4]`) ให้เป็น **`active_years = all_years`** ครบถ้วนทุกปีที่มีในฐานข้อมูล
+     - เรียงลำดับปีจากมากไปหาน้อยเสมอ (`['2569', '2568', '2567', '2566', '2565', '2564', '2563']`)
+     - รองรับรูปภาพที่ไม่มีปี หรือปี `25xx` ให้ตกไปที่ Shard `"archive"`
+     - สร้าง `available_years` และ `year_file_map` ใน `manifest` ครบทุกปีเดี่ยว พร้อมทั้ง `"archive"`
+     - รับประกันยอดรวมรูปภาพครบ 124,813 รูป 100% (Zero Data Loss)
+
+#### ข้อที่ 2: ปรับปรุงและเตรียม Placeholder ใน Google Drive
+- **เป้าหมาย:** โฟลเดอร์ `"รวมไฟล์ JSON INDEX"` (Folder ID: `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`)
+- **สิ่งที่ต้องทำ:**
+  1. ใน `07.55 ระบบค้นหาใบหน้าสำหรับนักเรียน/Routing.gs`:
+     - ปรับรายการ `requestedFiles` เริ่มต้นให้มี `photo_index_2565.json`, `photo_index_2564.json`, `photo_index_2563.json`
+     - Deploy เวอร์ชันใหม่ไปยัง Deployment ID `AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV`
+  2. เรียก Endpoint Web App เพื่อสร้าง Placeholder ไฟล์ใหม่ทั้ง 3 ไฟล์ (`photo_index_2565.json`, `photo_index_2564.json`, `photo_index_2563.json`) โดยใช้โควตาของบัญชี `sawiphoto@sawi.ac.th` ป้องกันปัญหา 403 Service Account Quota
+
+#### ข้อที่ 3: ดำเนินการซิงก์อัปโหลดไฟล์จริงขึ้น Google Drive
+- **เป้าหมาย:** อัปโหลด Sharded Files ทั้ง 7 ปี + Archive + Manifest + Legacy Dual-Write
+- **สิ่งที่ต้องทำ:**
+  1. รันสคริปต์ `run_sharded_sync_to_drive.py`
+  2. อัปเดตข้อมูลทับไฟล์ที่มีอยู่ในโฟลเดอร์ `"รวมไฟล์ JSON INDEX"`
+  3. ตรวจสอบสถานะการอัปโหลดและขนาดไฟล์ของทุก Shard:
+     - `photo_index_2569.json` (~5.45 MB)
+     - `photo_index_2568.json` (~5.65 MB)
+     - `photo_index_2567.json` (~5.65 MB)
+     - `photo_index_2566.json` (~5.04 MB)
+     - `photo_index_2565.json` (~3.70 MB)
+     - `photo_index_2564.json` (~1.50 MB)
+     - `photo_index_2563.json` (~0.60 MB)
+     - `photo_index_archive.json` (~1 KB)
+     - `photo_manifest.json`
+
+#### ข้อที่ 4: ตรวจสอบความเข้ากันได้ของ Web Apps (Compatibility & Lazy Load Verification)
+- **ระบบนักเรียน (07.55):** ตรวจสอบว่า `DatabaseService.gs` สามารถอ่าน Shard ใหม่ (เช่น ปี 2565, 2564, 2563) ผ่าน `photo_manifest.json` ได้ถูกต้องแม่นยำ
+- **ระบบครู (07.5):** ตรวจสอบว่าฟังก์ชัน `loadComprehensivePhotoData_()` รวบรวมข้อมูลจาก Shards ทั้ง 7 ปี + archive เข้าสู่ Memory ได้สมบูรณ์ครบถ้วน
+
+#### ข้อที่ 5: พัฒนาสวีททดสอบการทำงานจริง (Execution Path Runtime Verification: TC-66 ถึง TC-70)
+- พัฒนาสคริปต์ทดสอบ `test_full_year_sharding_suite.py` ครอบคลุม:
+  - **TC-66:** All Active Years Shard Generation (ต้องมี Shard เดี่ยวครบทุกปี 2563-2569)
+  - **TC-67:** Shard Size & Photo Count Parity (ตรวจสอบจำนวนรูปภาพแต่ละปีตรงกับยอดใน DB)
+  - **TC-68:** Manifest Structure & Year List Verification (ตรวจ `available_years` และ `year_file_map`)
+  - **TC-69:** Drive Files Existence & Non-Zero Size Verification (ตรวจไฟล์บน Google Drive โฟลเดอร์รวม)
+  - **TC-70:** Zero Data Loss & Recombination Integrity (รวมรูปจากทุก Shard ต้องได้ 124,813 รูป ตรงกับ DB เดิม 100%)
+
+#### ข้อที่ 6: อัปเดตเอกสารและบันทึกประวัติการเปลี่ยนแปลง
+- เพิ่มประวัติการแก้ไขลงบนสุดของ [`README.md`](README.md) ตามกฎข้อ 3
+- Commit การเปลี่ยนแปลงขึ้นระบบ Git
+
+---
+
+### 19.4 ตารางกรณีทดสอบ (Test Cases Matrix: TC-66 ถึง TC-70)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-66** | **All Active Years Shard Generation** | `db_manager.py` | เรียก `get_sync_data_sharded()` และตรวจสอบคีย์ใน `photos_by_shard` | มีคีย์ครบทั้ง `2569`, `2568`, `2567`, `2566`, `2565`, `2564`, `2563` และ `archive` |
+| **TC-67** | **Shard Size & Photo Count Parity** | `db_manager.py` | ตรวจสอบจำนวนรายการรูปภาพในแต่ละ Shard | 2569 (23,815), 2568 (27,299), 2567 (23,676), 2566 (22,997), 2565 (17,273), 2564 (7,227), 2563 (2,522), archive (4) |
+| **TC-68** | **Manifest Structure Verification** | `db_manager.py` | ตรวจสอบโครงสร้างของ `manifest` | `available_years` แสดงชื่อปี 2563 ถึง 2569 ครบถ้วน, `year_file_map` แมปชื่อไฟล์ตรงทุกปี |
+| **TC-69** | **Drive Files Verification** | `gdrive_sync.py` | ตรวจสอบรายการไฟล์ในโฟลเดอร์ `"รวมไฟล์ JSON INDEX"` บน Google Drive | มีไฟล์ Shard ครบทั้ง 7 ปี + archive + manifest ขนาดไฟล์ถูกต้องและเป็น Compact JSON |
+| **TC-70** | **Zero Data Loss Integrity** | `db_manager.py` | นำรูปภาพจากทุก Shard มารวมกันและเปรียบเทียบกับ `scanned_photos` ใน SQLite | ยอดรวมเท่ากับ 124,813 รูปภาพ ครบถ้วน 100% ไม่สูญหายแม้แต่รูปเดียว |
+

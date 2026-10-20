@@ -1478,10 +1478,10 @@ class DatabaseManager:
                 photo_entries.append(entry)
                 photo_year_map[p[0]] = year_val
 
-            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวครบถ้วนทุกปีการศึกษา 2563-2569 และอนาคต)
             if not active_years:
-                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4}), reverse=True)
-                active_years = all_years[:4] if len(all_years) >= 4 else all_years
+                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4 and y.isdigit()}), reverse=True)
+                active_years = all_years
 
             photos_by_shard = {y: {} for y in active_years}
             photos_by_shard["archive"] = {}
@@ -1531,12 +1531,14 @@ class DatabaseManager:
                 for k, v in s_dict.items():
                     v["years"] = sorted(v["years"], reverse=True)
 
-            available_shards = list(active_years) + ["archive"]
+            available_shards = list(active_years)
             year_file_map = {y: f"photo_index_{y}.json" for y in active_years}
-            year_file_map["archive"] = "photo_index_archive.json"
+            if shard_counts.get("archive", 0) > 0:
+                available_shards.append("archive")
+                year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.30",
+                "version": "v6.31",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

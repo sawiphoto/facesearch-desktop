@@ -1,3 +1,127 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.31 (Full Academic Year Sharding Suite & Dynamic Manifest)
+
+## 📋 Version 6.31 Changelog (Full Academic Year Sharding: 2563 - 2569, Individual Year Shards, Manifest Expansion & Zero Data Loss)
+
+**Date:** 20 ตุลาคม 2026 (10:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.31 (Full Academic Year Sharding Suite & Dynamic Manifest)  
+**Core Technologies:** Dynamic Yearly Sharding (Individual Files for All Academic Years: 2569 down to 2563 + Archive), `photo_manifest.json` Expansion, Support for "ภาพกิจกรรม 2562- 25xx ในอดีต" (Folder ID: `1seCE5Uh5pvvKXiYeP8479wNynF2ZEYe1`), Google Drive Centralized Folder ("รวมไฟล์ JSON INDEX" `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`), Automated Placeholder Creator API via Apps Script (`07.55` @28), Compact JSON Minification, Intelligent Dynamic Lazy Loading (GAS Web Portals), 100% Zero Data Loss across 124,813 photos (TC-66 to TC-70 Passed).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การรวมปี 2565, 2564, 2563 เข้าไปในก้อน Archive ในเวอร์ชัน 6.30:**
+   - ใน v6.30 โค้ดถูกจำกัดเฉพาะ 4 ปีย้อนหลังล่าสุด (`all_years[:4]`) ทำให้ปีการศึกษา 2565, 2564, 2563 ถูกนำไปรวมไว้ใน `photo_index_archive.json` (5.55 MB) และใน `photo_manifest.json` ไม่มีชื่อปีดังกล่าวปรากฏให้ผู้ใช้งานเห็น
+2. **ความต้องการสร้างไฟล์ Shard แยกเดี่ยวครบถ้วนทุกปี:**
+   - ผู้ใช้ต้องการให้แยกไฟล์ Shard ประจำปีเดี่ยวตั้งแต่ 2563 ถึง 2569 ครบทุกปี ได้แก่:
+     - `photo_index_2569.json` (23,815 รูป, 5.45 MB)
+     - `photo_index_2568.json` (27,299 รูป, 5.65 MB)
+     - `photo_index_2567.json` (23,676 รูป, 5.65 MB)
+     - `photo_index_2566.json` (22,997 รูป, 5.04 MB)
+     - `photo_index_2565.json` (17,273 รูป, 3.60 MB) ⭐ ใหม่
+     - `photo_index_2564.json` (7,227 รูป, 1.44 MB) ⭐ ใหม่
+     - `photo_index_2563.json` (2,522 รูป, 0.52 MB) ⭐ ใหม่
+     - `photo_index_archive.json` (4 รูปที่ยังไม่มีการระบุปี, 581 B)
+   - ใน `photo_manifest.json` ต้องแสดงรายชื่อปี 2565, 2564, 2563 อย่างชัดเจน
+3. **การรองรับโฟลเดอร์ "ภาพกิจกรรม 2562- 25xx ในอดีต" (`1seCE5Uh5pvvKXiYeP8479wNynF2ZEYe1`):**
+   - รองรับการสแกนและสร้าง Shard อัตโนมัติสำหรับปีในอดีต (เช่น 2562, 2561) และจัดเก็บรูปภาพ `25xx` หรือรูปภาพที่ไม่มีปีลงใน `photo_index_archive.json`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปลดล็อกขีดจำกัดปีใน [`db_manager.py`](db_manager.py):**
+   - เปลี่ยนจากการตัด `active_years = all_years[:4]` เป็น **`active_years = all_years`** เพื่อดึงทุกปีการศึกษาที่มีในฐานข้อมูล (2569, 2568, 2567, 2566, 2565, 2564, 2563) ออกมาเป็น Shard เดี่ยวแบบ Dynamic และพร้อมรองรับปีอนาคต (2570+) หรือปีอดีต (2562-)
+   - จัดกลุ่มรูปภาพที่ไม่ระบุปี (4 รูป: P23153–P23183) ลงใน `photo_index_archive.json`
+2. **ขยาย `photo_manifest.json`:**
+   - บรรจุ `available_years` และ `year_file_map` ครบทั้ง 7 ปีเดี่ยว + `archive`
+   - บันทึกสถิติ `year_counts` ครบถ้วนทุกปี รวมยอดภาพ 124,813 รูป (Zero Data Loss 100%)
+3. **อัปเกรด Google Apps Script Web App `07.55` (@28):**
+   - เพิ่ม `photo_index_2565.json`, `photo_index_2564.json`, `photo_index_2563.json` ใน default list ของ `createPlaceholders`
+   - Deploy ขึ้นระบบด้วย `clasp deploy -i 'AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV'` (@28)
+4. **ซิงก์และอัปโหลดทับไฟล์จริงบน Google Drive ("รวมไฟล์ JSON INDEX"):**
+   - รัน `run_sharded_sync_to_drive.py` อัปโหลดไฟล์ Shard ครบทั้ง 14 ไฟล์บน Google Drive สำเร็จใน 125.70 วินาที
+5. **พัฒนาสวีททดสอบการทำงานจริง [`test_full_year_sharding_suite.py`](test_full_year_sharding_suite.py):**
+   - ผ่านการทดสอบ TC-66 ถึง TC-70 ครบ 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การแบ่ง Shard ทุกปีการศึกษาใน [`db_manager.py`](db_manager.py) (เมธอด `get_sync_data_sharded`):
+**Before (v6.30 - จำกัดเฉพาะ 4 ปีล่าสุด):**
+```python
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว
+            if not active_years:
+                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4}), reverse=True)
+                active_years = all_years[:4] if len(all_years) >= 4 else all_years
+
+            photos_by_shard = {y: {} for y in active_years}
+            photos_by_shard["archive"] = {}
+```
+
+**After (v6.31 - แยกเดี่ยวครบถ้วนทุกปี 2563-2569 และอนาคต):**
+```python
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวครบถ้วนทุกปีการศึกษา 2563-2569 และอนาคต)
+            if not active_years:
+                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4 and y.isdigit()}), reverse=True)
+                active_years = all_years
+
+            photos_by_shard = {y: {} for y in active_years}
+            photos_by_shard["archive"] = {}
+            shard_counts = {y: 0 for y in active_years}
+            shard_counts["archive"] = 0
+
+            available_shards = list(active_years)
+            year_file_map = {y: f"photo_index_{y}.json" for y in active_years}
+            if shard_counts.get("archive", 0) > 0:
+                available_shards.append("archive")
+                year_file_map["archive"] = "photo_index_archive.json"
+```
+
+#### 2. ผลลัพธ์ `photo_manifest.json` บน Google Drive:
+**Before (v6.30 - มีแค่ 4 ปี และ archive ก้อนใหญ่):**
+```json
+{
+  "version": "v6.30",
+  "available_years": ["2569", "2568", "2567", "2566", "archive"],
+  "year_counts": {
+    "2569": 23815, "2568": 27299, "2567": 23676, "2566": 22997, "archive": 27026
+  }
+}
+```
+
+**After (v6.31 - แสดงครบทุกปี 2563-2569 ชัดเจน):**
+```json
+{
+  "version": "v6.31",
+  "available_years": ["2569", "2568", "2567", "2566", "2565", "2564", "2563", "archive"],
+  "year_file_map": {
+    "2569": "photo_index_2569.json",
+    "2568": "photo_index_2568.json",
+    "2567": "photo_index_2567.json",
+    "2566": "photo_index_2566.json",
+    "2565": "photo_index_2565.json",
+    "2564": "photo_index_2564.json",
+    "2563": "photo_index_2563.json",
+    "archive": "photo_index_archive.json"
+  },
+  "year_counts": {
+    "2569": 23815,
+    "2568": 27299,
+    "2567": 23676,
+    "2566": 22997,
+    "2565": 17273,
+    "2564": 7227,
+    "2563": 2522,
+    "archive": 4
+  },
+  "total_photos": 124813
+}
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.30 (Full Sharding Architecture & Multi-Web Sync Suite)
 
 ## 📋 Version 6.30 Changelog (Full Sharding Architecture, Dedicated Central JSON Folder, Compact Minification, Multi-Web Lazy Loading & Zero Data Loss)

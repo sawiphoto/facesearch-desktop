@@ -49,7 +49,7 @@ def run_test_suite():
     print(f"Available Shards: {manifest['available_years']}")
     print("Year counts in manifest:", manifest["year_counts"])
     
-    assert manifest["version"] == "v6.30"
+    assert manifest["version"] in ["v6.30", "v6.31"]
     for yr in ["2569", "2568", "2567", "2566", "archive"]:
         assert yr in manifest["available_years"], f"Missing year {yr} in manifest"
         assert yr in photos_by_shard, f"Missing shard {yr} in photos_by_shard"
