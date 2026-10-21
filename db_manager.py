@@ -555,6 +555,22 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not normalize v6.41 department names: {e}")
 
+            # Migration v6.42: Add original_image_path and cropped_image_path to staff_members
+            try:
+                cursor.execute("PRAGMA table_info(staff_members)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'original_image_path' not in columns:
+                    cursor.execute("ALTER TABLE staff_members ADD COLUMN original_image_path TEXT DEFAULT ''")
+                    logger.info("Executed database migration v6.42: added original_image_path to staff_members.")
+                if 'cropped_image_path' not in columns:
+                    cursor.execute("ALTER TABLE staff_members ADD COLUMN cropped_image_path TEXT DEFAULT ''")
+                    logger.info("Executed database migration v6.42: added cropped_image_path to staff_members.")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_orig_img ON staff_members(original_image_path)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_crop_img ON staff_members(cropped_image_path)")
+            except Exception as e:
+                logger.warning(f"Could not execute v6.42 migration: {e}")
+
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -833,9 +849,10 @@ class DatabaseManager:
 
     def update_staff_member_full(self, staff_id, name=None, department=None, status=None,
                                  role=None, student_id=None, class_room=None,
-                                 personal_threshold=None, graduation_year=None, entry_year=None):
+                                 personal_threshold=None, graduation_year=None, entry_year=None,
+                                 original_image_path=None, cropped_image_path=None):
         """
-        อัปเดตข้อมูลบุคลากรแบบรอบด้านใน Transaction เดียว รองรับทั้งครูและนักเรียน (v6.34)
+        อัปเดตข้อมูลบุคลากรแบบรอบด้านใน Transaction เดียว รองรับทั้งครูและนักเรียน (v6.34/v6.42)
         """
         fields = []
         params = []
@@ -870,6 +887,12 @@ class DatabaseManager:
         if entry_year is not None:
             fields.append("entry_year = ?")
             params.append(str(entry_year).strip())
+        if original_image_path is not None:
+            fields.append("original_image_path = ?")
+            params.append(str(original_image_path).strip())
+        if cropped_image_path is not None:
+            fields.append("cropped_image_path = ?")
+            params.append(str(cropped_image_path).strip())
             
         if not fields:
             return False
@@ -881,6 +904,7 @@ class DatabaseManager:
             cursor.execute(query, params)
             conn.commit()
             return cursor.rowcount > 0
+
 
     def update_scanned_photo_record(self, photo_id, event_name=None, academic_year=None):
         """อัปเดตข้อมูลภาพที่สแกนแล้ว (event_name, academic_year) (v6.34)"""
@@ -973,27 +997,39 @@ class DatabaseManager:
             } for row in cursor.fetchall()]
 
     def get_all_teachers(self):
-        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมสังกัด สถานะ และรูปภาพอ้างอิงแรก (avatar_path) (v6.41)"""
+        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมสังกัด สถานะ ภาพต้นฉบับ ภาพสแกน และรูปภาพอ้างอิงแรก (avatar_path) (v6.41/v6.42)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count,
                        COALESCE(s.status, 'active') as status,
-                       (SELECT image_path FROM staff_embeddings WHERE staff_id = s.id ORDER BY id ASC LIMIT 1) as avatar_path
+                       COALESCE(s.original_image_path, '') as original_image_path,
+                       COALESCE(s.cropped_image_path, '') as cropped_image_path,
+                       (SELECT image_path FROM staff_embeddings WHERE staff_id = s.id ORDER BY id ASC LIMIT 1) as legacy_crop_path
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                 WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
-                GROUP BY s.id, s.name, s.department, s.status
+                GROUP BY s.id, s.name, s.department, s.status, s.original_image_path, s.cropped_image_path
                 ORDER BY s.name ASC
             """)
-            return [{
-                "id": row[0],
-                "name": row[1],
-                "department": clean_department_name(row[2]),
-                "photo_count": row[3],
-                "status": row[4],
-                "avatar_path": row[5] or ""
-            } for row in cursor.fetchall()]
+            teachers = []
+            for row in cursor.fetchall():
+                orig_img = row[5] or ""
+                crop_img = row[6] or row[7] or ""
+                # avatar_path: ให้ความสำคัญกับภาพต้นฉบับก่อนเสมอ หากมีไฟล์จริงในเครื่อง ถ้าไม่มีจึง fallback ไปภาพ crop
+                avatar_path = orig_img if (orig_img and os.path.exists(orig_img)) else crop_img
+                teachers.append({
+                    "id": row[0],
+                    "name": row[1],
+                    "department": clean_department_name(row[2]),
+                    "photo_count": row[3],
+                    "status": row[4],
+                    "original_image_path": orig_img,
+                    "cropped_image_path": crop_img,
+                    "avatar_path": avatar_path
+                })
+            return teachers
+
 
     def get_all_teachers_with_avatar_stats(self):
         """
@@ -1963,7 +1999,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.41",
+                "version": "v6.42",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

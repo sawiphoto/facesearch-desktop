@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.41 (Teacher Drive Photo Sync & Treeview Avatar Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.42 (Dual Original & Cropped Photo Architecture for Teachers)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,10 +1078,11 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.41",
+            text="FACE MATCHING\nSYSTEM v6.42",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
+
         self.logo_label.grid(row=0, column=0, padx=15, pady=25)
 
         # ฟอนต์ขนาด 1.5 เท่า สำหรับเมนู
@@ -7045,12 +7046,14 @@ class FaceSearchApp(ctk.CTk):
                         WITH top_staff AS (
                             SELECT s.id, s.name, COALESCE(s.department, '') as department,
                                    COALESCE(s.status, 'active') as status,
-                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos,
+                                   COALESCE(s.original_image_path, '') as original_image_path,
+                                   COALESCE(s.cropped_image_path, '') as cropped_image_path
                             FROM staff_members s
                             WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                               AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ? OR COALESCE(s.status, '') LIKE ?)
                         )
-                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos, ts.original_image_path, ts.cropped_image_path
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
@@ -7062,34 +7065,41 @@ class FaceSearchApp(ctk.CTk):
                         WITH top_staff AS (
                             SELECT s.id, s.name, COALESCE(s.department, '') as department,
                                    COALESCE(s.status, 'active') as status,
-                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
+                                   (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos,
+                                   COALESCE(s.original_image_path, '') as original_image_path,
+                                   COALESCE(s.cropped_image_path, '') as cropped_image_path
                             FROM staff_members s
                             WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         )
-                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos, ts.original_image_path, ts.cropped_image_path
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("id", "name", "department", "status", "photos")
-                self.db_tree.column("id", width=70, anchor="center")
-                self.db_tree.column("name", width=250, anchor="w")
-                self.db_tree.column("department", width=180, anchor="w")
-                self.db_tree.column("status", width=95, anchor="center")
-                self.db_tree.column("photos", width=110, anchor="center")
+                self.db_tree["columns"] = ("id", "name", "department", "status", "photos", "original_image_path", "cropped_image_path")
+                self.db_tree.column("id", width=60, anchor="center")
+                self.db_tree.column("name", width=200, anchor="w")
+                self.db_tree.column("department", width=140, anchor="w")
+                self.db_tree.column("status", width=80, anchor="center")
+                self.db_tree.column("photos", width=90, anchor="center")
+                self.db_tree.column("original_image_path", width=220, anchor="w")
+                self.db_tree.column("cropped_image_path", width=220, anchor="w")
                 
                 set_tree_heading("id", "ID ครู")
                 set_tree_heading("name", "ชื่อ-นามสกุล คุณครู")
                 set_tree_heading("department", "สังกัด")
                 set_tree_heading("status", "สถานะ")
                 set_tree_heading("photos", "จำนวนรูป (รูป)")
+                set_tree_heading("original_image_path", "ภาพต้นฉบับ (Original)")
+                set_tree_heading("cropped_image_path", "ภาพสแกน (Crop)")
                 
                 for r in rows:
                     row_list = list(r)
                     row_list[2] = clean_department_name(row_list[2])
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_list])
+
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง staff_members (นักเรียน) — v6.29 เพิ่ม class_room, status, graduation_year

@@ -1026,7 +1026,13 @@ class GoogleSyncManager:
             s_dept = clean_department_name(teacher.get('department') or 'อื่นๆ')
             s_status = str(teacher.get('status', 'active')).lower()
             is_former = (s_status == 'inactive')
+            orig_path = teacher.get('original_image_path', '')
+            crop_path = teacher.get('cropped_image_path', '')
             avatar_path = teacher.get('avatar_path', '')
+            # เลือกไฟล์ภาพต้นฉบับฉบับเต็ม (Full Uncropped Photo) เป็นอันดับแรกเสมอ หากไม่มีจึง fallback ไปภาพ crop (v6.42)
+            upload_source_path = orig_path if (orig_path and os.path.exists(orig_path)) else avatar_path
+            if not upload_source_path or not os.path.exists(upload_source_path):
+                upload_source_path = crop_path
 
             if progress_callback:
                 progress_callback(idx + 1, len(staff_list), f"กำลังประมวลผล: {s_name} ({idx + 1}/{len(staff_list)})")
@@ -1094,30 +1100,31 @@ class GoogleSyncManager:
                             'reason': f"ย้ายไฟล์ไม่สำเร็จ: {move_err}"
                         })
             else:
-                # ยังไม่มีไฟล์บน Drive -> อัปโหลดไฟล์จากเครื่อง
-                if not avatar_path or not os.path.exists(avatar_path):
+                # ยังไม่มีไฟล์บน Drive -> อัปโหลดไฟล์จากเครื่อง (ภาพ original ฉบับเต็ม)
+                if not upload_source_path or not os.path.exists(upload_source_path):
                     report['failed'].append({
                         'id': s_id,
                         'name': s_name,
                         'department': s_dept,
-                        'reason': f"ไม่พบไฟล์รูปภาพในเครื่อง ({avatar_path})"
+                        'reason': f"ไม่พบไฟล์รูปภาพในเครื่อง ({upload_source_path})"
                     })
                     continue
 
                 try:
-                    ext = os.path.splitext(avatar_path)[1] or '.jpg'
+                    ext = os.path.splitext(upload_source_path)[1] or '.jpg'
                     upload_file_name = f"{s_name}{ext}"
-                    mime_type, _ = mimetypes.guess_type(avatar_path)
+                    mime_type, _ = mimetypes.guess_type(upload_source_path)
                     if not mime_type:
-                        mime_type = "image/jpeg"
+                        mime_type = "image/png" if ext.lower() == '.png' else "image/jpeg"
 
                     new_fid = None
                     # 1. อัปโหลดผ่าน Google Apps Script Web App (สิทธิ์ sawiphoto@sawi.ac.th เพื่อเลี่ยง 403 Service Account Quota)
                     try:
                         import base64
                         import requests
-                        with open(avatar_path, 'rb') as af:
+                        with open(upload_source_path, 'rb') as af:
                             b64_content = base64.b64encode(af.read()).decode('utf-8')
+
                         app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
                         payload = {
                             'action': 'uploadFile',

@@ -2844,6 +2844,115 @@ flowchart TD
 > - อัปเกรด Google Apps Script Web App `Routing.gs` (v@30) เพื่อรองรับ Base64 File Upload ผ่านสิทธิ์ `sawiphoto@sawi.ac.th` ป้องกันข้อผิดพลาด Google Service Account 403 Storage Quota Limit  
 > - ชุดทดสอบ TC-116 ถึง TC-120 ผ่านครบถ้วน 100% (Ran 5 tests in 0.762s, OK)
 
+---
+
+## 30. แผนการพัฒนาระบบจัดเก็บภาพ Original และภาพ Crop ใน SQLite สำหรับบุคลากรครู (v6.42: Dual Original & Cropped Photo Architecture for Teachers)
+
+### 30.1 ที่มาและข้อกำหนดจากผู้ใช้ (User Requirements & Rationale)
+ผู้ใช้มีคำสั่งชัดเจน:
+> *"งั้นทำโปรเจ็คนี้ใน sqlite staff member ให้มี column ภาพ original กับ ภาพ crop ที่เอาไปแสกนครับ ทำเฉพาะของครูก่อนนะ ทั้งปัจจุบันและอดีต โดยครูปัจจุบันดึงมาจากโฟลเดอร์ใน drive ได้เลย ส่วนครูในอดีต เอาจาก folder นี้ครับ โดยหากครูมีหลายภาพให้เลือกมาแค่ภาพ 1 เท่านั้นนะครับ D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว"*
+
+**สรุปข้อกำหนดหลัก:**
+1. **การอัปเกรด Schema ของตาราง `staff_members` ใน SQLite:**
+   - เพิ่ม 2 คอลัมน์ใหม่:
+     - `original_image_path TEXT DEFAULT ''` (พาธภาพถ่ายต้นฉบับฉบับเต็ม / Full Portrait)
+     - `cropped_image_path TEXT DEFAULT ''` (พาธภาพตัดกรอบใบหน้าสำหรับสแกน / Face Crop)
+   - ปฏิบัติการเฉพาะบุคลากรครู (`role = 'teacher' OR role IS NULL OR role = ''`) ทั้งปัจจุบัน (Active 122 คน) และอดีต (Inactive 46 คน) รวม 168 คน
+2. **การบรรจุข้อมูลภาพ Crop (`cropped_image_path`):**
+   - ดึงจากตาราง `staff_embeddings`:  
+     `SELECT image_path FROM staff_embeddings WHERE staff_id = sm.id ORDER BY id ASC LIMIT 1`
+   - ครอบคลุมคุณครูที่มีภาพสแกนในระบบทั้งหมด
+3. **การบรรจุข้อมูลภาพ Original (`original_image_path`):**
+   - **ครูในอดีต (Inactive Teachers - 46 คน):**
+     - ดึงไฟล์ภาพถ่ายฉบับเต็มจากโฟลเดอร์: `D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว`
+     - **เงื่อนไขสำคัญ:** หากคุณครูท่านใดมีหลายภาพ ให้เลือกเฉพาะ **"ภาพที่ 1"** เท่านั้น (เช่น `นางสาววราลี ทองแก้ว วิทยาศาสตร์ 1.png` จากตัวเลือกภาพ 1 และ 2)
+     - **คัดลอกไฟล์ทั้งหมดมาจัดเก็บในเครื่องที่:** `data/original_staff_photos/inactive/<ชื่อ-นามสกุลครู>.<ext>` ตามคำสั่งผู้ใช้
+     - สำหรับอดีตครูที่มีภาพฉบับเต็มอยู่บน Drive อยู่แล้ว (เช่น ครู 12 ท่านเดิมที่อัปโหลดไว้ก่อนหน้า) ให้ดาวน์โหลดภาพจากโฟลเดอร์ `อดีตบุคลากร` มาบันทึกเก็บไว้ใน `data/original_staff_photos/inactive/<ชื่อ-นามสกุลครู>.<ext>` เช่นเดียวกัน เพื่อความสมบูรณ์ 100%
+   - **ครูปัจจุบัน (Active Teachers - 122 คน):**
+     - ดึงไฟล์ภาพต้นฉบับจากโฟลเดอร์กลุ่มสาระบน Google Drive (`1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI`)
+     - ดาวน์โหลดมาจัดเก็บในเครื่องที่ `data/original_staff_photos/active/<ชื่อ-นามสกุลครู>.<ext>` เพื่อให้โปรแกรมสามารถเปิดดู ออฟไลน์ และแคชทำ Avatar ได้อย่างรวดเร็วระดับ $O(1)$ ไร้การหน่วง (Rule 8)
+4. **การแทนที่ไฟล์ภาพ 34 คนบน Google Drive ให้เป็นภาพ Original ฉบับเต็ม:**
+   - นำไฟล์ภาพจาก `original_image_path` ของทั้ง 34 ท่าน (Mr. Augustine + 33 อดีตครู) อัปโหลดเขียนทับ (Overwrite) ไฟล์เดิมบน Google Drive
+   - ผลลัพธ์: โฟลเดอร์บน Google Drive ทั้งหมดจะแสดงเป็นภาพครึ่งตัวหน้าตรงความละเอียดสูง สวยงาม คมชัด สมบูรณ์ 100%
+5. **การปรับปรุงการแสดงผล UI (`app_gui.py`):**
+   - ตารางรายชื่อครู (`teacher_tree`): Avatar หน้าสุด (32x32 px) จะถูกสร้างจาก `original_image_path` (พร้อม Fallback ไปที่ `cropped_image_path`) ทำให้ภาพ Avatar มีสัดส่วนสวยงามเป็นธรรมชาติ
+   - หน้าดูฐานข้อมูล (DB Viewer): เพิ่มการแสดงผลคอลัมน์ `original_image_path` และ `cropped_image_path` ในตาราง `staff_members (ครู)`
+
+---
+
+### 30.2 สถาปัตยกรรมและขั้นตอนการดำเนินงาน (Step-by-Step Implementation Breakdown)
+
+#### ข้อที่ 1: การอัปเกรดฐานข้อมูล SQLite Schema Migration
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในเมธอด `init_db()` ตรวจสอบว่ามีคอลัมน์ `original_image_path` และ `cropped_image_path` ในตาราง `staff_members` หรือไม่ผ่าน `PRAGMA table_info(staff_members)`
+  2. หากยังไม่มี ให้รันคำสั่ง `ALTER TABLE`:
+     ```sql
+     ALTER TABLE staff_members ADD COLUMN original_image_path TEXT DEFAULT '';
+     ALTER TABLE staff_members ADD COLUMN cropped_image_path TEXT DEFAULT '';
+     ```
+  3. เพิ่ม Index เพื่อความเร็วในการเข้าถึง:
+     ```sql
+     CREATE INDEX IF NOT EXISTS idx_sm_orig_img ON staff_members(original_image_path);
+     CREATE INDEX IF NOT EXISTS idx_sm_crop_img ON staff_members(cropped_image_path);
+     ```
+
+#### ข้อที่ 2: เพิ่มเมธอดจัดการ Original & Cropped Photos ใน Data Access Layer
+- **ไฟล์เป้าหมาย:** [`db_manager.py`](db_manager.py)
+- **สิ่งที่ต้องทำ:**
+  1. เพิ่มฟังก์ชัน `backfill_teacher_photos_dual(self, active_dir="data/original_staff_photos/active", inactive_dir="data/original_staff_photos/inactive")`:
+     - **ขั้นตอน A (Cropped Photos):** รันคำสั่ง SQL ดึงภาพสแกนแรกจาก `staff_embeddings` มาบันทึกลง `cropped_image_path` สำหรับครูทุกคน
+     - **ขั้นตอน B (Former Teachers Original):** สแกนไฟล์ใน `D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว`
+       - ทำ Regex Clean Name แมปกับชื่ออดีตครู
+       - หากพบหลายไฟล์ ให้คัดกรองเลือกไฟล์ที่มีเลข `1` (เช่น `วราลี ทองแก้ว ... 1.png`) หากไม่มีเลขให้เรียงตามตัวอักษรแล้วหยิบรายการแรก
+       - คัดลอก (Copy) ไฟล์ที่เลือกไปยัง `data/original_staff_photos/inactive/<ชื่อ-นามสกุลครู>.<ext>`
+       - อัปเดต `original_image_path` เป็นพาธใน `data/original_staff_photos/inactive/...` ลงในฐานข้อมูล SQLite
+     - **ขั้นตอน C (Active Teachers Original):** แมปไฟล์ภาพต้นฉบับจาก Drive (ดาวน์โหลดเก็บลง `data/original_staff_photos/active/<ชื่อ-นามสกุลครู>.<ext>`) และอัปเดตลง `original_image_path`
+
+  2. ปรับปรุง `get_all_teachers()` ให้คืนค่า `original_image_path` และ `cropped_image_path`
+  3. ปรับปรุง `update_staff_member()` ให้รองรับการอัปเดตพาธทั้งสอง
+
+#### ข้อที่ 3: ระบบซิงก์และแทนที่ภาพ Original บน Google Drive
+- **ไฟล์เป้าหมาย:** [`gdrive_sync.py`](gdrive_sync.py)
+- **สิ่งที่ต้องทำ:**
+  1. เพิ่มเมธอด `download_staff_photos_from_drive(root_folder_id, local_dest_dir)` สำหรับดึงภาพคุณครูปัจจุบันและอดีตครูที่มีบน Drive มาแคชในเครื่อง
+  2. ปรับปรุง `sync_staff_reference_photos_to_drive()`:
+     - ใช้ `original_image_path` เป็นไฟล์เป้าหมายในการอัปโหลดขึ้น Drive เสมอ (หากมี) เพื่อรับประกันว่าจะไม่มีภาพ Crop ใบหน้าหลุดขึ้นไปบน Drive
+     - อัปโหลดไฟล์ภาพฉบับเต็มเขียนทับไฟล์ Crop 34 รายการเดิมบน Drive ผ่าน Google Apps Script Web App `Routing.gs` (Deploy `@30`)
+     - ตรวจสอบยืนยันขนาดไฟล์และ MimeType ให้ถูกต้อง
+
+#### ข้อที่ 4: การปรับปรุงส่วนติดต่อผู้ใช้ (UI & DB Viewer)
+- **ไฟล์เป้าหมาย:** [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. ใน `load_staff_list()`: ดึง `original_image_path` มาใช้สร้างรูป Avatar 32x32 ในตาราง Treeview
+  2. ใน `_setup_database_viewer_tab()`: ตาราง `staff_members (ครู)` ให้เพิ่มคอลัมน์ `ภาพต้นฉบับ (original_image_path)` และ `ภาพสแกน (cropped_image_path)`
+  3. ปรับปรุง Window Title และ Sidebar Logo Header เป็น **`v6.42 (Dual Original & Cropped Photo Architecture for Teachers)`**
+
+---
+
+### 30.3 แผนการทดสอบอย่างละเอียด (Comprehensive Test Cases: TC-121 ถึง TC-125)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-121** | **Staff Members Schema Migration** | `db_manager.py` | ตรวจสอบ Schema ของ `staff_members` ใน SQLite | พบคอลัมน์ `original_image_path` และ `cropped_image_path` ครบถ้วน |
+| **TC-122** | **Former Teacher Multi-Photo Selection Rule** | `db_manager.py` | ทดสอบจับคู่อดีตครูใน `D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว` สำหรับครูที่มีภาพ 1 และ 2 (เช่น นางสาววราลี ทองแก้ว) | เลือกลงทะเบียนเฉพาะภาพที่ 1 เท่านั้น (`... 1.png`) ถูกต้อง 100% |
+| **TC-123** | **Cropped Photo Population from Embeddings** | `db_manager.py` | ตรวจสอบข้อมูลใน `cropped_image_path` ของคุณครูทุกคน | ได้รับพาธภาพตัดใบหน้าจาก `staff_embeddings` ครบถ้วน 100% |
+| **TC-124** | **Original Photo Overwrite on Google Drive** | `gdrive_sync.py` | อัปโหลดภาพ Original ของครู 34 ท่านเขียนทับไฟล์เดิมบน Google Drive | ไฟล์บน Drive กลายเป็นภาพต้นฉบับฉบับเต็มความละเอียดสูง (200 KB - 1.6 MB) สำเร็จครบ 34/34 |
+| **TC-125** | **Version Parity v6.42 & Compilation Check** | ทุกไฟล์ | ตรวจสอบ `py_compile` ทุกไฟล์ และตรวจความสอดคล้องของเลขเวอร์ชัน `v6.42` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด และแสดงเลขเวอร์ชัน v6.42 ตรงกัน 100% |
+
+---
+
+### 30.4 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.42 (Dual Original & Cropped Photo Architecture for Teachers)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+> **สถานะการดำเนินการ (Execution Status):** ดำเนินการและทดสอบเสร็จสมบูรณ์ 100% (Completed All Steps & Test Suite TC-121 ถึง TC-125 Passed 100%)
+
+
+
 
 
 

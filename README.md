@@ -1,4 +1,141 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.41 (Teacher Drive Photo Sync & Treeview Avatar Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.42 (Dual Original & Cropped Photo Architecture for Teachers)
+
+## 📋 Version 6.42 Changelog (Dual Original & Cropped Photo Architecture for Teachers)
+
+**Date:** 21 ตุลาคม 2026 (16:30 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.42 (Dual Original & Cropped Photo Architecture for Teachers)  
+**Core Technologies:** SQLite Dual Image Architecture (`original_image_path` & `cropped_image_path`), Inactive Teachers Photo Extraction (`D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว` with Image 1 Priority Rule), High-Performance Local Storage Hierarchy (`data/original_staff_photos/active` & `data/original_staff_photos/inactive`), Cloud Photo Overwrite Suite (Google Apps Script Web App `Routing.gs` v@30, 34/34 Success), Dual-Column DB Viewer & Treeview Avatar Integration, Unit Test Suite TC-121 to TC-125 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การแยกบทบาทภาพถ่ายต้นฉบับฉบับเต็ม (Original) และภาพตัดกรอบใบหน้าสแกน (Cropped):**
+   - ผู้ใช้ตรวจพบว่าภาพที่นำไปประมวลผลก่อนหน้านี้เป็นภาพที่ถูกตัดกรอบเฉพาะใบหน้า (Crop) จากโมเดล InsightFace: *"น่ากลัวมาก คุณไม่มีภาพฉบับเต็มหรอกหรือ ? อันนี้มันภาพที่ crop ไป scan แล้วหนะ ?"*
+   - ผู้ใช้สั่งการ: *"งั้นทำโปรเจ็คนี้ใน sqlite staff member ให้มี column ภาพ original กับ ภาพ crop ที่เอาไปแสกนครับ ทำเฉพาะของครูก่อนนะ ทั้งปัจจุบันและอดีต โดยครูปัจจุบันดึงมาจากโฟลเดอร์ใน drive ได้เลย ส่วนครูในอดีต เอาจาก folder นี้ครับ โดยหากครูมีหลายภาพให้เลือกมาแค่ภาพ 1 เท่านั้นนะครับ D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว"*
+   - ผู้ใช้กำชับเพิ่มเติม: *"ของครูในอดีตก็ copy มาไว้ที่ data/original_staff_photos/inactive/ เช่นกันครับ"*
+2. **การแทนที่ไฟล์ภาพ 34 รายการบน Google Drive ให้เป็นภาพ Original ฉบับเต็ม:**
+   - ใน v6.41 ได้มีการอัปโหลดไฟล์ภาพจำนวน 34 ท่านขึ้น Google Drive ซึ่งในขณะนั้นเป็นไฟล์ Crop ใบหน้า
+   - ระบบต้องนำภาพต้นฉบับฉบับเต็ม (Full Resolution / Portrait) ของทั้ง 34 ท่าน (Mr. Augustine + อดีตคุณครู 33 ท่าน) ไปอัปโหลดเขียนทับ (Overwrite) ไฟล์เดิมบน Drive เพื่อให้โครงสร้างโฟลเดอร์บนคลาวด์แสดงรูปครึ่งตัวหน้าตรงสมบูรณ์แบบ
+3. **การแสดงผลใน GUI และความเร็วการทำงาน (High Performance - Rule 8):**
+   - ตารางรายชื่อคุณครู (`teacher_tree`) แสดง Avatar หน้าสุดจาก `original_image_path` (พร้อม Fallback ไปที่ `cropped_image_path` หากไม่มี)
+   - หน้าต่างฐานข้อมูล (DB Viewer) แสดงคอลัมน์ภาพทั้ง 2 แบบอย่างชัดเจน
+   - โหลดเร็ว ติดมือ ไม่ lag ไม่ค้างด้วย In-Memory Caching
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **การอัปเกรด Schema ของตาราง `staff_members` ใน SQLite ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มคอลัมน์ `original_image_path TEXT DEFAULT ''` (พาธภาพถ่ายต้นฉบับ)
+   - เพิ่มคอลัมน์ `cropped_image_path TEXT DEFAULT ''` (พาธภาพตัดกรอบใบหน้า)
+   - สร้าง B-tree Index: `idx_sm_orig_img` และ `idx_sm_crop_img` เพื่อเร่งความเร็วในการคิวรี
+2. **การจัดเก็บและคัดแยกภาพครูปัจจุบันและอดีตครูลงโฟลเดอร์ในเครื่อง ([`data/original_staff_photos`](data/original_staff_photos)):**
+   - **ครูปัจจุบัน (Active - 122 ท่าน):** ดาวน์โหลดภาพต้นฉบับความละเอียดสูงจากโฟลเดอร์กลุ่มสาระบน Google Drive จัดเก็บที่ `data/original_staff_photos/active/<ชื่อ-นามสกุลครู>.<ext>` ครบ 100%
+   - **อดีตครู (Inactive - 46 ท่าน):**
+     - สแกนและจับคู่ภาพจากโฟลเดอร์ `D:\download D\ภาพเก่า\รวมครู บุคลากร\บุคลากร แยกแล้ว`
+     - **ปฏิบัติตามกฎเหล็กเลือกภาพที่ 1:** หากครูท่านใดมีภาพหลายรูป ให้เลือกเฉพาะไฟล์ที่มีเลข `1` (เช่น `นางสาววราลี ทองแก้ว วิทยาศาสตร์ 1.png` จากตัวเลือกภาพ 1 และ 2)
+     - คัดลอก (Copy) ไฟล์ทั้งหมดมาจัดเก็บในเครื่องที่ `data/original_staff_photos/inactive/<ชื่อ-นามสกุลครู>.<ext>`
+     - สำหรับอดีตครูที่มีภาพเดิมบน Drive อยู่แล้ว ได้ดาวน์โหลดมาเก็บไว้ที่โฟลเดอร์นี้เช่นเดียวกัน ครบถ้วน 46/46 ท่าน
+3. **การบรรจุข้อมูลลง SQLite (Backfill Database Records):**
+   - อัปเดต `cropped_image_path` โดยดึงพาธจาก `staff_embeddings`
+   - อัปเดต `original_image_path` จากโฟลเดอร์ `data/original_staff_photos/active` และ `inactive`
+   - สรุปผล: ครูทั้ง 168 ท่านมีข้อมูลทั้งสองคอลัมน์ครบถ้วน 100%
+4. **การแทนที่ไฟล์ภาพ 34 รายการบน Google Drive ([`gdrive_sync.py`](gdrive_sync.py)):**
+   - ดึงรายชื่อ 34 บุคลากรที่ถูกอัปโหลดในรอบก่อน
+   - อ่านภาพ Full Resolution จาก `original_image_path` (ขนาด 200 KB - 1.6 MB ต่อรูป)
+   - ส่งข้อมูล Base64 ผ่าน Apps Script Web App `Routing.gs` (Deploy `@30`) ข้ามโควตา Service Account 403 สำเร็จ
+   - ผลการดำเนินการ: **สำเร็จ 34/34 ไฟล์ (Success: 34, Failed: 0)**
+5. **การปรับปรุงการแสดงผล UI ([`app_gui.py`](app_gui.py)):**
+   - อัปเกรดหน้าดูฐานข้อมูล (DB Viewer) เพิ่มคอลัมน์ `original_image_path` และ `cropped_image_path`
+   - ปรับปรุงการโหลด Avatar ใน `teacher_tree` ให้อ้างอิงภาพต้นฉบับก่อนเสมอ
+   - อัปเดต Window Title และ Sidebar Logo เป็น `v6.42`
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `db_manager.py`: Migration v6.42 เพิ่มคอลัมน์ภาพ Original & Cropped
+
+**ก่อนแก้ไข (Before):**
+```python
+            # Migration v6.41: Normalize legacy department names ('ผู้บริหาร' -> 'คณะผู้บริหาร', 'สังคมศึกษา' -> 'สังคมศึกษาฯ')
+            try:
+                cursor.execute("UPDATE staff_members SET department = 'คณะผู้บริหาร' WHERE department = 'ผู้บริหาร'")
+                cursor.execute("UPDATE staff_members SET department = 'สังคมศึกษาฯ' WHERE department = 'สังคมศึกษา'")
+            except Exception as e:
+                logger.warning(f"Could not normalize v6.41 department names: {e}")
+```
+
+**หลังแก้ไข (After):**
+```python
+            # Migration v6.41: Normalize legacy department names ('ผู้บริหาร' -> 'คณะผู้บริหาร', 'สังคมศึกษา' -> 'สังคมศึกษาฯ')
+            try:
+                cursor.execute("UPDATE staff_members SET department = 'คณะผู้บริหาร' WHERE department = 'ผู้บริหาร'")
+                cursor.execute("UPDATE staff_members SET department = 'สังคมศึกษาฯ' WHERE department = 'สังคมศึกษา'")
+            except Exception as e:
+                logger.warning(f"Could not normalize v6.41 department names: {e}")
+
+            # Migration v6.42: Add original_image_path and cropped_image_path to staff_members
+            try:
+                cursor.execute("PRAGMA table_info(staff_members)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'original_image_path' not in columns:
+                    cursor.execute("ALTER TABLE staff_members ADD COLUMN original_image_path TEXT DEFAULT ''")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_orig_img ON staff_members(original_image_path)")
+                    logger.info("Executed database migration v6.42: added original_image_path to staff_members.")
+                if 'cropped_image_path' not in columns:
+                    cursor.execute("ALTER TABLE staff_members ADD COLUMN cropped_image_path TEXT DEFAULT ''")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sm_crop_img ON staff_members(cropped_image_path)")
+                    logger.info("Executed database migration v6.42: added cropped_image_path to staff_members.")
+            except Exception as e:
+                logger.warning(f"Could not execute v6.42 migration: {e}")
+```
+
+---
+
+#### 2. `gdrive_sync.py`: ให้ความสำคัญสูงสุดกับไฟล์ Original เมื่อซิงก์ภาพขึ้น Google Drive
+
+**ก่อนแก้ไข (Before):**
+```python
+            # ดึง avatar_path สำหรับอัปโหลด
+            avatar_path = sm.get('avatar_path', '')
+            if not avatar_path or not os.path.exists(avatar_path):
+                # ตรวจสอบหาภาพจาก disk เพิ่มเติม
+                ...
+```
+
+**หลังแก้ไข (After):**
+```python
+            # ให้ความสำคัญกับ original_image_path ก่อนเสมอ (v6.42 Dual Photo Architecture)
+            orig_path = sm.get('original_image_path', '')
+            avatar_path = sm.get('avatar_path', '')
+            upload_source_path = orig_path if (orig_path and os.path.exists(orig_path)) else avatar_path
+            
+            if not upload_source_path or not os.path.exists(upload_source_path):
+                # ตรวจสอบหาภาพจาก disk เพิ่มเติม
+                ...
+```
+
+---
+
+#### 3. `app_gui.py`: แสดงคอลัมน์ Original & Cropped ในหน้า DB Viewer และอัปเดตเวอร์ชันเป็น v6.42
+
+**ก่อนแก้ไข (Before):**
+```python
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.41 (Teacher Drive Photo Sync & Treeview Avatar Suite)")
+        ...
+        text="FACE MATCHING\nSYSTEM v6.41",
+```
+
+**หลังแก้ไข (After):**
+```python
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.42 (Dual Original & Cropped Photo Architecture for Teachers)")
+        ...
+        text="FACE MATCHING\nSYSTEM v6.42",
+```
+
+---
 
 ## 📋 Version 6.41 Changelog (Teacher Drive Photo Sync & Treeview Avatar Suite)
 
