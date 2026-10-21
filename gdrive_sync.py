@@ -8,8 +8,9 @@ import ssl
 import httplib2
 from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import service_account
+import mimetypes
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload
 from googleapiclient.errors import HttpError, ResumableUploadError
 import gspread
 
@@ -865,4 +866,322 @@ class GoogleSyncManager:
         except Exception as e:
             logger.error(f"Error listing spreadsheets with folders: {e}")
             return {"sheets": [], "folders": []}
+
+    def sync_staff_reference_photos_to_drive(self, staff_list=None, root_folder_id="1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI", progress_callback=None):
+        """
+        ซิงก์รูปภาพอ้างอิงใบหน้าบุคลากรจาก SQLite ขึ้น Google Drive (v6.41)
+        - โฟลเดอร์เป้าหมายหลัก: root_folder_id (บุคลากรโรงเรียน)
+        - บุคลากรปัจจุบัน (Active): เข้าโฟลเดอร์กลุ่มสาระใต้ Root
+        - อดีตบุคลากร (Inactive): เข้าโฟลเดอร์กลุ่มสาระย่อยใต้ 'อดีตบุคลากร'
+        - หากมีไฟล์อยู่แล้วในกลุ่มสาระและสถานะที่ถูกต้อง -> ข้าม (Skip)
+        - หากตรวจพบว่าไฟล์อยู่ผิดกลุ่มสาระ หรือสถานะเปลี่ยนไป -> ย้ายไฟล์ (addParents/removeParents) และเปลี่ยนชื่อให้ตรง
+        - หากยังไม่มีไฟล์บน Drive -> อัปโหลดไฟล์จากเครื่องขึ้นไป
+        - รองรับ In-Memory Caching และ Batch Queries ให้ทำงานได้เร็วที่สุด ไม่สะดุด
+        """
+        if not self.connected or not self.drive_service:
+            if not self.connect():
+                return {
+                    "success": False,
+                    "error": "ไม่สามารถเชื่อมต่อ Google Drive API ได้ (กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือ service account)",
+                    "total_staff": 0,
+                    "skipped_count": 0,
+                    "uploaded_count": 0,
+                    "relocated_count": 0,
+                    "failed_count": 0,
+                    "skipped": [],
+                    "uploaded": [],
+                    "relocated": [],
+                    "failed": []
+                }
+
+        from db_manager import clean_department_name
+        import re
+
+        def normalize_teacher_name(n):
+            if not n:
+                return ""
+            n = os.path.splitext(str(n))[0]
+            for pre in ["ว่าที่ร้อยตรีหญิง", "ว่าที่ร้อยตรี", "ว่าที่ ร.ต.หญิง", "ว่าที่ ร.ต.", 
+                        "นางสาว", "น.ส.", "นาย", "นาง", "ดร.", "คุณครู", "ครู", "อาจารย์", "อ.", 
+                        "Mr.", "Mrs.", "Ms.", "Miss"]:
+                if n.startswith(pre):
+                    n = n[len(pre):]
+                    break
+            return re.sub(r'[\s\.\-_]+', '', n).lower()
+
+        if staff_list is None:
+            from db_manager import DatabaseManager
+            db = DatabaseManager()
+            staff_list = db.get_all_teachers()
+
+        report = {
+            "success": True,
+            "total_staff": len(staff_list),
+            "skipped_count": 0,
+            "uploaded_count": 0,
+            "relocated_count": 0,
+            "failed_count": 0,
+            "skipped": [],
+            "uploaded": [],
+            "relocated": [],
+            "failed": []
+        }
+
+        if progress_callback:
+            progress_callback(0, len(staff_list), "กำลังสำรวจโครงสร้างโฟลเดอร์บน Google Drive...")
+
+        # 1. สำรวจ Root Folders
+        root_query = f"'{root_folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        root_res = self._execute_with_retry(lambda: self.drive_service.files().list(
+            q=root_query, fields="files(id, name)", pageSize=100
+        ).execute())
+        root_folders = root_res.get("files", []) if root_res else []
+
+        former_root_id = None
+        active_dept_folders = {}
+        for f in root_folders:
+            fname = clean_department_name(f['name'])
+            if f['name'] == 'อดีตบุคลากร' or fname == 'อดีตบุคลากร':
+                former_root_id = f['id']
+            else:
+                active_dept_folders[fname] = f['id']
+
+        if not former_root_id:
+            create_former_body = {
+                'name': 'อดีตบุคลากร',
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [root_folder_id]
+            }
+            former_created = self._execute_with_retry(lambda: self.drive_service.files().create(
+                body=create_former_body, fields='id, name'
+            ).execute())
+            former_root_id = former_created.get('id')
+            logger.info(f"Created 'อดีตบุคลากร' folder on Drive: {former_root_id}")
+
+        # 2. สำรวจโฟลเดอร์ย่อยใน อดีตบุคลากร
+        former_query = f"'{former_root_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        former_res = self._execute_with_retry(lambda: self.drive_service.files().list(
+            q=former_query, fields="files(id, name)", pageSize=100
+        ).execute())
+        former_subfolders = former_res.get("files", []) if former_res else []
+        former_dept_folders = {}
+        for f in former_subfolders:
+            fname = clean_department_name(f['name'])
+            former_dept_folders[fname] = f['id']
+
+        def get_or_create_target_folder(dept_name, is_former):
+            dept_clean = clean_department_name(dept_name) or "อื่นๆ"
+            target_map = former_dept_folders if is_former else active_dept_folders
+            target_parent_id = former_root_id if is_former else root_folder_id
+
+            if dept_clean in target_map:
+                return target_map[dept_clean]
+
+            folder_body = {
+                'name': dept_clean,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [target_parent_id]
+            }
+            created_folder = self._execute_with_retry(lambda: self.drive_service.files().create(
+                body=folder_body, fields='id, name'
+            ).execute())
+            new_fid = created_folder.get('id')
+            target_map[dept_clean] = new_fid
+            logger.info(f"Created department folder on Drive: {dept_clean} (ID: {new_fid}, is_former={is_former})")
+            return new_fid
+
+        # 3. สร้างแคตตาล็อกไฟล์เดิมทั้งหมดบน Drive แบบ In-Memory Catalog
+        if progress_callback:
+            progress_callback(0, len(staff_list), "กำลังสร้างดัชนีรูปภาพบุคลากรทั้งหมดบน Drive...")
+
+        all_monitored_folders = []
+        for dname, fid in active_dept_folders.items():
+            all_monitored_folders.append((fid, dname, False))
+        for dname, fid in former_dept_folders.items():
+            all_monitored_folders.append((fid, dname, True))
+
+        drive_catalog = {}
+        for fid, dname, is_f in all_monitored_folders:
+            q_files = f"'{fid}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+            files_res = self._execute_with_retry(lambda: self.drive_service.files().list(
+                q=q_files, fields="files(id, name, mimeType)", pageSize=200
+            ).execute())
+            for fl in (files_res.get('files', []) if files_res else []):
+                cleaned_key = normalize_teacher_name(fl['name'])
+                if cleaned_key:
+                    drive_catalog[cleaned_key] = {
+                        'file_id': fl['id'],
+                        'file_name': fl['name'],
+                        'parent_id': fid,
+                        'dept_name': dname,
+                        'is_former': is_f
+                    }
+
+        logger.info(f"[GDRIVE_SYNC] Indexed {len(drive_catalog)} existing teacher files on Google Drive.")
+
+        # 4. ประมวลผลบุคลากรทีละราย
+        for idx, teacher in enumerate(staff_list):
+            s_id = teacher.get('id')
+            s_name = str(teacher.get('name', '')).strip()
+            s_dept = clean_department_name(teacher.get('department') or 'อื่นๆ')
+            s_status = str(teacher.get('status', 'active')).lower()
+            is_former = (s_status == 'inactive')
+            avatar_path = teacher.get('avatar_path', '')
+
+            if progress_callback:
+                progress_callback(idx + 1, len(staff_list), f"กำลังประมวลผล: {s_name} ({idx + 1}/{len(staff_list)})")
+
+            target_folder_id = get_or_create_target_folder(s_dept, is_former)
+            norm_name = normalize_teacher_name(s_name)
+
+            if norm_name in drive_catalog:
+                matched_item = drive_catalog[norm_name]
+                file_id = matched_item['file_id']
+                current_parent_id = matched_item['parent_id']
+
+                if current_parent_id == target_folder_id:
+                    # ตรงทั้งสถานะและกลุ่มสาระ -> ข้าม (Skip)
+                    report['skipped'].append({
+                        'id': s_id,
+                        'name': s_name,
+                        'department': s_dept,
+                        'status': s_status,
+                        'file_name': matched_item['file_name']
+                    })
+                else:
+                    # อยู่ผิดกลุ่มสาระ หรือสถานะเปลี่ยนไป -> ย้ายไฟล์ (addParents/removeParents)
+                    old_dept_name = matched_item['dept_name']
+                    old_is_former = matched_item['is_former']
+                    try:
+                        self._execute_with_retry(lambda: self.drive_service.files().update(
+                            fileId=file_id,
+                            addParents=target_folder_id,
+                            removeParents=current_parent_id,
+                            fields='id, parents'
+                        ).execute())
+
+                        ext = os.path.splitext(matched_item['file_name'])[1] or '.png'
+                        expected_file_name = f"{s_name}{ext}"
+                        if matched_item['file_name'] != expected_file_name:
+                            self._execute_with_retry(lambda: self.drive_service.files().update(
+                                fileId=file_id,
+                                body={'name': expected_file_name},
+                                fields='id, name'
+                            ).execute())
+                            matched_item['file_name'] = expected_file_name
+
+                        matched_item['parent_id'] = target_folder_id
+                        matched_item['dept_name'] = s_dept
+                        matched_item['is_former'] = is_former
+
+                        report['relocated'].append({
+                            'id': s_id,
+                            'name': s_name,
+                            'from_dept': old_dept_name,
+                            'to_dept': s_dept,
+                            'from_status': 'inactive' if old_is_former else 'active',
+                            'to_status': s_status,
+                            'file_name': matched_item['file_name'],
+                            'file_id': file_id
+                        })
+                        logger.info(f"[GDRIVE_SYNC] Relocated '{s_name}' from '{old_dept_name}' to '{s_dept}' (ID: {file_id})")
+                    except Exception as move_err:
+                        logger.error(f"[GDRIVE_SYNC] Failed to relocate '{s_name}': {move_err}")
+                        report['failed'].append({
+                            'id': s_id,
+                            'name': s_name,
+                            'department': s_dept,
+                            'reason': f"ย้ายไฟล์ไม่สำเร็จ: {move_err}"
+                        })
+            else:
+                # ยังไม่มีไฟล์บน Drive -> อัปโหลดไฟล์จากเครื่อง
+                if not avatar_path or not os.path.exists(avatar_path):
+                    report['failed'].append({
+                        'id': s_id,
+                        'name': s_name,
+                        'department': s_dept,
+                        'reason': f"ไม่พบไฟล์รูปภาพในเครื่อง ({avatar_path})"
+                    })
+                    continue
+
+                try:
+                    ext = os.path.splitext(avatar_path)[1] or '.jpg'
+                    upload_file_name = f"{s_name}{ext}"
+                    mime_type, _ = mimetypes.guess_type(avatar_path)
+                    if not mime_type:
+                        mime_type = "image/jpeg"
+
+                    new_fid = None
+                    # 1. อัปโหลดผ่าน Google Apps Script Web App (สิทธิ์ sawiphoto@sawi.ac.th เพื่อเลี่ยง 403 Service Account Quota)
+                    try:
+                        import base64
+                        import requests
+                        with open(avatar_path, 'rb') as af:
+                            b64_content = base64.b64encode(af.read()).decode('utf-8')
+                        app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
+                        payload = {
+                            'action': 'uploadFile',
+                            'secret': 'sawi_sharding_2026',
+                            'folderId': target_folder_id,
+                            'fileName': upload_file_name,
+                            'mimeType': mime_type,
+                            'base64Data': b64_content
+                        }
+                        r = requests.post(app_url, json=payload, timeout=60)
+                        if r.status_code == 200 and r.json().get('ok'):
+                            new_fid = r.json().get('fileId')
+                    except Exception as app_ex:
+                        logger.warning(f"[GDRIVE_SYNC] Web App upload fallback to Drive API: {app_ex}")
+
+                    # 2. ถ้า Web App ไม่สำเร็จ ให้ Fallback ผ่าน Drive API
+                    if not new_fid:
+                        media = MediaFileUpload(avatar_path, mimetype=mime_type, resumable=False)
+                        upload_body = {
+                            'name': upload_file_name,
+                            'parents': [target_folder_id]
+                        }
+                        uploaded_file = self._execute_with_retry(lambda: self.drive_service.files().create(
+                            body=upload_body,
+                            media_body=media,
+                            fields='id, name'
+                        ).execute())
+                        new_fid = uploaded_file.get('id') if uploaded_file else ""
+
+                    if not new_fid:
+                        raise RuntimeError("ไม่ได้รับ File ID จาก Google Drive")
+
+                    drive_catalog[norm_name] = {
+                        'file_id': new_fid,
+                        'file_name': upload_file_name,
+                        'parent_id': target_folder_id,
+                        'dept_name': s_dept,
+                        'is_former': is_former
+                    }
+
+                    report['uploaded'].append({
+                        'id': s_id,
+                        'name': s_name,
+                        'department': s_dept,
+                        'status': s_status,
+                        'file_name': upload_file_name,
+                        'file_id': new_fid
+                    })
+                    logger.info(f"[GDRIVE_SYNC] Uploaded '{s_name}' to '{s_dept}' (File ID: {new_fid})")
+                except Exception as up_err:
+                    logger.error(f"[GDRIVE_SYNC] Failed to upload '{s_name}': {up_err}")
+                    report['failed'].append({
+                        'id': s_id,
+                        'name': s_name,
+                        'department': s_dept,
+                        'reason': f"อัปโหลดไม่สำเร็จ: {up_err}"
+                    })
+
+        report['skipped_count'] = len(report['skipped'])
+        report['uploaded_count'] = len(report['uploaded'])
+        report['relocated_count'] = len(report['relocated'])
+        report['failed_count'] = len(report['failed'])
+
+        logger.info(f"[GDRIVE_SYNC] Completed personnel photo sync: {report['uploaded_count']} uploaded, "
+                    f"{report['relocated_count']} relocated, {report['skipped_count']} skipped, {report['failed_count']} failed.")
+        return report
 

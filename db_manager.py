@@ -56,10 +56,14 @@ SW_DEPARTMENTS = [
 ]
 
 def clean_department_name(dept_str: str) -> str:
-    """ตัดคำนำหน้ากลุ่มสาระฯ ออก ให้เหลือเฉพาะชื่อสังกัดสั้นกระชับ (v6.34)"""
+    """ตัดคำนำหน้ากลุ่มสาระฯ ออก ให้เหลือเฉพาะชื่อสังกัดสั้นกระชับ (v6.34) และ Normalize ชื่อสังกัดมาตรฐาน (v6.41)"""
     if not dept_str:
         return ""
     clean = re.sub(r'^(?:กลุ่มสาระฯ|กลุ่มสาระการเรียนรู้|กลุ่มสาระ)\s*', '', str(dept_str).strip())
+    if clean == "ผู้บริหาร":
+        clean = "คณะผู้บริหาร"
+    elif clean == "สังคมศึกษา":
+        clean = "สังคมศึกษาฯ"
     return clean
 
 THAI_PREFIXES = [
@@ -544,6 +548,13 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not assign default department: {e}")
 
+            # Migration v6.41: Normalize legacy department names ('ผู้บริหาร' -> 'คณะผู้บริหาร', 'สังคมศึกษา' -> 'สังคมศึกษาฯ')
+            try:
+                cursor.execute("UPDATE staff_members SET department = 'คณะผู้บริหาร' WHERE department = 'ผู้บริหาร'")
+                cursor.execute("UPDATE staff_members SET department = 'สังคมศึกษาฯ' WHERE department = 'สังคมศึกษา'")
+            except Exception as e:
+                logger.warning(f"Could not normalize v6.41 department names: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -962,12 +973,13 @@ class DatabaseManager:
             } for row in cursor.fetchall()]
 
     def get_all_teachers(self):
-        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมสังกัด และสถานะ (v6.34)"""
+        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมสังกัด สถานะ และรูปภาพอ้างอิงแรก (avatar_path) (v6.41)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count,
-                       COALESCE(s.status, 'active') as status
+                       COALESCE(s.status, 'active') as status,
+                       (SELECT image_path FROM staff_embeddings WHERE staff_id = s.id ORDER BY id ASC LIMIT 1) as avatar_path
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
                 WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
@@ -979,7 +991,8 @@ class DatabaseManager:
                 "name": row[1],
                 "department": clean_department_name(row[2]),
                 "photo_count": row[3],
-                "status": row[4]
+                "status": row[4],
+                "avatar_path": row[5] or ""
             } for row in cursor.fetchall()]
 
     def get_all_teachers_with_avatar_stats(self):
@@ -1950,7 +1963,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.40",
+                "version": "v6.41",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

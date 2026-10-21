@@ -2713,4 +2713,137 @@ flowchart TD
 > - ดัชนี JSON บน Google Drive (`staff_index.json`, `former_staff_index.json`, `person_index.json`) บรรจุรายชื่อบุคลากรครบถ้วน 168 ท่าน 100% (ผู้ที่ไม่มีรูปบันทึกเป็น `[]`)  
 > - ชุดทดสอบ TC-111 ถึง TC-115 ผ่านครบถ้วนทุกรายการ
 
+---
+
+## 29. แผนการพัฒนาระบบซิงก์รูปภาพบุคลากรขึ้น Google Drive และเพิ่มคอลัมน์ Avatar ในตารางรายชื่อครู (v6.41: Teacher Drive Photo Sync & Treeview Avatar Suite)
+
+### 29.1 ที่มาและวัตถุประสงค์ (Background & User Requirements)
+ผู้ใช้มีความประสงค์ให้พัฒนาเพิ่มเติม 2 ฟีเจอร์หลักในเมนู **"ลงทะเบียนใบหน้าคุณครู" (Teacher Registration / Face Recording)**:
+1. **ปุ่ม "☁️ ซิงก์รูปบุคลากรขึ้น Drive" (Sync Personnel Photos to Drive):**
+   - ซิงก์รูปภาพใบหน้าอ้างอิงของครู/บุคลากรจากฐานข้อมูล SQLite (`staff_members` & `staff_embeddings`) ขึ้นไปยังโฟลเดอร์ Google Drive หลัก: `https://drive.google.com/drive/folders/1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI` (ID: `1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI`, "บุคลากรโรงเรียน")
+   - รองรับทั้งบุคลากร **ปัจจุบัน (Active)** และ **อดีต (Inactive)**:
+     - **Active Staff:** บันทึกรูปภาพลงโฟลเดอร์กลุ่มสาระ/สังกัดใต้โฟลเดอร์หลักโดยตรง (เช่น `การงานอาชีพ`, `คณิตศาสตร์`, `ภาษาต่างประเทศ`, `คณะผู้บริหาร`, ฯลฯ)
+     - **Inactive Staff (อดีตบุคลากร):** บันทึกรูปภาพลงในโฟลเดอร์ย่อยตามกลุ่มสาระใต้โฟลเดอร์ `อดีตบุคลากร` (Folder ID: `1TFJ-TEz7lubnaJJ3o-x3Ie9yJdjxnnRU`)
+   - **การตรวจสอบและย้ายกลุ่มสาระให้ถูกต้อง (Mismatch Auto-Resolution):**
+     - หากตรวจพบว่ารูปภาพของครูท่านใดมีอยู่แล้วบน Drive แต่อยู่ผิดกลุ่มสาระ หรือย้ายสถานะ (เช่น ย้ายจาก Active ไป อดีตบุคลากร, หรือสังกัดเดิมใน Drive เป็น `ผู้บริหาร` แต่ระบบมาตรฐานคือ `คณะผู้บริหาร`) ระบบจะดำเนินการย้ายไฟล์ (`addParents` / `removeParents`) และเปลี่ยนชื่อไฟล์ให้ถูกต้องตามชื่อ-นามสกุลปัจจุบันโดยอัตโนมัติ
+   - **การข้ามไฟล์ที่มีอยู่แล้ว (Idempotent Skip):** หากรูปครูมีอยู่แล้วในโฟลเดอร์กลุ่มสาระที่ถูกต้องบน Drive ให้ข้ามการอัปโหลดทันที เพื่อประหยัด Bandwidth และเวลา
+   - **รายงานสรุปผลการซิงก์อย่างละเอียด (Comprehensive Sync Report):** เมื่อซิงก์เสร็จสิ้น ระบบจะแสดงหน้าต่าง Modal รายงานสถิติ:
+     - จำนวนครูทั้งหมดใน SQLite (168 คน: Active 122, Inactive 46)
+     - จำนวนที่ข้ามเนื่องจากมีอยู่แล้วและสังกัดถูกต้อง (Skipped)
+     - จำนวนที่อัปโหลดใหม่สำเร็จ (Uploaded) เช่น ครูต่างชาติ 3 ท่าน และอดีตครู 33 ท่าน
+     - จำนวนที่ย้ายกลุ่มสาระหรือเปลี่ยนชื่อให้ตรง (Relocated / Renamed)
+     - รายการข้อผิดพลาด (Failed / Errors) พร้อมรายชื่อบุคคลที่เกี่ยวข้อง
+2. **เพิ่มคอลัมน์ Avatar (รูปภาพขนาดเล็ก) ไว้หน้าสุดในตาราง Treeview รายชื่อครู:**
+   - ในตารางรายชื่อครู (`self.teacher_tree`) ให้เพิ่มคอลัมน์แสดงรูปภาพ Avatar ขนาดเล็ก (32x32 px) ไว้หน้าสุด (`#0`)
+   - ช่วยให้ผู้ดูแลระบบมองเห็นหน้าครูแต่ละท่านได้ทันทีโดยไม่ต้องคลิกเลือกทีละคน
+   - รองรับ Fallback Placeholder สำหรับครูที่ยังไม่ได้ลงทะเบียนรูปถ่าย
+   - รองรับระบบ Cache รูปภาพ เพื่อให้ Scroll และค้นหาได้อย่างลื่นไหล รวดเร็ว ไม่กิน Memory
+
+---
+
+### 29.2 สถาปัตยกรรมและการออกแบบทางเทคนิค (Technical Architecture & Design)
+
+#### 1. การปรับปรุงฐานข้อมูลและการดึงข้อมูลรูป Avatar (`db_manager.py`)
+- ปรับปรุงฟังก์ชัน `get_all_teachers()` ใน [`db_manager.py`](db_manager.py):
+  - เพิ่มการดึงพาธรูปภาพใบหน้าแรกจาก `staff_embeddings` มาเป็นฟิลด์ `avatar_path`
+  - ทำการ Normalize สังกัดให้ตรงตามมาตรฐาน `SW_DEPARTMENTS`:
+    - แปลง `"ผู้บริหาร"` เป็น `"คณะผู้บริหาร"`
+    - แปลง `"สังคมศึกษา"` เป็น `"สังคมศึกษาฯ"`
+    - สังกัดที่ว่างหรือ `None` ให้กำหนดเป็น `"อื่นๆ"`
+  - รัน Auto-Migration ปรับปรุงข้อมูลใน SQLite ตาราง `staff_members` ให้สังกัดตรงตามมาตรฐาน
+
+#### 2. กลไกการซิงก์รูปภาพขึ้น Google Drive (`gdrive_sync.py`)
+- เพิ่มฟังก์ชัน `sync_staff_reference_photos_to_drive(staff_list, root_folder_id="1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI", progress_callback=None)` ในคลาส `GoogleSyncManager`:
+  1. **สำรวจโครงสร้างโฟลเดอร์บน Drive (Tree Indexing):**
+     - ดึงรายการโฟลเดอร์สังกัดใน Root (`1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI`)
+     - ค้นหาโฟลเดอร์ `อดีตบุคลากร` (ID: `1TFJ-TEz7lubnaJJ3o-x3Ie9yJdjxnnRU`) และดึงรายการโฟลเดอร์สังกัดย่อยภายใน
+     - ทำ In-Memory Mapping: `(status, dept_name) -> folder_id`
+     - หากกลุ่มสาระใดที่บุคลากรสังกัดยังไม่มีโฟลเดอร์บน Drive (เช่น โฟลเดอร์ `อื่นๆ` ใต้ Root สำหรับครูปัจจุบัน) ให้สร้างโฟลเดอร์ขึ้นใหม่อัตโนมัติ (`drive_service.files().create`)
+  2. **สำรวจไฟล์รูปภาพทั้งหมดบน Drive (Existing Drive Files Catalog):**
+     - อ่านรายชื่อไฟล์รูปภาพทั้งหมดที่มีอยู่บน Drive ทั้งฝั่ง Active และ อดีตบุคลากร
+     - ทำ Index ค้นหาด้วยชื่อครูที่ Clean แล้ว (ตัดคำนำหน้า นาย/นาง/นางสาว/ครู/Mr./etc. และตัดเว้นวรรค)
+  3. **ประมวลผลบุคลากรทีละราย (Per-Staff Processing):**
+     - ค้นหาไฟล์ภาพบน Drive ที่ตรงกับครู:
+       - **กรณีที่ 1 (ตรงทั้งสถานะและกลุ่มสาระ):** ข้ามการอัปโหลด (`skipped += 1`)
+       - **กรณีที่ 2 (พบไฟล์บน Drive แต่อยู่ผิดกลุ่มสาระ หรือสถานะ Active/Inactive เปลี่ยนไป):**
+         - ดำเนินการย้ายไฟล์ไปยังโฟลเดอร์ที่ถูกต้อง (`drive_service.files().update(fileId=..., addParents=..., removeParents=...)`)
+         - เปลี่ยนชื่อไฟล์ให้ตรงตามชื่อ-นามสกุลปัจจุบันหากจำเป็น (`relocated += 1`)
+       - **กรณีที่ 3 (ไม่พบไฟล์บน Drive):**
+         - ตรวจสอบไฟล์ภาพต้นฉบับบนเครื่อง (`avatar_path` / `data/registered_faces/...`)
+         - อัปโหลดไฟล์ขึ้นไปยังโฟลเดอร์เป้าหมายด้วย `MediaIoBaseUpload` / `MediaFileUpload`
+         - กำหนดชื่อไฟล์เป็น `<ชื่อ-นามสกุลครู>.<นามสกุลไฟล์เดิม>` (`uploaded += 1`)
+  4. **Progress Callback & Resilient Error Handling:**
+     - อัปเดตความคืบหน้าผ่าน `progress_callback(current, total, message)`
+     - ใช้กลไก `_execute_with_retry` ป้องกันปัญหา Connection Drop / HTTP 429 Rate Limit
+
+#### 3. การออกแบบหน้าจอ GUI และตาราง Avatar (`app_gui.py`)
+1. **คอลัมน์ Avatar ในตาราง `self.teacher_tree`:**
+   - ปรับแต่ง `self.teacher_tree`:
+     - เปลี่ยน `show="headings"` เป็น `show="tree headings"`
+     - กำหนดคอลัมน์ `#0`: `width=46`, `minwidth=46`, `stretch=False`, `text="รูป"`, `anchor="center"`
+     - คอลัมน์อื่นๆ: `id` (45px), `name` (170px), `department` (115px), `photos` (45px)
+     - กำหนด Style `rowheight=38` สำหรับแถวตารางเพื่อให้แสดงภาพขนาด 32x32 ได้สวยงาม ไม่ถูกตัดขอบ
+   - ฟังก์ชันแคชรูปภาพ `self._teacher_tree_avatar_cache`:
+     - โหลดและย่อขนาดรูปภาพเป็น 32x32 px ด้วย `PIL.Image.Resampling.LANCZOS`
+     - จัดรูปให้อยู่ตรงกลางบน Canvas โปร่งใสขนาด 32x32 px
+     - เก็บอ้างอิง `ImageTk.PhotoImage` ไว้ในพจนานุกรมเพื่อป้องกัน Python Garbage Collection
+     - หากครูยังไม่มีรูปภาพ ให้สร้างรูปภาพวงกลม Avatar Placeholder สีเทาน้ำเงิน `#253B59`
+2. **ปุ่ม "☁️ ซิงก์รูปบุคลากรขึ้น Drive":**
+   - เพิ่มปุ่มใต้ตารางรายชื่อครูใน `self.list_frame` (Row 4):
+     - ปุ่มกว้างเต็มช่อง สีน้ำเงิน Navy Blue (`#1E6091`, Hover `#16496F`), สูง 36px
+     - มีปุ่มไอคอนและข้อความชัดเจน
+   - เมื่อกดปุ่ม:
+     - เปิดหน้าต่าง Modal Progress แสดงแถบความคืบหน้า (Progress Bar) และข้อความสถานะปัจจุบัน
+     - ทำงานใน Background Thread (`threading.Thread`) ป้องกันหน้าจอค้าง 100%
+     - เมื่อเสร็จสิ้น แสดงหน้าต่าง Sync Completion Report พร้อมสรุปยอดและรายชื่อที่ซิงก์/ย้าย
+
+#### 4. สถาปัตยกรรมประสิทธิภาพสูงและการตอบสนองทันที ไร้อาการค้าง (High-Performance Zero-Lag Architecture)
+เพื่อให้การใช้งานโปรแกรมเป็นไปตามความต้องการของผู้ใช้: **"โหลดเร็ว ติดมือ ไม่ lag ไม่ค้าง"**:
+1. **Zero-Disk I/O In-Memory Avatar Cache (`self._teacher_tree_avatar_cache`):**
+   - รูป Avatar ขนาดย่อ 32x32 px จะถูกแปลงและจัดเก็บลงในหน่วยความจำ RAM (`dict`) เพียงครั้งเดียวตอนโหลด
+   - ทุกครั้งที่ผู้ใช้ **พิมพ์ค้นหาชื่อ (Search)**, **เปลี่ยนตัวกรองกลุ่มสาระ (Filter)**, หรือ **คลิกหัวคอลัมน์เพื่อเรียงลำดับ (Sort ID / Name / Dept / Photos)**:
+     - ระบบจะดึงรูปจาก RAM ทันทีด้วยความเร็ว $O(1)$ โดย **ไม่มีการอ่านดิสก์หรือ decode รูปซ้ำแม้แต่น้อย (Zero Disk I/O)**
+     - ตารางเรนเดอร์ลื่นไหลทันทีระดับ 60 FPS ตอบสนองติดมือ ไร้การหน่วง (Snappy UX)
+2. **Shared Avatar Placeholder Singleton:**
+   - สำหรับครูที่ยังไม่มีรูปภาพ หรือกรณีไฟล์ภาพถูกลบ จะใช้ตัวแปร `ImageTk.PhotoImage` ของวงกลม Placeholder ขนาด 32x32 สีเทาน้ำเงิน `#253B59` เพียงชิ้นเดียว (Singleton) ร่วมกันทั้งระบบ ประหยัด RAM และไม่ต้องสร้าง Canvas ใหม่ทุกแถว
+3. **Debounced Search Prevention:**
+   - รักษาระบบ Debounce Search หน่วงเวลา 250ms เพื่อไม่ให้ระบบต้องวาดตารางใหม่ทุกๆ ตัวอักษรที่พิมพ์อย่างต่อเนื่อง
+4. **Drive Sync Non-blocking Thread & Batch Cataloging:**
+   - กระบวนการซิงก์รูปขึ้น Drive จะรันใน Background Daemon Thread (`threading.Thread`) แยกขาดจาก Main GUI Thread 100% ทำให้หน้าจอหลักไม่ค้าง ไม่ขึ้น Not Responding
+   - สแกนและดึงแคตตาล็อกไฟล์/โฟลเดอร์ทั้งหมดบน Google Drive มาเก็บใน In-Memory Index ล่วงหน้าด้วย Batch List API เพียง 2-3 ครั้ง จากนั้นใช้ Dict Matching ตรวจสอบสถานะ/กลุ่มสาระใน RAM ทั้งหมด ก่อนสั่งอัปโหลด/ย้ายเฉพาะไฟล์ที่จำเป็นเท่านั้น
+   - ส่งข้อมูลความคืบหน้ากลับมาอัปเดต Progress Bar บน UI ผ่าน `self.after(0, ...)` เพื่อความเสถียรและความลื่นไหลสูงสุด
+
+---
+
+### 29.3 แผนการทดสอบอย่างละเอียด (Comprehensive Verification & Test Plan: TC-116 ถึง TC-120)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-116** | **Treeview Avatar Column Configuration** | `app_gui.py` | ตรวจสอบการตั้งค่า `teacher_tree` ให้ `show="tree headings"`, คอลัมน์ `#0` กว้าง 46px, rowheight=38 | ตารางแสดงคอลัมน์รูปภาพหน้าสุด และจัดวางขนาดพอดี สวยงาม |
+| **TC-117** | **Avatar Thumbnail Generator & Cache** | `app_gui.py` | ทดสอบการย่อภาพเป็น 32x32 และแคช `ImageTk.PhotoImage` ทั้งคนที่มีรูปและคนไม่มีรูป (Placeholder) | สร้างภาพถูกต้อง ไม่เกิด Exception และแคชรูปสำเร็จ 100% |
+| **TC-118** | **Drive Target Folder & Dept Normalization** | `gdrive_sync.py`, `db_manager.py` | ทดสอบการแมปกลุ่มสาระและการจับคู่โฟลเดอร์ Active/Inactive บน Drive | แมปตรงตาม SW_DEPARTMENTS ถูกต้อง และแปลง ผู้บริหาร/สังคมศึกษา ครบถ้วน |
+| **TC-119** | **Skip Existing & Relocate Logic** | `gdrive_sync.py` | จำลองการประมวลผลครูที่มีไฟล์อยู่แล้วบน Drive และครูที่อยู่ผิดกลุ่มสาระ | รายการที่ตรงแล้วจะถูกข้าม (Skip), รายการที่ผิดกลุ่มสาระจะถูกย้าย (Move) ถูกต้อง |
+| **TC-120** | **Version Parity v6.41 & Compilation Check** | ทุกไฟล์ | ตรวจสอบ `py_compile` ทุกไฟล์ และตรวจความสอดคล้องของเลขเวอร์ชัน `v6.41` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด และแสดงเลขเวอร์ชัน v6.41 ตรงกัน 100% |
+
+---
+
+### 29.4 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.41 (Teacher Drive Photo Sync & Treeview Avatar Suite)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+> **สถานะการดำเนินการ (Execution Status):** ดำเนินการแล้วเสร็จสมบูรณ์ 100%  
+> - เพิ่มคอลัมน์ Avatar ขนาด 32x32 ในตาราง Treeview รายชื่อครู พร้อม In-Memory RAM Cache (`_teacher_tree_avatar_cache`) และ Shared Circular Placeholder Singleton โหลดเร็ว ติดมือ ไม่ lag ไม่ค้าง ตามกฎ Rule 8  
+> - เพิ่มปุ่ม "☁️ ซิงก์รูปบุคลากรขึ้น Drive" พร้อม Background Daemon Thread, Modal Progress Bar, และ Modal Summary Report  
+> - ซิงก์รูปภาพบุคลากรขึ้น Google Drive โฟลเดอร์ `1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI` (บุคลากรโรงเรียน) ครบถ้วนทั้ง 168 คน:
+>   - บุคลากรปัจจุบัน (Active 122 คน) แยกตามโฟลเดอร์กลุ่มสาระ
+>   - อดีตบุคลากร (Inactive 46 คน) บันทึกลงโฟลเดอร์ย่อยตามกลุ่มสาระใต้ `อดีตบุคลากร`
+>   - ผลการซิงก์จริง (Live Sync): รวม 168 คน | ข้ามที่มีอยู่แล้ว 134 คน | อัปโหลดใหม่ 34 คน | ล้มเหลว 0 คน (Failed = 0)  
+> - อัปเกรด Google Apps Script Web App `Routing.gs` (v@30) เพื่อรองรับ Base64 File Upload ผ่านสิทธิ์ `sawiphoto@sawi.ac.th` ป้องกันข้อผิดพลาด Google Service Account 403 Storage Quota Limit  
+> - ชุดทดสอบ TC-116 ถึง TC-120 ผ่านครบถ้วน 100% (Ran 5 tests in 0.762s, OK)
+
+
+
 

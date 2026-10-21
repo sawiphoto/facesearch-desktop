@@ -9,7 +9,7 @@ import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw, ImageTk
 import numpy as np
 import cv2
 import webbrowser
@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.40 (Full Member Inclusion & Department Fallback Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.41 (Teacher Drive Photo Sync & Treeview Avatar Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.40",
+            text="FACE MATCHING\nSYSTEM v6.41",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1646,28 +1646,46 @@ class FaceSearchApp(ctk.CTk):
         tree_container.grid_rowconfigure(0, weight=1)
         tree_container.grid_columnconfigure(0, weight=1)
 
+        # กำหนด Style ให้แถวสูง 38px เพื่อให้แสดงภาพ Avatar 32x32 ได้สวยงาม ไม่ถูกตัดขอบ (v6.41)
+        tree_style = ttk.Style()
+        tree_style.configure("Treeview", rowheight=38)
+
         cols = ("id", "name", "department", "photos")
-        self.teacher_tree = ttk.Treeview(tree_container, columns=cols, show="headings", selectmode="browse")
+        self.teacher_tree = ttk.Treeview(tree_container, columns=cols, show="tree headings", selectmode="browse")
         self.teacher_tree.grid(row=0, column=0, sticky="nsew")
 
         self.teacher_sort_col = "id"
         self.teacher_sort_desc = False
 
-        self.teacher_tree.column("id", width=55, anchor="center")
-        self.teacher_tree.column("name", width=175, anchor="w")
-        self.teacher_tree.column("department", width=130, anchor="w")
-        self.teacher_tree.column("photos", width=55, anchor="center")
+        self.teacher_tree.column("#0", width=46, minwidth=46, stretch=False, anchor="center")
+        self.teacher_tree.column("id", width=45, minwidth=40, anchor="center")
+        self.teacher_tree.column("name", width=170, minwidth=140, anchor="w")
+        self.teacher_tree.column("department", width=115, minwidth=90, anchor="w")
+        self.teacher_tree.column("photos", width=45, minwidth=40, anchor="center")
 
+        self.teacher_tree.heading("#0", text="รูป", anchor="center")
         self.teacher_tree.heading("id", text="ID ▲", command=lambda: self.sort_teacher_table("id"))
         self.teacher_tree.heading("name", text="ชื่อ-นามสกุล", command=lambda: self.sort_teacher_table("name"))
         self.teacher_tree.heading("department", text="สังกัด", command=lambda: self.sort_teacher_table("department"))
-        self.teacher_tree.heading("photos", text="รูป", command=lambda: self.sort_teacher_table("photos"))
+        self.teacher_tree.heading("photos", text="ภาพ", command=lambda: self.sort_teacher_table("photos"))
 
         teacher_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=self.teacher_tree.yview)
         teacher_scrollbar.grid(row=0, column=1, sticky="ns")
         self.teacher_tree.configure(yscrollcommand=teacher_scrollbar.set)
 
         self.teacher_tree.bind("<<TreeviewSelect>>", self.on_teacher_tree_select)
+
+        # ปุ่มซิงก์รูปภาพบุคลากรขึ้น Google Drive (v6.41)
+        self.btn_sync_staff_drive = ctk.CTkButton(
+            self.list_frame,
+            text="☁️ ซิงก์รูปบุคลากรขึ้น Drive",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#1E6091",
+            hover_color="#16496F",
+            height=36,
+            command=self.start_sync_staff_photos_to_drive
+        )
+        self.btn_sync_staff_drive.grid(row=4, column=0, padx=10, pady=(0, 10), sticky="ew")
         
         self.selected_staff_id = None
         self.selected_staff_name = None
@@ -3150,8 +3168,51 @@ class FaceSearchApp(ctk.CTk):
             self.entry_staff_department.delete(0, "end")
             self.entry_staff_department.insert(0, val)
 
+    def _get_teacher_avatar_photo(self, staff_id, avatar_path):
+        """
+        สร้างหรือดึงรูป Avatar 32x32 px จาก In-Memory Cache (v6.41)
+        - Zero Disk I/O: ดึงจาก RAM ทันที O(1) ขณะพิมพ์ค้นหา กรองสังกัด หรือเรียงลำดับตาราง
+        - ใช้ Shared Placeholder รูปวงกลมสำหรับคนที่ยังไม่มีรูปภาพ ประหยัด RAM
+        """
+        if not hasattr(self, '_teacher_tree_avatar_cache'):
+            self._teacher_tree_avatar_cache = {}
+        if not hasattr(self, '_shared_avatar_placeholder'):
+            self._shared_avatar_placeholder = None
+
+        cache_key = (staff_id, avatar_path)
+        if cache_key in self._teacher_tree_avatar_cache:
+            return self._teacher_tree_avatar_cache[cache_key]
+
+        if not avatar_path or not os.path.exists(avatar_path):
+            if self._shared_avatar_placeholder is None:
+                ph_img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+                draw = ImageDraw.Draw(ph_img)
+                draw.ellipse([1, 1, 30, 30], fill="#20334F", outline="#3E5C76", width=1)
+                draw.ellipse([11, 6, 20, 15], fill="#6CA6CD")
+                draw.chord([6, 17, 25, 34], start=180, end=360, fill="#6CA6CD")
+                self._shared_avatar_placeholder = ImageTk.PhotoImage(ph_img)
+            self._teacher_tree_avatar_cache[cache_key] = self._shared_avatar_placeholder
+            return self._shared_avatar_placeholder
+
+        try:
+            with Image.open(avatar_path) as pil_img:
+                pil_img = pil_img.convert("RGBA")
+                pil_img.thumbnail((32, 32), Image.Resampling.LANCZOS)
+                canvas = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+                offset_x = (32 - pil_img.width) // 2
+                offset_y = (32 - pil_img.height) // 2
+                canvas.paste(pil_img, (offset_x, offset_y))
+                photo = ImageTk.PhotoImage(canvas)
+                self._teacher_tree_avatar_cache[cache_key] = photo
+                return photo
+        except Exception as e:
+            logger.warning(f"Failed to generate avatar thumbnail for staff {staff_id}: {e}")
+            if self._shared_avatar_placeholder is not None:
+                return self._shared_avatar_placeholder
+            return ""
+
     def load_staff_list(self, refresh_db=True):
-        """โหลดรายชื่อคุณครู แสดงผลในตาราง Treeview พร้อมรองรับการเรียงลำดับและตัวกรองสังกัด (v6.34)"""
+        """โหลดรายชื่อคุณครู แสดงผลในตาราง Treeview พร้อม Avatar, การเรียงลำดับ และตัวกรองสังกัด (v6.41)"""
         if hasattr(self, 'teacher_tree'):
             self.teacher_tree.delete(*self.teacher_tree.get_children())
             
@@ -3201,7 +3262,8 @@ class FaceSearchApp(ctk.CTk):
                 "name": sname,
                 "department": dep,
                 "photo_count": s.get('photo_count', 0),
-                "status": s.get('status', 'active')
+                "status": s.get('status', 'active'),
+                "avatar_path": s.get('avatar_path', '')
             })
 
         # 2. จัดเรียงข้อมูลตามคอลัมน์ที่เลือก
@@ -3223,11 +3285,12 @@ class FaceSearchApp(ctk.CTk):
 
         # 3. อัปเดตหัวตารางพร้อมสัญลักษณ์ ▲ / ▼
         if hasattr(self, 'teacher_tree'):
+            self.teacher_tree.heading("#0", text="รูป", anchor="center")
             headings = {
                 "id": "ID",
                 "name": "ชื่อ-นามสกุล",
                 "department": "สังกัด",
-                "photos": "รูป"
+                "photos": "ภาพ"
             }
             for col_id, col_name in headings.items():
                 indicator = ""
@@ -3235,13 +3298,193 @@ class FaceSearchApp(ctk.CTk):
                     indicator = " ▼" if sort_desc else " ▲"
                 self.teacher_tree.heading(col_id, text=f"{col_name}{indicator}", command=lambda c=col_id: self.sort_teacher_table(c))
 
-            # 4. บันทึกแถวลง Treeview
+            # 4. บันทึกแถวลง Treeview พร้อมรูป Avatar ขนาด 32x32 จาก Cache (Zero Disk I/O)
             for s in sorted_staff:
                 sid = s['id']
                 sname = s['name']
                 sdep = s['department']
                 scnt = s['photo_count']
-                self.teacher_tree.insert("", "end", iid=str(sid), values=(sid, sname, sdep, scnt))
+                av_path = s.get('avatar_path', '')
+                avatar_img = self._get_teacher_avatar_photo(sid, av_path)
+                self.teacher_tree.insert("", "end", iid=str(sid), text="", image=avatar_img, values=(sid, sname, sdep, scnt))
+
+    def start_sync_staff_photos_to_drive(self):
+        """
+        เริ่มกระบวนการซิงก์รูปภาพอ้างอิงใบหน้าบุคลากรทั้งหมดขึ้น Google Drive (v6.41)
+        - ทำงานใน Background Daemon Thread ไม่ทำให้ GUI ค้าง 100%
+        - แสดง Progress Modal พร้อมเปอร์เซ็นต์และข้อความสถานะ
+        - เมื่อเสร็จสิ้น แสดงหน้าต่างสรุปรายงานอย่างละเอียด
+        """
+        if getattr(self, '_is_syncing_staff_photos', False):
+            messagebox.showwarning("กำลังดำเนินการ", "ระบบกำลังดำเนินการซิงก์รูปภาพบุคลากรขึ้น Drive อยู่แล้ว กรุณารอสักครู่ครับ")
+            return
+
+        msg = ("คุณต้องการเริ่มซิงก์รูปภาพใบหน้าบุคลากรทั้งหมดขึ้น Google Drive ใช่หรือไม่?\n\n"
+               "• โฟลเดอร์เป้าหมาย: 'บุคลากรโรงเรียน'\n"
+               "• บุคลากรปัจจุบัน -> โฟลเดอร์กลุ่มสาระ\n"
+               "• อดีตบุคลากร -> โฟลเดอร์ย่อยใน 'อดีตบุคลากร'\n"
+               "• ระบบจะข้ามคนที่มีรูปถูกต้องอยู่แล้ว และย้าย/เปลี่ยนชื่อคนที่อยู่ผิดกลุ่มสาระอัตโนมัติ")
+        if not messagebox.askyesno("ยืนยันการซิงก์รูปบุคลากรขึ้น Drive", msg):
+            return
+
+        self._is_syncing_staff_photos = True
+        if hasattr(self, 'btn_sync_staff_drive'):
+            self.btn_sync_staff_drive.configure(state="disabled", text="⏳ กำลังซิงก์...")
+
+        # สร้างหน้าต่าง Progress Modal
+        progress_win = ctk.CTkToplevel(self)
+        progress_win.title("☁️ ซิงก์รูปภาพบุคลากรขึ้น Drive")
+        progress_win.geometry("540x250")
+        progress_win.resizable(False, False)
+        progress_win.transient(self)
+        progress_win.grab_set()
+
+        try:
+            progress_win.update_idletasks()
+            px = self.winfo_x() + (self.winfo_width() - 540) // 2
+            py = self.winfo_y() + (self.winfo_height() - 250) // 2
+            progress_win.geometry(f"+{px}+{py}")
+        except Exception:
+            pass
+
+        ctk.CTkLabel(progress_win, text="☁️ กำลังซิงก์รูปภาพบุคลากรขึ้น Google Drive", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(padx=20, pady=(20, 10))
+
+        lbl_status = ctk.CTkLabel(progress_win, text="กำลังเตรียมการและสำรวจโครงสร้างโฟลเดอร์...", font=ctk.CTkFont(size=13), text_color="#D1D5DB", wraplength=480)
+        lbl_status.pack(padx=20, pady=(0, 12))
+
+        progress_bar = ctk.CTkProgressBar(progress_win, width=480, height=16)
+        progress_bar.pack(padx=20, pady=(0, 8))
+        progress_bar.set(0.0)
+
+        lbl_percent = ctk.CTkLabel(progress_win, text="0%", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD")
+        lbl_percent.pack(padx=20, pady=(0, 12))
+
+        def update_progress(current, total, text):
+            if progress_win.winfo_exists():
+                fraction = (current / total) if total > 0 else 0.0
+                progress_bar.set(fraction)
+                lbl_percent.configure(text=f"{int(fraction * 100)}% ({current}/{total})")
+                lbl_status.configure(text=text)
+
+        def on_complete(report):
+            self._is_syncing_staff_photos = False
+            if hasattr(self, 'btn_sync_staff_drive'):
+                self.btn_sync_staff_drive.configure(state="normal", text="☁️ ซิงก์รูปบุคลากรขึ้น Drive")
+            try:
+                progress_win.destroy()
+            except Exception:
+                pass
+            # รีเฟรชตารางบุคลากร
+            self.load_staff_list(refresh_db=True)
+            # แสดง Modal รายงานผล
+            self._show_staff_sync_report_modal(report)
+
+        def worker():
+            try:
+                from gdrive_sync import GoogleSyncManager
+                gsm = GoogleSyncManager()
+                report = gsm.sync_staff_reference_photos_to_drive(
+                    progress_callback=lambda cur, tot, txt: self.after(0, lambda: update_progress(cur, tot, txt))
+                )
+            except Exception as ex:
+                logger.error(f"Error during personnel photo sync: {ex}", exc_info=True)
+                report = {
+                    "success": False,
+                    "error": str(ex),
+                    "total_staff": 0,
+                    "skipped_count": 0,
+                    "uploaded_count": 0,
+                    "relocated_count": 0,
+                    "failed_count": 0,
+                    "skipped": [],
+                    "uploaded": [],
+                    "relocated": [],
+                    "failed": []
+                }
+            self.after(0, lambda: on_complete(report))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_staff_sync_report_modal(self, report):
+        """แสดงหน้าต่างรายงานผลการซิงก์รูปภาพบุคลากรอย่างละเอียด (v6.41)"""
+        rep_win = ctk.CTkToplevel(self)
+        rep_win.title("📋 รายงานสรุปการซิงก์รูปภาพบุคลากรขึ้น Drive")
+        rep_win.geometry("640x520")
+        rep_win.resizable(False, False)
+        rep_win.transient(self)
+        rep_win.grab_set()
+
+        try:
+            rep_win.update_idletasks()
+            rx = self.winfo_x() + (self.winfo_width() - 640) // 2
+            ry = self.winfo_y() + (self.winfo_height() - 520) // 2
+            rep_win.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+
+        # หัวข้อ
+        ctk.CTkLabel(rep_win, text="📋 ผลการซิงก์รูปภาพบุคลากรขึ้น Google Drive", font=ctk.CTkFont(size=18, weight="bold"), text_color="white").pack(padx=20, pady=(20, 10))
+
+        # การ์ดสรุปสถิติ 4 ช่อง
+        cards_frame = ctk.CTkFrame(rep_win, fg_color="transparent")
+        cards_frame.pack(fill="x", padx=20, pady=(0, 15))
+        cards_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        def make_stat_card(parent, col, title, value, color):
+            f = ctk.CTkFrame(parent, fg_color="#101B2B", corner_radius=8)
+            f.grid(row=0, column=col, padx=5, sticky="ew")
+            ctk.CTkLabel(f, text=str(value), font=ctk.CTkFont(size=20, weight="bold"), text_color=color).pack(pady=(8, 0))
+            ctk.CTkLabel(f, text=title, font=ctk.CTkFont(size=12), text_color="#A2B5CD").pack(pady=(0, 8))
+
+        make_stat_card(cards_frame, 0, "บุคลากรทั้งหมด", report.get('total_staff', 0), "#6CA6CD")
+        make_stat_card(cards_frame, 1, "อัปโหลดใหม่", report.get('uploaded_count', 0), "#2ECC71")
+        make_stat_card(cards_frame, 2, "ย้าย/เปลี่ยนชื่อ", report.get('relocated_count', 0), "#F1C40F")
+        make_stat_card(cards_frame, 3, "ข้าม (มีแล้ว)", report.get('skipped_count', 0), "#9E9E9E")
+
+        # กล่องแสดงรายละเอียด
+        txt_frame = ctk.CTkFrame(rep_win, fg_color="#101B2B", corner_radius=8)
+        txt_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+
+        txt_detail = ctk.CTkTextbox(txt_frame, font=ctk.CTkFont(size=13), text_color="#E0E6ED", fg_color="transparent")
+        txt_detail.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # เขียนข้อความสรุป
+        lines = []
+        if not report.get("success", False):
+            lines.append(f"❌ เกิดข้อผิดพลาด: {report.get('error', 'ไม่ทราบสาเหตุ')}\n")
+
+        lines.append("=== สรุปผลการดำเนินงาน ===")
+        lines.append(f"• บุคลากรทั้งหมดในระบบ: {report.get('total_staff', 0)} คน")
+        lines.append(f"• อัปโหลดไฟล์รูปภาพใหม่: {report.get('uploaded_count', 0)} คน")
+        lines.append(f"• ย้ายกลุ่มสาระหรือเปลี่ยนชื่อให้ถูกต้อง: {report.get('relocated_count', 0)} คน")
+        lines.append(f"• ข้ามเนื่องจากมีไฟล์ที่ถูกต้องอยู่แล้ว: {report.get('skipped_count', 0)} คน")
+        lines.append(f"• ไม่สำเร็จ (Errors): {report.get('failed_count', 0)} คน\n")
+
+        if report.get('uploaded'):
+            lines.append("--- รายชื่อที่อัปโหลดใหม่ขึ้น Google Drive ---")
+            for u in report['uploaded']:
+                status_txt = "อดีต" if u.get('status') == 'inactive' else "ปัจจุบัน"
+                lines.append(f"  [+] {u.get('name')} | สังกัด: {u.get('department')} ({status_txt})")
+            lines.append("")
+
+        if report.get('relocated'):
+            lines.append("--- รายชื่อที่ย้ายกลุ่มสาระหรือเปลี่ยนชื่อให้ตรง ---")
+            for r in report['relocated']:
+                lines.append(f"  [⇄] {r.get('name')} | จาก '{r.get('from_dept')}' ➔ '{r.get('to_dept')}'")
+            lines.append("")
+
+        if report.get('failed'):
+            lines.append("--- รายการที่ไม่สำเร็จ ---")
+            for fl in report['failed']:
+                lines.append(f"  [!] {fl.get('name')} | สาเหตุ: {fl.get('reason')}")
+            lines.append("")
+
+        txt_detail.insert("1.0", "\n".join(lines))
+        txt_detail.configure(state="disabled")
+
+        # ปุ่มปิด
+        btn_close = ctk.CTkButton(rep_win, text="ตกลง / ปิดหน้าต่าง", fg_color="#1E6091", hover_color="#16496F", height=38, command=rep_win.destroy)
+        btn_close.pack(pady=(0, 20))
 
     def filter_staff_list(self, event=None, immediate=False):
         if getattr(self, "_staff_search_timer", None) is not None:
