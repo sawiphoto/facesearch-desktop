@@ -1,4 +1,128 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.33 (Smart Batch Teacher Import & Department Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.34 (Teacher Interactive Table & Universal SQLite DB Editor Suite)
+
+## 📋 Version 6.34 Changelog (Teacher Interactive Table & Universal SQLite DB Editor Suite)
+
+**Date:** 21 ตุลาคม 2026 (09:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.34 (Teacher Interactive Table & Universal SQLite DB Editor Suite)  
+**Core Technologies:** Interactive Sortable ttk.Treeview with Multi-Column Sort Toggle (ID, Name, Department, Photo Count), Real-Time Department Filter Dropdown & Instant Search (Debounced 250ms), Universal SQLite DB Viewer Record Editor (`show_db_record_edit_dialog` for `staff_members` and `scanned_photos`), Status Dropdown (`active` / `inactive`), Clean Department Dropdown (`SW_DEPARTMENTS` from Sawi Wittaya School with zero "กลุ่มสาระ" prefix), Automated DB Normalization Migration, Comprehensive Test Suite TC-82 to TC-86 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **หน้าบันทึกครูเดิมค้นหาและเรียงลำดับได้ยาก (Legacy CTk Button-List):**
+   - เดิมแสดงรายชื่อครูเป็น `CTkButton` เรียงต่อกันใน `CTkScrollableFrame` ทำให้ไม่มีหัวตาราง ไม่สามารถคลิกเรียงลำดับตาม ID, ชื่อ-นามสกุล, สังกัด หรือจำนวนรูปภาพได้
+   - ขาดตัวกรองตามสังกัด (Department Filter Dropdown) ทำให้เวลาครูมีจำนวนมากไม่สะดวกต่อการค้นหา
+2. **หน้าฐานข้อมูล SQLite แสดงผลได้อย่างเดียว แก้ไขไม่ได้ (Read-Only DB Viewer):**
+   - ผู้ใช้ต้องการให้หน้าต่างจัดการฐานข้อมูล SQLite สามารถกดปุ่มแก้ไขหรือดับเบิ้ลคลิกแถวเพื่อเปิดหน้าต่างแก้ไขข้อมูลได้ โดยเฉพาะตาราง `staff_members` (แก้ไขชื่อ, สังกัด, สถานะ `active`/`inactive`, รหัสนักเรียน/ครู, Threshold) และตาราง `scanned_photos` (แก้ไขชื่องาน/กิจกรรม, ปีการศึกษา)
+3. **คำสั่งตัดคำว่า "กลุ่มสาระ" ออกทั้งหมด (Clean Department Standard):**
+   - ตามความต้องการเจาะจงของผู้ใช้: *"เอาคำว่ากลุ่มสาระออกด้วยครับ"* ชื่อสังกัดทั้งหมดต้องตัดคำว่า "กลุ่มสาระ", "กลุ่มสาระฯ", หรือ "กลุ่มสาระการเรียนรู้" ออก ให้แสดงผลสั้นกระชับ สวยงาม เช่น `"วิทยาศาสตร์และเทคโนโลยี"`, `"คณิตศาสตร์"`, `"ภาษาไทย"`, `"ภาษาต่างประเทศ"`, `"ศิลปะ"` เป็นต้น ทั้งในฐานข้อมูลและหน้าจอ UI
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงส่วนจัดการสังกัดและตัดคำว่า "กลุ่มสาระ" ออก 100% ([`db_manager.py`](db_manager.py)):**
+   - กำหนดค่าคงที่ `SW_DEPARTMENTS` รวม 13 สังกัดตามโครงสร้างจริงของโรงเรียนสวีวิทยา (`D:\download D\โรงเรียนสวีวิทยา\บุคลากร ตามกลุ่มสาระ`) โดยไม่มีคำว่ากลุ่มสาระ
+   - เพิ่มฟังก์ชัน `clean_department_name(dept_str)` ทำความสะอาดข้อความสังกัดอัตโนมัติ
+   - ย้าย `THAI_PREFIXES` และ `parse_teacher_filename` มาไว้ใน `db_manager.py` พร้อมเชื่อมโยง `clean_department_name`
+   - เพิ่มกระบวนการ Schema Migration อัตโนมัติใน `init_db()` ตรวจสอบและคลีนข้อมูลสังกัดที่มีคำว่า "กลุ่มสาระ" ในฐานข้อมูลเดิมให้กลายเป็นชื่อสะอาดทันที
+   - เพิ่มฟังก์ชัน `get_staff_member_by_id(staff_id)` และ `update_staff_member_full(...)` รองรับการอัปเดตทุกฟิลด์พร้อมกัน
+   - เพิ่มฟังก์ชัน `update_scanned_photo_record(photo_id, event_name, academic_year)` สำหรับแก้ไขข้อมูลรูปภาพกิจกรรม
+2. **ยกระดับหน้าลงทะเบียนคุณครูเป็นตารางโต้ตอบอัจฉริยะ (Sortable Treeview in [`app_gui.py`](app_gui.py)):**
+   - แทนที่รายการปุ่มเดิมด้วย `self.teacher_tree` (`ttk.Treeview`) มี 4 คอลัมน์: `ID`, `ชื่อ-นามสกุล`, `สังกัด`, `รูป`
+   - รองรับการคลิกหัวคอลัมน์เพื่อสลับจัดเรียงลำดับ น้อยไปมาก/มากไปน้อย (`▲`/`▼`) ทั้งตัวเลขและตัวอักษรภาษาไทย
+   - เพิ่ม Dropdown ตัวกรองสังกัด `self.option_teacher_dept_filter` กรองแสดงครูตามกลุ่มสังกัดได้ทันที
+   - ปรับฟอร์มเพิ่มครูใหม่ให้เลือกสังกัดจาก Dropdown `SW_DEPARTMENTS` ได้สะดวกรวดเร็ว
+3. **พัฒนา Universal SQLite DB Editor Dialog ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่มปุ่ม `✏️ แก้ไขแถวที่เลือก` ในหน้าฐานข้อมูล SQLite
+   - เชื่อมต่อ Double Click บนแถวตาราง `staff_members` และ `scanned_photos` เพื่อเปิดหน้าต่างแก้ไขข้อมูลอัตโนมัติ
+   - รองรับการแก้ไข `status` ผ่าน Dropdown (`active`, `inactive`)
+   - รองรับการเลือกสังกัดจาก Dropdown `SW_DEPARTMENTS` (พร้อมตัวเลือกพิมพ์ระบุเองสำหรับ "อื่นๆ")
+4. **พัฒนาและทดสอบสวีทการทำงานจริง ([`test_teacher_table_and_db_editor_suite.py`](test_teacher_table_and_db_editor_suite.py)):**
+   - ผ่านการทดสอบครอบคลุม TC-82 ถึง TC-86 ครบ 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การกำหนดหมวดหมู่สังกัดมาตรฐานและตัดคำว่า "กลุ่มสาระ" ออก ([`db_manager.py`](db_manager.py)):
+**Before (ไม่มีรายการสังกัดมาตรฐานและไม่มีฟังก์ชันตัดคำนำหน้า):**
+```python
+# ก่อนหน้า: รับสตริงกลุ่มสาระโดยตรงและอาจมีคำนำหน้า "กลุ่มสาระฯ" ปะปน
+def register_staff_member(self, name: str, department: str = ""):
+    # บันทึก department ตามที่ส่งเข้ามาโดยไม่ได้ตัดคำ
+```
+**After (v6.34 Clean Department List & Normalization):**
+```python
+SW_DEPARTMENTS = [
+    "การงานอาชีพ", "คณิตศาสตร์", "ภาษาต่างประเทศ", "ภาษาไทย",
+    "วิทยาศาสตร์และเทคโนโลยี", "ศิลปะ", "สังคมศึกษาฯ", "สุขศึกษาฯ",
+    "กิจกรรมแนะแนว", "คณะผู้บริหาร", "ลูกจ้างชั่วคราว", "เจ้าหน้าที่สำนักงาน",
+    "อื่นๆ (ระบุเอง)"
+]
+
+def clean_department_name(dept_str: str) -> str:
+    """ตัดคำนำหน้ากลุ่มสาระฯ ออก ให้เหลือเฉพาะชื่อสังกัดสั้นกระชับ (v6.34)"""
+    if not dept_str:
+        return ""
+    clean = re.sub(r'^(?:กลุ่มสาระฯ|กลุ่มสาระการเรียนรู้|กลุ่มสาระ)\s*', '', str(dept_str).strip())
+    return clean
+```
+
+#### 2. ฟังก์ชันแก้ไขข้อมูลบุคลากรแบบรอบด้านใน Transaction เดียว ([`db_manager.py`](db_manager.py)):
+**Before (ไม่มีฟังก์ชันอัปเดตข้อมูลบุคลากรแบบรอบด้าน):**
+```python
+# มีเพียง update_teacher_department ที่แก้เฉพาะสังกัด
+def update_teacher_department(self, staff_id: int, department: str) -> bool:
+    ...
+```
+**After (v6.34 Universal Staff Member Updater):**
+```python
+def update_staff_member_full(self, staff_id: int, name: str = None, department: str = None,
+                             status: str = None, role: str = None, student_id: str = None,
+                             class_room: str = None, personal_threshold: float = None,
+                             graduation_year: str = None, entry_year: str = None) -> bool:
+    """อัปเดตข้อมูลบุคลากรแบบรอบด้านใน Transaction เดียว รองรับทั้งครูและนักเรียน (v6.34)"""
+    # อัปเดตข้อมูลและตัดคำว่ากลุ่มสาระออกจาก department อัตโนมัติ
+```
+
+#### 3. การเปลี่ยนหน้าแสดงรายชื่อครูจากปุ่มก้อนเป็นตาราง Sortable Treeview ([`app_gui.py`](app_gui.py)):
+**Before (แสดงผลเป็น CTkButton ใน ScrollableFrame เรียงลำดับไม่ได้):**
+```python
+self.frame_staff_list = ctk.CTkScrollableFrame(self.frame_registry_left, label_text="รายชื่อคุณครูที่ลงทะเบียน")
+self.frame_staff_list.pack(fill="both", expand=True, padx=5, pady=5)
+```
+**After (v6.34 ตาราง Treeview พร้อมตัวกรองสังกัดและคลิกหัวคอลัมน์เพื่อจัดเรียง):**
+```python
+self.option_teacher_dept_filter = ctk.CTkOptionMenu(
+    filter_box, values=["ทั้งหมด"] + SW_DEPARTMENTS, command=self._on_teacher_filter_changed
+)
+self.teacher_tree = ttk.Treeview(
+    self.frame_staff_table, columns=("id", "name", "dept", "photos"), show="headings", selectmode="browse"
+)
+self.teacher_tree.heading("id", text="ID ▲", command=lambda: self.sort_teacher_table("id"))
+self.teacher_tree.heading("name", text="ชื่อ-นามสกุล", command=lambda: self.sort_teacher_table("name"))
+self.teacher_tree.heading("dept", text="สังกัด", command=lambda: self.sort_teacher_table("dept"))
+self.teacher_tree.heading("photos", text="รูป", command=lambda: self.sort_teacher_table("photos"))
+```
+
+#### 4. หน้าต่าง Modal แก้ไขข้อมูลแถวในฐานข้อมูล SQLite ([`app_gui.py`](app_gui.py)):
+**Before (ไม่มีหน้าต่างแก้ไขแถวใน DB Viewer):**
+```python
+# ดับเบิ้ลคลิกแถวใน DB Viewer ทำได้เพียงเปิดลิงก์ Google Drive
+def on_db_tree_double_click(self, event):
+    # เปิดลิงก์ drive_link ในเบราว์เซอร์เท่านั้น
+```
+**After (v6.34 เปิด Modal แก้ไขข้อมูล staff_members และ scanned_photos):**
+```python
+def show_db_record_edit_dialog(self):
+    """เปิดหน้าต่างแก้ไขข้อมูลของแถวที่เลือกในฐานข้อมูล SQLite รองรับ staff_members และ scanned_photos (v6.34)"""
+    # Dropdown สถานะ: active / inactive
+    # Dropdown สังกัด: SW_DEPARTMENTS (ตัดคำว่ากลุ่มสาระออก)
+```
+
+---
 
 ## 📋 Version 6.33 Changelog (Smart Batch Teacher Import with Multi-Photo & Department Parsing Suite)
 

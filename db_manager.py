@@ -38,6 +38,123 @@ def get_camera_brand_from_filename(filename):
     ext = os.path.splitext(filename)[1].lower()
     return RAW_EXTENSIONS_MAP.get(ext, None)
 
+# รายการหมวดหมู่สังกัดมาตรฐานของโรงเรียนสวีวิทยา (ตัดคำนำหน้า 'กลุ่มสาระ' ออกทั้งหมดตาม v6.34)
+SW_DEPARTMENTS = [
+    "การงานอาชีพ",
+    "คณิตศาสตร์",
+    "ภาษาต่างประเทศ",
+    "ภาษาไทย",
+    "วิทยาศาสตร์และเทคโนโลยี",
+    "ศิลปะ",
+    "สังคมศึกษาฯ",
+    "สุขศึกษาฯ",
+    "กิจกรรมแนะแนว",
+    "คณะผู้บริหาร",
+    "ลูกจ้างชั่วคราว",
+    "เจ้าหน้าที่สำนักงาน",
+    "อื่นๆ (ระบุเอง)"
+]
+
+def clean_department_name(dept_str: str) -> str:
+    """ตัดคำนำหน้ากลุ่มสาระฯ ออก ให้เหลือเฉพาะชื่อสังกัดสั้นกระชับ (v6.34)"""
+    if not dept_str:
+        return ""
+    clean = re.sub(r'^(?:กลุ่มสาระฯ|กลุ่มสาระการเรียนรู้|กลุ่มสาระ)\s*', '', str(dept_str).strip())
+    return clean
+
+THAI_PREFIXES = [
+    r'ว่าที่\s*ร้อยตรี\s*หญิง',
+    r'ว่าที่\s*ร้อยตรี',
+    r'ว่าที่\s*ร\.ต\.หญิง',
+    r'ว่าที่\s*ร\.ต\.',
+    r'นางสาว',
+    r'น\.ส\.',
+    r'นาย',
+    r'นาง',
+    r'ดร\.',
+    r'ผศ\.ดร\.',
+    r'รศ\.ดร\.',
+    r'ศ\.ดร\.',
+    r'ผศ\.',
+    r'รศ\.',
+    r'ศ\.',
+    r'อาจารย์',
+    r'อ\.',
+    r'คุณครู',
+    r'ครู',
+    r'Mr\.',
+    r'Mrs\.',
+    r'Miss',
+    r'Ms\.',
+]
+
+def parse_teacher_filename(filename):
+    """
+    แยกวิเคราะห์ชื่อไฟล์ครูออกเป็น (main_name, department, photo_index)
+    ตัวอย่าง:
+      'นายสมชาย ใจดี วิทยาศาสตร์  1.jpg' -> ('นายสมชาย ใจดี', 'วิทยาศาสตร์', 1)
+      'นายสมชาย ใจดี วิทยาศาสตร์  2.jpg' -> ('นายสมชาย ใจดี', 'วิทยาศาสตร์', 2)
+      'นางสาวสมหญิง สดใส คณิตศาสตร์ (2).png' -> ('นางสาวสมหญิง สดใส', 'คณิตศาสตร์', 2)
+      'นายวิชาญ การงาน ภาษาไทย.jpg' -> ('นายวิชาญ การงาน', 'ภาษาไทย', 1)
+      'นายสมศักดิ์ รักดี 1.jpg' -> ('นายสมศักดิ์ รักดี', '', 1)
+    """
+    base_name = os.path.splitext(os.path.basename(filename))[0].strip()
+    photo_index = 1
+    idx_match = re.search(r'[\s_\-\(\[\{]+(\d+)[\s\)\]\}]*$', base_name)
+    if idx_match:
+        try:
+            photo_index = int(idx_match.group(1))
+            base_name = base_name[:idx_match.start()].strip()
+        except Exception:
+            photo_index = 1
+            
+    clean_text = re.sub(r'\s+', ' ', base_name).strip()
+    if not clean_text:
+        return ("", "", photo_index)
+        
+    prefix_matched = None
+    had_space = False
+    remaining_after_prefix = clean_text
+    
+    for prefix_pat in THAI_PREFIXES:
+        match = re.match(r'^(' + prefix_pat + r')(\s*)(.*)$', clean_text, re.IGNORECASE)
+        if match:
+            prefix_matched = match.group(1).strip()
+            had_space = bool(match.group(2))
+            remaining_after_prefix = match.group(3).strip()
+            break
+            
+    if prefix_matched:
+        tokens = [t for t in remaining_after_prefix.split(' ') if t]
+        no_space_prefixes = ('นาย', 'นาง', 'นางสาว', 'น.ส.', 'ครู', 'คุณครู', 'ดร.')
+        join_char = "" if (prefix_matched in no_space_prefixes and not had_space) else " "
+        
+        if len(tokens) == 0:
+            main_name = prefix_matched
+            department = ""
+        elif len(tokens) == 1:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]}".strip()
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = ""
+        else:
+            main_name = f"{prefix_matched}{join_char}{tokens[0]} {tokens[1]}".strip()
+            department = " ".join(tokens[2:]).strip()
+    else:
+        tokens = [t for t in clean_text.split(' ') if t]
+        if len(tokens) == 1:
+            main_name = tokens[0]
+            department = ""
+        elif len(tokens) == 2:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = ""
+        else:
+            main_name = f"{tokens[0]} {tokens[1]}"
+            department = " ".join(tokens[2:]).strip()
+            
+    return (main_name.strip(), clean_department_name(department), photo_index)
+
 class CachedFace:
     def __init__(self, bbox, embedding):
         self.bbox = bbox
@@ -402,6 +519,18 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not create department index: {e}")
 
+            # Migration v6.34: Normalize department names in staff_members (strip 'กลุ่มสาระฯ' prefix)
+            try:
+                cursor.execute("SELECT id, department FROM staff_members WHERE department LIKE 'กลุ่มสาระ%'")
+                rows_to_clean = cursor.fetchall()
+                for row_id, raw_dept in rows_to_clean:
+                    cleaned_dept = clean_department_name(raw_dept)
+                    cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (cleaned_dept, row_id))
+                if rows_to_clean:
+                    logger.info(f"Executed database migration v6.34: normalized {len(rows_to_clean)} department names.")
+            except Exception as e:
+                logger.warning(f"Could not clean department names: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -621,13 +750,13 @@ class DatabaseManager:
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
     def register_staff_member(self, name, department=""):
-        """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match) พร้อมบันทึกกลุ่มสาระ/สังกัด (v6.33)"""
+        """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match) พร้อมบันทึกสังกัด (v6.34)"""
         name_clean = (name or "").strip()
-        dep_clean = (department or "").strip()
+        dep_clean = clean_department_name(department)
         with self.get_connection() as conn:
             cursor = conn.cursor()
             # ตรวจสอบว่ามีครูชื่อนี้อยู่แล้วหรือไม่
-            cursor.execute("SELECT id, department FROM staff_members WHERE name = ? AND role = 'teacher'", (name_clean,))
+            cursor.execute("SELECT id, department FROM staff_members WHERE name = ? AND (role = 'teacher' OR role IS NULL OR role = '')", (name_clean,))
             existing = cursor.fetchone()
             if existing:
                 staff_id, curr_dep = existing[0], existing[1]
@@ -652,10 +781,99 @@ class DatabaseManager:
                 return staff_id
 
     def update_teacher_department(self, staff_id, department):
-        """อัปเดตกลุ่มสาระ/สังกัดของคุณครู (v6.33)"""
+        """อัปเดตสังกัดของคุณครู (v6.34)"""
+        dep_clean = clean_department_name(department)
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", ((department or "").strip(), staff_id))
+            cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (dep_clean, staff_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_staff_member_by_id(self, staff_id):
+        """ดึงข้อมูลบุคลากรรายบุคคลแบบสมบูรณ์ตาม ID (v6.34)"""
+        with self.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, role, student_id, pin_code, personal_threshold,
+                       is_backfilled, status, class_room, entry_year, graduation_year, department
+                FROM staff_members
+                WHERE id = ?
+            """, (staff_id,))
+            row = cursor.fetchone()
+            if row:
+                d = dict(row)
+                d["department"] = clean_department_name(d.get("department", ""))
+                return d
+            return None
+
+    def update_staff_member_full(self, staff_id, name=None, department=None, status=None,
+                                 role=None, student_id=None, class_room=None,
+                                 personal_threshold=None, graduation_year=None, entry_year=None):
+        """
+        อัปเดตข้อมูลบุคลากรแบบรอบด้านใน Transaction เดียว รองรับทั้งครูและนักเรียน (v6.34)
+        """
+        fields = []
+        params = []
+        if name is not None:
+            fields.append("name = ?")
+            params.append(str(name).strip())
+        if department is not None:
+            fields.append("department = ?")
+            params.append(clean_department_name(department))
+        if status is not None:
+            fields.append("status = ?")
+            params.append(str(status).strip())
+        if role is not None:
+            fields.append("role = ?")
+            params.append(str(role).strip())
+        if student_id is not None:
+            fields.append("student_id = ?")
+            params.append(str(student_id).strip())
+        if class_room is not None:
+            fields.append("class_room = ?")
+            params.append(str(class_room).strip())
+        if personal_threshold is not None:
+            try:
+                pt = float(personal_threshold)
+                fields.append("personal_threshold = ?")
+                params.append(pt)
+            except (ValueError, TypeError):
+                pass
+        if graduation_year is not None:
+            fields.append("graduation_year = ?")
+            params.append(str(graduation_year).strip())
+        if entry_year is not None:
+            fields.append("entry_year = ?")
+            params.append(str(entry_year).strip())
+            
+        if not fields:
+            return False
+            
+        params.append(staff_id)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = f"UPDATE staff_members SET {', '.join(fields)} WHERE id = ?"
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_scanned_photo_record(self, photo_id, event_name=None, academic_year=None):
+        """อัปเดตข้อมูลภาพที่สแกนแล้ว (event_name, academic_year) (v6.34)"""
+        fields = []
+        params = []
+        if event_name is not None:
+            fields.append("event_name = ?")
+            params.append(str(event_name).strip())
+        if academic_year is not None:
+            fields.append("academic_year = ?")
+            params.append(str(academic_year).strip())
+        if not fields:
+            return False
+        params.append(photo_id)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"UPDATE scanned_photos SET {', '.join(fields)} WHERE photo_id = ?", params)
             conn.commit()
             return cursor.rowcount > 0
 
@@ -711,31 +929,45 @@ class DatabaseManager:
             logger.debug(f"Saved embedding for staff_id {staff_id} from {os.path.basename(image_path)}")
 
     def get_all_staff_members(self):
-        """ดึงข้อมูลรายชื่อครูทั้งหมดพร้อมจำนวนรูปภาพที่ลงทะเบียนไว้ และกลุ่มสาระ (v6.33)"""
+        """ดึงข้อมูลรายชื่อครูทั้งหมดพร้อมจำนวนรูปภาพที่ลงทะเบียนไว้ และสังกัด (v6.34)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count
+                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count,
+                       COALESCE(s.status, 'active') as status
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                GROUP BY s.id, s.name, s.department
+                GROUP BY s.id, s.name, s.department, s.status
                 ORDER BY s.name ASC
             """)
-            return [{"id": row[0], "name": row[1], "department": row[2], "photo_count": row[3]} for row in cursor.fetchall()]
+            return [{
+                "id": row[0],
+                "name": row[1],
+                "department": clean_department_name(row[2]),
+                "photo_count": row[3],
+                "status": row[4]
+            } for row in cursor.fetchall()]
 
     def get_all_teachers(self):
-        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมกลุ่มสาระ (v6.33)"""
+        """ดึงรายชื่อครูทั้งหมด (role = 'teacher') พร้อมสังกัด และสถานะ (v6.34)"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count
+                SELECT s.id, s.name, COALESCE(s.department, '') as department, COUNT(e.id) as photo_count,
+                       COALESCE(s.status, 'active') as status
                 FROM staff_members s
                 LEFT JOIN staff_embeddings e ON s.id = e.staff_id
-                WHERE s.role = 'teacher'
-                GROUP BY s.id, s.name, s.department
+                WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                GROUP BY s.id, s.name, s.department, s.status
                 ORDER BY s.name ASC
             """)
-            return [{"id": row[0], "name": row[1], "department": row[2], "photo_count": row[3]} for row in cursor.fetchall()]
+            return [{
+                "id": row[0],
+                "name": row[1],
+                "department": clean_department_name(row[2]),
+                "photo_count": row[3],
+                "status": row[4]
+            } for row in cursor.fetchall()]
 
     def get_all_students(self, status_filter=None, class_filter=None):
         """ดึงรายชื่อนักเรียนทั้งหมด (role = 'student') พร้อม student_id, status, class_room, grad_year (v6.29)"""
@@ -1575,7 +1807,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.33",
+                "version": "v6.34",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

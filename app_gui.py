@@ -16,7 +16,7 @@ import webbrowser
 import requests
 
 # นำเข้าโมดูลหลังบ้านที่เราพัฒนาไว้
-from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_from_filename
+from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_from_filename, SW_DEPARTMENTS, clean_department_name
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
 from gdrive_sync import GoogleSyncManager, is_generic_folder_name
 from scheduler_task import SchedulerTask
@@ -115,7 +115,7 @@ def parse_teacher_filename(filename):
             main_name = f"{tokens[0]} {tokens[1]}"
             department = " ".join(tokens[2:]).strip()
             
-    return (main_name.strip(), department.strip(), photo_index)
+    return (main_name.strip(), clean_department_name(department), photo_index)
 
 
 # ตั้งค่าการบันทึก Log หลัก
@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.33 (Smart Batch Teacher Import & Department Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.34 (Teacher Interactive Table & Universal SQLite DB Editor Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.33",
+            text="FACE MATCHING\nSYSTEM v6.34",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1602,26 +1602,72 @@ class FaceSearchApp(ctk.CTk):
         # ซีกซ้าย: รายชื่อครูที่ลงทะเบียนไว้
         self.list_frame = ctk.CTkFrame(self.frame_registry, fg_color="#101B2B")
         self.list_frame.grid(row=1, column=0, padx=(0, 10), sticky="nsew")
-        self.list_frame.grid_rowconfigure(2, weight=1)
+        self.list_frame.grid_rowconfigure(3, weight=1)
         self.list_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(self.list_frame, text="รายชื่อคุณครูที่บันทึกแล้ว", font=ctk.CTkFont(size=16, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, padx=15, pady=12, sticky="w")
         
         # ช่องค้นหาคุณครู
         search_frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
-        search_frame.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
+        search_frame.grid(row=1, column=0, padx=10, pady=(0, 6), sticky="ew")
         search_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_staff_search = ctk.CTkEntry(search_frame, placeholder_text="🔍 ค้นหาชื่อคุณครู...", height=36, font=ctk.CTkFont(size=14))
+        self.entry_staff_search = ctk.CTkEntry(search_frame, placeholder_text="🔍 ค้นหา (ID, ชื่อ, สังกัด)...", height=36, font=ctk.CTkFont(size=14))
         self.entry_staff_search.grid(row=0, column=0, sticky="ew")
         self.entry_staff_search.bind("<KeyRelease>", lambda event: self.filter_staff_list())
         
         btn_clear_staff_search = ctk.CTkButton(search_frame, text="✕", width=34, height=36, font=ctk.CTkFont(size=14, weight="bold"), fg_color="transparent", hover_color="#20334F", text_color="#A2B5CD", command=self.clear_staff_search)
         btn_clear_staff_search.grid(row=0, column=1, padx=(5, 0))
+
+        # ตัวกรองสังกัด (Department Filter Dropdown v6.34)
+        filter_frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
+        filter_frame.grid(row=2, column=0, padx=10, pady=(0, 8), sticky="ew")
+        filter_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(filter_frame, text="สังกัด:", font=ctk.CTkFont(size=13, weight="bold"), text_color="#A2B5CD").grid(row=0, column=0, padx=(0, 5), sticky="w")
         
-        # Listbox แสดงรายชื่อ
-        self.staff_list_scrollable = ctk.CTkScrollableFrame(self.list_frame, fg_color="transparent")
-        self.staff_list_scrollable.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        dept_filter_options = ["ทั้งหมด (ทุกสังกัด)"] + [d for d in SW_DEPARTMENTS if d != "อื่นๆ (ระบุเอง)"]
+        self.option_teacher_dept_filter = ctk.CTkOptionMenu(
+            filter_frame,
+            values=dept_filter_options,
+            height=32,
+            font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
+            command=lambda val: self.filter_staff_list(immediate=True)
+        )
+        self.option_teacher_dept_filter.grid(row=0, column=1, sticky="ew")
+        
+        # ตาราง Treeview แสดงรายชื่อคุณครูแบบมีคอลัมน์และคลิกเรียงลำดับได้ (v6.34)
+        tree_container = ctk.CTkFrame(self.list_frame, fg_color="#1C2D42")
+        tree_container.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        tree_container.grid_rowconfigure(0, weight=1)
+        tree_container.grid_columnconfigure(0, weight=1)
+
+        cols = ("id", "name", "department", "photos")
+        self.teacher_tree = ttk.Treeview(tree_container, columns=cols, show="headings", selectmode="browse")
+        self.teacher_tree.grid(row=0, column=0, sticky="nsew")
+
+        self.teacher_sort_col = "id"
+        self.teacher_sort_desc = False
+
+        self.teacher_tree.column("id", width=55, anchor="center")
+        self.teacher_tree.column("name", width=175, anchor="w")
+        self.teacher_tree.column("department", width=130, anchor="w")
+        self.teacher_tree.column("photos", width=55, anchor="center")
+
+        self.teacher_tree.heading("id", text="ID ▲", command=lambda: self.sort_teacher_table("id"))
+        self.teacher_tree.heading("name", text="ชื่อ-นามสกุล", command=lambda: self.sort_teacher_table("name"))
+        self.teacher_tree.heading("department", text="สังกัด", command=lambda: self.sort_teacher_table("department"))
+        self.teacher_tree.heading("photos", text="รูป", command=lambda: self.sort_teacher_table("photos"))
+
+        teacher_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=self.teacher_tree.yview)
+        teacher_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.teacher_tree.configure(yscrollcommand=teacher_scrollbar.set)
+
+        self.teacher_tree.bind("<<TreeviewSelect>>", self.on_teacher_tree_select)
         
         self.selected_staff_id = None
         self.selected_staff_name = None
@@ -1649,8 +1695,25 @@ class FaceSearchApp(ctk.CTk):
         add_input_frame2 = ctk.CTkFrame(self.form_frame, fg_color="transparent")
         add_input_frame2.pack(fill="x", padx=20, pady=(2, 6))
 
-        self.entry_staff_department = ctk.CTkEntry(add_input_frame2, placeholder_text="กลุ่มสาระ/สังกัด (เช่น วิทยาศาสตร์, คณิตศาสตร์ - เสริม)", height=32, font=ctk.CTkFont(size=13))
-        self.entry_staff_department.pack(fill="x", expand=True)
+        ctk.CTkLabel(add_input_frame2, text="สังกัด:", font=ctk.CTkFont(size=13, weight="bold"), text_color="#A2B5CD").pack(side="left", padx=(0, 5))
+
+        dept_options_add = ["(เลือกสังกัด)"] + SW_DEPARTMENTS
+        self.option_staff_dept_add = ctk.CTkOptionMenu(
+            add_input_frame2,
+            values=dept_options_add,
+            height=32,
+            width=180,
+            font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
+            command=self.on_dept_add_option_selected
+        )
+        self.option_staff_dept_add.pack(side="left", padx=(0, 5))
+
+        self.entry_staff_department = ctk.CTkEntry(add_input_frame2, placeholder_text="หรือระบุสังกัดเอง...", height=32, font=ctk.CTkFont(size=13))
+        self.entry_staff_department.pack(side="left", fill="x", expand=True)
 
         # ปุ่มนำเข้ายกโฟลเดอร์อัตโนมัติ
         btn_batch_import = ctk.CTkButton(
@@ -3042,10 +3105,55 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_close.pack(side="right")
 
+    def sort_teacher_table(self, col_key):
+        """จัดเรียงตารางคุณครูตามคอลัมน์ที่เลือก (v6.34)"""
+        if self.teacher_sort_col == col_key:
+            self.teacher_sort_desc = not self.teacher_sort_desc
+        else:
+            self.teacher_sort_col = col_key
+            self.teacher_sort_desc = False
+        self.load_staff_list(refresh_db=False)
+
+    def on_teacher_tree_select(self, event=None):
+        """Handler เมื่อผู้ใช้คลิกเลือกแถวในตาราง Treeview ของคุณครู (v6.34)"""
+        if not hasattr(self, 'teacher_tree'):
+            return
+        selected = self.teacher_tree.selection()
+        if not selected:
+            return
+        item = selected[0]
+        vals = self.teacher_tree.item(item, "values")
+        if not vals or len(vals) < 4:
+            return
+        try:
+            staff_id = int(vals[0])
+        except (ValueError, TypeError):
+            return
+        staff_name = str(vals[1])
+        dept = str(vals[2])
+        try:
+            photo_count = int(vals[3])
+        except (ValueError, TypeError):
+            photo_count = 0
+        self.select_staff_item(staff_id, staff_name, photo_count, dept)
+
+    def on_dept_add_option_selected(self, val):
+        """Handler เมื่อเลือกตัวเลือกสังกัดในฟอร์มเพิ่มครูใหม่ (v6.34)"""
+        if not hasattr(self, 'entry_staff_department'):
+            return
+        if val == "(เลือกสังกัด)":
+            self.entry_staff_department.delete(0, "end")
+        elif val == "อื่นๆ (ระบุเอง)":
+            self.entry_staff_department.delete(0, "end")
+            self.entry_staff_department.focus_set()
+        else:
+            self.entry_staff_department.delete(0, "end")
+            self.entry_staff_department.insert(0, val)
+
     def load_staff_list(self, refresh_db=True):
-        # ลบวิดเจ็ตใน Scrollable Frame เก่าออก
-        for widget in self.staff_list_scrollable.winfo_children():
-            widget.destroy()
+        """โหลดรายชื่อคุณครู แสดงผลในตาราง Treeview พร้อมรองรับการเรียงลำดับและตัวกรองสังกัด (v6.34)"""
+        if hasattr(self, 'teacher_tree'):
+            self.teacher_tree.delete(*self.teacher_tree.get_children())
             
         self.staff_buttons = {}
         self.selected_staff_id = None
@@ -3062,53 +3170,78 @@ class FaceSearchApp(ctk.CTk):
         if hasattr(self, 'entry_staff_search'):
             search_term = self.entry_staff_search.get().strip().lower()
 
+        dept_filter = "ทั้งหมด (ทุกสังกัด)"
+        if hasattr(self, 'option_teacher_dept_filter'):
+            dept_filter = self.option_teacher_dept_filter.get()
+
         if refresh_db or getattr(self, '_cached_teachers_list', None) is None:
             self._cached_teachers_list = self.db.get_all_teachers()
-        staff = self._cached_teachers_list
-        rendered_count = 0
-        for idx, s in enumerate(staff):
-            dep = s.get('department', '') or ''
-            if search_term and (search_term not in s['name'].lower() and search_term not in dep.lower()):
-                continue
-            
-            if rendered_count >= 100:
-                lbl_more = ctk.CTkLabel(self.staff_list_scrollable, text="... แสดงเฉพาะ 100 รายการแรก (กรุณาค้นหาเพิ่มเติม) ...", text_color="#A2B5CD", font=ctk.CTkFont(size=13, slant="italic"))
-                lbl_more.pack(pady=5)
-                break
-                
-            rendered_count += 1
+        all_staff = self._cached_teachers_list or []
 
-            # สร้างเฟรมแถวรายชื่อครูแต่ละคนเพื่อความเรียบร้อยและใส่ปุ่มลบกากบาท X ได้
-            row_frame = ctk.CTkFrame(self.staff_list_scrollable, fg_color="transparent")
-            row_frame.pack(fill="x", pady=2)
+        # 1. กรองข้อมูลตามคำค้นหาและตัวกรองสังกัด
+        filtered_staff = []
+        for s in all_staff:
+            sid_str = str(s.get('id', ''))
+            sname = s.get('name', '') or ''
+            dep = clean_department_name(s.get('department', '') or '')
             
-            dep_badge = f" ({dep})" if dep else ""
-            btn = ctk.CTkButton(
-                row_frame, 
-                text=f"{s['name']}{dep_badge} • {s['photo_count']} รูป", 
-                anchor="w",
-                height=34,
-                font=ctk.CTkFont(size=14),
-                fg_color="transparent",
-                text_color="#A2B5CD",
-                hover_color="#1F3A60",
-                command=lambda sid=s['id'], sname=s['name'], scnt=s['photo_count'], sdep=dep: self.select_staff_item(sid, sname, scnt, sdep)
-            )
-            btn.pack(side="left", fill="x", expand=True)
-            self.staff_buttons[s['id']] = btn
-            
-            # ปุ่มกากบาทสีแดงสำหรับการลบข้อมูลคุณครูอย่างรวดเร็ว (Quick Delete)
-            btn_delete_x = ctk.CTkButton(
-                row_frame, 
-                text="❌", 
-                width=30, height=30,
-                fg_color="transparent",
-                hover_color="#E74C3C",
-                text_color="#E74C3C",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                command=lambda sid=s['id'], sname=s['name']: self.delete_selected_staff_by_id(sid, sname)
-            )
-            btn_delete_x.pack(side="right", padx=(5, 2))
+            # กรองสังกัด
+            if dept_filter != "ทั้งหมด (ทุกสังกัด)" and dep != dept_filter:
+                continue
+                
+            # กรองคำค้นหา
+            if search_term:
+                if (search_term not in sid_str.lower() and 
+                    search_term not in sname.lower() and 
+                    search_term not in dep.lower()):
+                    continue
+                    
+            filtered_staff.append({
+                "id": s.get('id', 0),
+                "name": sname,
+                "department": dep,
+                "photo_count": s.get('photo_count', 0),
+                "status": s.get('status', 'active')
+            })
+
+        # 2. จัดเรียงข้อมูลตามคอลัมน์ที่เลือก
+        sort_col = getattr(self, 'teacher_sort_col', 'id')
+        sort_desc = getattr(self, 'teacher_sort_desc', False)
+
+        if sort_col == "id":
+            sort_key = lambda x: int(x.get('id', 0))
+        elif sort_col == "name":
+            sort_key = lambda x: x.get('name', '').lower()
+        elif sort_col == "department":
+            sort_key = lambda x: x.get('department', '').lower()
+        elif sort_col == "photos":
+            sort_key = lambda x: int(x.get('photo_count', 0))
+        else:
+            sort_key = lambda x: int(x.get('id', 0))
+
+        sorted_staff = sorted(filtered_staff, key=sort_key, reverse=sort_desc)
+
+        # 3. อัปเดตหัวตารางพร้อมสัญลักษณ์ ▲ / ▼
+        if hasattr(self, 'teacher_tree'):
+            headings = {
+                "id": "ID",
+                "name": "ชื่อ-นามสกุล",
+                "department": "สังกัด",
+                "photos": "รูป"
+            }
+            for col_id, col_name in headings.items():
+                indicator = ""
+                if sort_col == col_id:
+                    indicator = " ▼" if sort_desc else " ▲"
+                self.teacher_tree.heading(col_id, text=f"{col_name}{indicator}", command=lambda c=col_id: self.sort_teacher_table(c))
+
+            # 4. บันทึกแถวลง Treeview
+            for s in sorted_staff:
+                sid = s['id']
+                sname = s['name']
+                sdep = s['department']
+                scnt = s['photo_count']
+                self.teacher_tree.insert("", "end", iid=str(sid), values=(sid, sname, sdep, scnt))
 
     def filter_staff_list(self, event=None, immediate=False):
         if getattr(self, "_staff_search_timer", None) is not None:
@@ -3131,22 +3264,28 @@ class FaceSearchApp(ctk.CTk):
             self._staff_search_timer = None
         if hasattr(self, 'entry_staff_search'):
             self.entry_staff_search.delete(0, "end")
-            self.load_staff_list(refresh_db=False)
+        if hasattr(self, 'option_teacher_dept_filter'):
+            self.option_teacher_dept_filter.set("ทั้งหมด (ทุกสังกัด)")
+        self.load_staff_list(refresh_db=False)
 
     def select_staff_item(self, staff_id, staff_name, photo_count, department=""):
         self.selected_staff_id = staff_id
         self.selected_staff_name = staff_name
-        self.selected_staff_department = department
+        self.selected_staff_department = clean_department_name(department)
         self.selected_thumb_paths = set()
         
-        # ไฮไลต์ปุ่มที่ถูกเลือก
-        for sid, btn in self.staff_buttons.items():
-            if sid == staff_id:
-                btn.configure(fg_color="#1F3A60", text_color="white")
-            else:
-                btn.configure(fg_color="transparent", text_color="#A2B5CD")
+        # เลือกแถวใน Treeview
+        if hasattr(self, 'teacher_tree'):
+            try:
+                iid_str = str(staff_id)
+                if self.teacher_tree.exists(iid_str):
+                    if self.teacher_tree.selection() != (iid_str,):
+                        self.teacher_tree.selection_set(iid_str)
+                        self.teacher_tree.see(iid_str)
+            except Exception:
+                pass
 
-        dep_info = f" ({department})" if department else ""
+        dep_info = f" ({self.selected_staff_department})" if self.selected_staff_department else ""
         self.lbl_selected_info.configure(text=f"คุณครูที่เลือก: {staff_name}{dep_info}")
         self.lbl_photo_count_detail.configure(text=f"รูปภาพที่ลงทะเบียนแล้วในระบบ: {photo_count} รูป")
         
@@ -3248,7 +3387,7 @@ class FaceSearchApp(ctk.CTk):
         threading.Thread(target=process_upload, daemon=True).start()
 
     def edit_selected_staff(self):
-        """แก้ไขชื่อและกลุ่มสาระ/สังกัดของคุณครู (v6.33)"""
+        """แก้ไขชื่อและสังกัดของคุณครู (v6.34)"""
         if self.selected_staff_id is None:
             return
 
@@ -3257,45 +3396,63 @@ class FaceSearchApp(ctk.CTk):
         old_department = getattr(self, 'selected_staff_department', '') or ""
 
         # ดึงข้อมูลล่าสุดจากฐานข้อมูล SQLite
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, COALESCE(department, '') FROM staff_members WHERE id = ?", (staff_id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            old_name = row[0] or old_name
-            old_department = row[1] or ""
+        staff_rec = self.db.get_staff_member_by_id(staff_id)
+        if staff_rec:
+            old_name = staff_rec.get("name") or old_name
+            old_department = clean_department_name(staff_rec.get("department") or old_department)
 
         # สร้างหน้าต่าง Popup Dialog
         dialog = ctk.CTkToplevel(self)
         dialog.title("แก้ไขข้อมูลคุณครู")
-        dialog.geometry("450x260")
+        dialog.geometry("480x290")
         dialog.resizable(False, False)
         dialog.transient(self)
         dialog.grab_set()
 
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 225
-        y = self.winfo_y() + (self.winfo_height() // 2) - 130
+        x = self.winfo_x() + (self.winfo_width() // 2) - 240
+        y = self.winfo_y() + (self.winfo_height() // 2) - 145
         dialog.geometry(f"+{x}+{y}")
 
-        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลคุณครู (v6.33)", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
+        ctk.CTkLabel(dialog, text="✏️ แก้ไขข้อมูลคุณครู (v6.34)", font=ctk.CTkFont(size=16, weight="bold"), text_color="#5CACEE").pack(pady=(15, 10))
 
         # ชื่อคุณครู
         frame_name = ctk.CTkFrame(dialog, fg_color="transparent")
         frame_name.pack(fill="x", padx=25, pady=6)
-        ctk.CTkLabel(frame_name, text="ชื่อคุณครู:", width=110, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        entry_name = ctk.CTkEntry(frame_name, width=260, font=ctk.CTkFont(size=13))
+        ctk.CTkLabel(frame_name, text="ชื่อคุณครู:", width=100, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        entry_name = ctk.CTkEntry(frame_name, width=280, font=ctk.CTkFont(size=13))
         entry_name.pack(side="left", fill="x", expand=True)
         entry_name.insert(0, old_name)
+        self.bind_universal_entry_shortcuts(entry_name)
 
-        # กลุ่มสาระ / สังกัด
+        # สังกัด
         frame_dep = ctk.CTkFrame(dialog, fg_color="transparent")
         frame_dep.pack(fill="x", padx=25, pady=6)
-        ctk.CTkLabel(frame_dep, text="กลุ่มสาระ/สังกัด:", width=110, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        entry_dep = ctk.CTkEntry(frame_dep, width=260, font=ctk.CTkFont(size=13))
-        entry_dep.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(frame_dep, text="สังกัด:", width=100, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        
+        entry_dep = ctk.CTkEntry(frame_dep, width=160, font=ctk.CTkFont(size=13))
         entry_dep.insert(0, old_department)
+
+        dept_options = ["(เลือกสังกัด)"] + SW_DEPARTMENTS
+        def on_edit_dept_select(val):
+            if val == "(เลือกสังกัด)":
+                entry_dep.delete(0, "end")
+            elif val == "อื่นๆ (ระบุเอง)":
+                entry_dep.delete(0, "end")
+                entry_dep.focus_set()
+            else:
+                entry_dep.delete(0, "end")
+                entry_dep.insert(0, val)
+
+        opt_dep = ctk.CTkOptionMenu(
+            frame_dep, values=dept_options, height=32, width=150, font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13), dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60",
+            command=on_edit_dept_select
+        )
+        opt_dep.set(old_department if old_department in SW_DEPARTMENTS else "(เลือกสังกัด)")
+        opt_dep.pack(side="left", padx=(0, 6))
+        entry_dep.pack(side="left", fill="x", expand=True)
+        self.bind_universal_entry_shortcuts(entry_dep)
 
         # ปุ่มบันทึกและยกเลิก
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -3303,20 +3460,18 @@ class FaceSearchApp(ctk.CTk):
 
         def save_teacher_changes():
             new_name = entry_name.get().strip()
-            new_dep = entry_dep.get().strip()
+            new_dep = clean_department_name(entry_dep.get().strip())
             if not new_name:
                 messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อคุณครู", parent=dialog)
                 return
 
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE staff_members SET name = ?, department = ? WHERE id = ?", (new_name, new_dep, staff_id))
-                conn.commit()
+            self.db.update_staff_member_full(staff_id, name=new_name, department=new_dep)
 
             self.selected_staff_name = new_name
             self.selected_staff_department = new_dep
             dep_info = f" ({new_dep})" if new_dep else ""
             self.lbl_selected_info.configure(text=f"คุณครูที่เลือก: {new_name}{dep_info}")
+            self._cached_teachers_list = None
             self.load_staff_list()
             dialog.destroy()
             messagebox.showinfo("สำเร็จ", "บันทึกการแก้ไขข้อมูลคุณครูเรียบร้อยแล้ว")
@@ -5780,6 +5935,15 @@ class FaceSearchApp(ctk.CTk):
         btn_refresh = ctk.CTkButton(control_frame, text="🔄 รีเฟรช", width=95, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.load_db_table_data(self.option_db_table.get(), page=1))
         btn_refresh.pack(side="left", padx=10, pady=15)
 
+        # ปุ่มแก้ไขข้อมูลแถวที่เลือก (v6.34)
+        self.btn_edit_db_record = ctk.CTkButton(
+            control_frame, text="✏️ แก้ไขแถวที่เลือก", width=155, height=36,
+            fg_color="#F39C12", hover_color="#D68910", text_color="#101B2B",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.show_db_record_edit_dialog
+        )
+        self.btn_edit_db_record.pack(side="left", padx=5, pady=15)
+
         # ปุ่มรีเซ็ตผลการจับคู่ของบุคคล
         self.btn_reset_matching = ctk.CTkButton(
             control_frame, text="🗑️ รีเซ็ตประวัติจับคู่", width=155, height=36,
@@ -5967,11 +6131,16 @@ class FaceSearchApp(ctk.CTk):
         self.run_manual_json_sync("all")
 
     def on_db_tree_double_click(self, event):
-        """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview เพื่อเปิดลิงก์รูปภาพบน Google Drive"""
+        """Handler สำหรับเมื่อผู้ใช้ดับเบิ้ลคลิกที่แถวใน Treeview: เปิดแก้ไขสำหรับ staff_members หรือเปิดลิงก์ Drive (v6.34)"""
         selected_items = self.db_tree.selection()
         if not selected_items:
             return
             
+        selected_table_text = self.option_db_table.get()
+        if "staff_members" in selected_table_text:
+            self.show_db_record_edit_dialog()
+            return
+
         item = selected_items[0]
         item_values = self.db_tree.item(item, "values")
         if not item_values:
@@ -6021,6 +6190,335 @@ class FaceSearchApp(ctk.CTk):
                 elif len(photo_id) >= 10:
                     # ถ้าค้นใน DB ไม่เจอ แต่หน้าตาเหมือน Drive File ID ให้เปิดตรงๆ
                     webbrowser.open(f"https://drive.google.com/file/d/{photo_id}/view")
+
+    def show_db_record_edit_dialog(self):
+        """เปิดหน้าต่างแก้ไขข้อมูลของแถวที่เลือกในฐานข้อมูล SQLite รองรับ staff_members และ scanned_photos (v6.34)"""
+        selected_items = self.db_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("คำเตือน", "กรุณาคลิกเลือกแถวข้อมูลที่ต้องการแก้ไขในตารางก่อน")
+            return
+
+        item = selected_items[0]
+        item_values = self.db_tree.item(item, "values")
+        if not item_values:
+            messagebox.showwarning("คำเตือน", "ไม่พบข้อมูลในแถวที่เลือก")
+            return
+
+        selected_table_text = self.option_db_table.get()
+
+        # =========================================================================
+        # CASE 1: ตาราง staff_members (ครู, นักเรียน, หรือ ตารางทั้งหมด: staff_members)
+        # =========================================================================
+        if "staff_members" in selected_table_text:
+            try:
+                staff_id = int(item_values[0])
+            except (ValueError, TypeError):
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถอ่านรหัส ID จากแถวข้อมูลได้: {item_values[0]}")
+                return
+
+            staff_rec = self.db.get_staff_member_by_id(staff_id)
+            if not staff_rec:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่พบข้อมูลบุคลากร ID: {staff_id} ในฐานข้อมูล")
+                return
+
+            # สร้าง Modal Dialog แก้ไขข้อมูลบุคลากร
+            dialog = ctk.CTkToplevel(self)
+            dialog.title(f"✏️ แก้ไขข้อมูลบุคลากร (ID: {staff_id}) - SQLite DB Editor")
+            dialog.geometry("560x650")
+            dialog.resizable(False, False)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() // 2) - 280
+            y = self.winfo_y() + (self.winfo_height() // 2) - 325
+            dialog.geometry(f"+{x}+{y}")
+
+            # หัวข้อ Dialog
+            ctk.CTkLabel(
+                dialog, text=f"✏️ แก้ไขข้อมูลบุคลากรใน SQLite (v6.34)",
+                font=ctk.CTkFont(size=18, weight="bold"), text_color="#5CACEE"
+            ).pack(pady=(15, 5))
+
+            ctk.CTkLabel(
+                dialog, text=f"รหัส ID ในระบบ: #{staff_id} • ตาราง staff_members",
+                font=ctk.CTkFont(size=13), text_color="#A2B5CD"
+            ).pack(pady=(0, 10))
+
+            form_scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent", height=490)
+            form_scroll.pack(fill="both", expand=True, padx=20, pady=5)
+
+            # 1. บทบาท (Role)
+            f_role = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_role.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_role, text="บทบาท (Role):", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            curr_role = (staff_rec.get("role") or "teacher").strip()
+            role_options = ["teacher", "student"]
+            if curr_role not in role_options:
+                role_options.append(curr_role)
+            opt_role = ctk.CTkOptionMenu(
+                f_role, values=role_options, height=32, font=ctk.CTkFont(size=13),
+                dropdown_font=ctk.CTkFont(size=13), dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60"
+            )
+            opt_role.set(curr_role)
+            opt_role.pack(side="left", fill="x", expand=True)
+
+            # 2. สถานะ (Status) - Dropdown active / inactive ตามที่ผู้ใช้ระบุ
+            f_status = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_status.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_status, text="สถานะ (Status):", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            curr_status = (staff_rec.get("status") or "active").strip()
+            status_options = ["active", "inactive"]
+            if curr_status not in status_options:
+                status_options.append(curr_status)
+            opt_status = ctk.CTkOptionMenu(
+                f_status, values=status_options, height=32, font=ctk.CTkFont(size=13),
+                dropdown_font=ctk.CTkFont(size=13), dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60"
+            )
+            opt_status.set(curr_status)
+            opt_status.pack(side="left", fill="x", expand=True)
+
+            # 3. ชื่อ-นามสกุล (Name)
+            f_name = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_name.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_name, text="ชื่อ-นามสกุล:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_name = ctk.CTkEntry(f_name, height=32, font=ctk.CTkFont(size=13))
+            entry_name.insert(0, staff_rec.get("name") or "")
+            entry_name.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_name)
+
+            # 4. หมวดในสังกัด (Department) - Dropdown 12 หมวดหมู่สวีวิทยา (ไม่มีคำว่ากลุ่มสาระ) + อื่นๆ
+            f_dept = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_dept.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_dept, text="หมวดในสังกัด:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            
+            curr_dept = clean_department_name(staff_rec.get("department") or "")
+            entry_dept = ctk.CTkEntry(f_dept, height=32, font=ctk.CTkFont(size=13), placeholder_text="ระบุสังกัด...")
+            entry_dept.insert(0, curr_dept)
+
+            dept_menu_values = ["(เลือกสังกัด)"] + SW_DEPARTMENTS
+            def on_dialog_dept_select(val):
+                if val == "(เลือกสังกัด)":
+                    entry_dept.delete(0, "end")
+                elif val == "อื่นๆ (ระบุเอง)":
+                    entry_dept.delete(0, "end")
+                    entry_dept.focus_set()
+                else:
+                    entry_dept.delete(0, "end")
+                    entry_dept.insert(0, val)
+
+            opt_dept = ctk.CTkOptionMenu(
+                f_dept, values=dept_menu_values, height=32, width=170, font=ctk.CTkFont(size=13),
+                dropdown_font=ctk.CTkFont(size=13), dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60",
+                command=on_dialog_dept_select
+            )
+            opt_dept.set(curr_dept if curr_dept in SW_DEPARTMENTS else "(เลือกสังกัด)")
+            opt_dept.pack(side="left", padx=(0, 6))
+            entry_dept.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_dept)
+
+            # 5. รหัสประจำตัว (Student ID / Staff Code)
+            f_sid = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_sid.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_sid, text="รหัสประจำตัว:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_sid = ctk.CTkEntry(f_sid, height=32, font=ctk.CTkFont(size=13), placeholder_text="เช่น 12345")
+            entry_sid.insert(0, staff_rec.get("student_id") or "")
+            entry_sid.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_sid)
+
+            # 6. ห้องเรียน / ระดับชั้น (Classroom)
+            f_class = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_class.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_class, text="ระดับชั้น / ห้องเรียน:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_class = ctk.CTkEntry(f_class, height=32, font=ctk.CTkFont(size=13), placeholder_text="เช่น ม.1/1")
+            entry_class.insert(0, staff_rec.get("class_room") or "")
+            entry_class.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_class)
+
+            # 7. ปีการศึกษาที่จบ (Graduation Year)
+            f_grad = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_grad.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_grad, text="ปีการศึกษาที่จบ:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_grad = ctk.CTkEntry(f_grad, height=32, font=ctk.CTkFont(size=13), placeholder_text="เช่น 2568")
+            entry_grad.insert(0, staff_rec.get("graduation_year") or "")
+            entry_grad.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_grad)
+
+            # 8. ปีการศึกษาที่เข้า (Entry Year)
+            f_entry = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_entry.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_entry, text="ปีการศึกษาที่เข้า:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_entry_yr = ctk.CTkEntry(f_entry, height=32, font=ctk.CTkFont(size=13), placeholder_text="เช่น 2566")
+            entry_entry_yr.insert(0, staff_rec.get("entry_year") or "")
+            entry_entry_yr.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_entry_yr)
+
+            # 9. Personal Threshold
+            f_thresh = ctk.CTkFrame(form_scroll, fg_color="transparent")
+            f_thresh.pack(fill="x", pady=5)
+            ctk.CTkLabel(f_thresh, text="Personal Threshold:", width=140, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_thresh = ctk.CTkEntry(f_thresh, height=32, font=ctk.CTkFont(size=13), placeholder_text="0.50")
+            entry_thresh.insert(0, str(staff_rec.get("personal_threshold") or 0.50))
+            entry_thresh.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_thresh)
+
+            # โซนปุ่มบันทึกและยกเลิก
+            f_btns = ctk.CTkFrame(dialog, fg_color="transparent")
+            f_btns.pack(fill="x", padx=20, pady=(10, 15))
+
+            def save_staff_record_changes():
+                new_name = entry_name.get().strip()
+                if not new_name:
+                    messagebox.showwarning("คำเตือน", "กรุณากรอกชื่อ-นามสกุล", parent=dialog)
+                    return
+
+                new_role = opt_role.get().strip()
+                new_status = opt_status.get().strip()
+                new_dept = clean_department_name(entry_dept.get().strip())
+                new_sid = entry_sid.get().strip()
+                new_cls = entry_class.get().strip()
+                new_grad = entry_grad.get().strip()
+                new_entry = entry_entry_yr.get().strip()
+                
+                try:
+                    new_pt = float(entry_thresh.get().strip())
+                except ValueError:
+                    messagebox.showwarning("คำเตือน", "Personal Threshold ต้องเป็นตัวเลข เช่น 0.50", parent=dialog)
+                    return
+
+                # บันทึกลง SQLite
+                success = self.db.update_staff_member_full(
+                    staff_id=staff_id,
+                    name=new_name,
+                    department=new_dept,
+                    status=new_status,
+                    role=new_role,
+                    student_id=new_sid,
+                    class_room=new_cls,
+                    personal_threshold=new_pt,
+                    graduation_year=new_grad,
+                    entry_year=new_entry
+                )
+
+                if success:
+                    self._cached_teachers_list = None
+                    self._db_cached_count_key = None
+                    if hasattr(self, 'load_staff_list'):
+                        self.load_staff_list(refresh_db=True)
+                    self.load_db_table_data(selected_table_text, page=self.db_current_page)
+                    dialog.destroy()
+                    messagebox.showinfo("สำเร็จ", f"บันทึกข้อมูลบุคลากร ID: {staff_id} ({new_name}) ลงฐานข้อมูล SQLite เรียบร้อยแล้ว")
+                else:
+                    messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง", parent=dialog)
+
+            btn_save = ctk.CTkButton(
+                f_btns, text="💾 บันทึกการแก้ไข", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+                fg_color="#2ECC71", hover_color="#27AE60", text_color="#101B2B",
+                command=save_staff_record_changes
+            )
+            btn_save.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+            btn_cancel = ctk.CTkButton(
+                f_btns, text="ยกเลิก", height=38, width=110, font=ctk.CTkFont(size=13),
+                fg_color="#34495E", hover_color="#2C3E50", command=dialog.destroy
+            )
+            btn_cancel.pack(side="right")
+
+        # =========================================================================
+        # CASE 2: ตาราง scanned_photos (ประวัติภาพถ่าย หรือ ตารางทั้งหมด: scanned_photos)
+        # =========================================================================
+        elif "scanned_photos" in selected_table_text:
+            photo_id = str(item_values[0]).strip()
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT photo_id, event_name, academic_year, drive_file_id FROM scanned_photos WHERE photo_id = ?", (photo_id,))
+            p_row = cursor.fetchone()
+            conn.close()
+
+            if not p_row:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่พบข้อมูลภาพถ่าย ID: {photo_id} ในฐานข้อมูล")
+                return
+
+            curr_event = p_row[1] or ""
+            curr_year = p_row[2] or ""
+            curr_fid = p_row[3] or ""
+
+            dialog = ctk.CTkToplevel(self)
+            dialog.title(f"✏️ แก้ไขข้อมูลภาพถ่าย ({photo_id}) - SQLite DB Editor")
+            dialog.geometry("500x320")
+            dialog.resizable(False, False)
+            dialog.transient(self)
+            dialog.grab_set()
+
+            self.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() // 2) - 250
+            y = self.winfo_y() + (self.winfo_height() // 2) - 160
+            dialog.geometry(f"+{x}+{y}")
+
+            ctk.CTkLabel(
+                dialog, text=f"✏️ แก้ไขข้อมูลภาพถ่ายใน SQLite (v6.34)",
+                font=ctk.CTkFont(size=18, weight="bold"), text_color="#5CACEE"
+            ).pack(pady=(15, 5))
+
+            ctk.CTkLabel(
+                dialog, text=f"Photo ID: {photo_id} • Drive File ID: {curr_fid}",
+                font=ctk.CTkFont(size=13), text_color="#A2B5CD"
+            ).pack(pady=(0, 15))
+
+            # ชื่อกิจกรรม (Event Name)
+            f_ev = ctk.CTkFrame(dialog, fg_color="transparent")
+            f_ev.pack(fill="x", padx=25, pady=6)
+            ctk.CTkLabel(f_ev, text="ชื่อกิจกรรม:", width=120, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_ev = ctk.CTkEntry(f_ev, height=34, font=ctk.CTkFont(size=13))
+            entry_ev.insert(0, curr_event)
+            entry_ev.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_ev)
+
+            # ปีการศึกษา (Academic Year)
+            f_yr = ctk.CTkFrame(dialog, fg_color="transparent")
+            f_yr.pack(fill="x", padx=25, pady=6)
+            ctk.CTkLabel(f_yr, text="ปีการศึกษา:", width=120, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            entry_yr = ctk.CTkEntry(f_yr, height=34, font=ctk.CTkFont(size=13), placeholder_text="เช่น 2568")
+            entry_yr.insert(0, curr_year)
+            entry_yr.pack(side="left", fill="x", expand=True)
+            self.bind_universal_entry_shortcuts(entry_yr)
+
+            # ปุ่มบันทึกและยกเลิก
+            f_btns2 = ctk.CTkFrame(dialog, fg_color="transparent")
+            f_btns2.pack(fill="x", padx=25, pady=(20, 15))
+
+            def save_photo_record_changes():
+                new_event = entry_ev.get().strip()
+                new_year = entry_yr.get().strip()
+                success = self.db.update_scanned_photo_record(photo_id, event_name=new_event, academic_year=new_year)
+                if success:
+                    self.load_db_table_data(selected_table_text, page=self.db_current_page)
+                    dialog.destroy()
+                    messagebox.showinfo("สำเร็จ", f"บันทึกข้อมูลภาพถ่าย {photo_id} เรียบร้อยแล้ว")
+                else:
+                    messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลได้", parent=dialog)
+
+            btn_save2 = ctk.CTkButton(
+                f_btns2, text="💾 บันทึกการแก้ไข", height=38, font=ctk.CTkFont(size=14, weight="bold"),
+                fg_color="#2ECC71", hover_color="#27AE60", text_color="#101B2B",
+                command=save_photo_record_changes
+            )
+            btn_save2.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+            btn_cancel2 = ctk.CTkButton(
+                f_btns2, text="ยกเลิก", height=38, width=110, font=ctk.CTkFont(size=13),
+                fg_color="#34495E", hover_color="#2C3E50", command=dialog.destroy
+            )
+            btn_cancel2.pack(side="right")
+
+        else:
+            messagebox.showinfo(
+                "ข้อมูล",
+                "ระบบแก้ไขข้อมูลแถวรองรับการแก้ไขตาราง:\n"
+                "1. รายชื่อคุณครู / รายชื่อนักเรียน / ตาราง staff_members ทั้งหมด\n"
+                "2. ประวัติภาพถ่ายกิจกรรม / ตาราง scanned_photos ทั้งหมด\n\n"
+                "สำหรับตารางอื่น ๆ เป็นตารางผลการคำนวณและเวกเตอร์ใบหน้า"
+            )
 
     def bind_universal_entry_shortcuts(self, entry_widget, on_change_callback=None):
         """
@@ -6285,8 +6783,11 @@ class FaceSearchApp(ctk.CTk):
                     self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
 
             elif "staff_members" in selected_table_text and "ครู" in selected_table_text:
-                # ตาราง staff_members (ครู) — v6.33 เพิ่ม department (กลุ่มสาระ/สังกัด)
-                sort_col_map = {"id": "ts.id", "name": "ts.name", "department": "ts.department", "photos": "photos"}
+                # ตาราง staff_members (ครู) — v6.34 เพิ่ม status และสังกัด (ตัดคำว่ากลุ่มสาระออก)
+                sort_col_map = {
+                    "id": "ts.id", "name": "ts.name", "department": "ts.department",
+                    "status": "ts.status", "photos": "photos"
+                }
                 order_by = f"ORDER BY {sort_col_map.get(self.db_sort_col, 'ts.id')} {sort_dir}"
 
                 if search_query:
@@ -6294,52 +6795,58 @@ class FaceSearchApp(ctk.CTk):
                         SELECT COUNT(s.id)
                         FROM staff_members s
                         WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ?)
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
+                          AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ? OR COALESCE(s.status, '') LIKE ?)
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
 
                     cursor.execute(f"""
                         WITH top_staff AS (
                             SELECT s.id, s.name, COALESCE(s.department, '') as department,
+                                   COALESCE(s.status, 'active') as status,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
-                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ?)
+                              AND (CAST(s.id AS TEXT) LIKE ? OR s.name LIKE ? OR COALESCE(s.department, '') LIKE ? OR COALESCE(s.status, '') LIKE ?)
                         )
-                        SELECT ts.id, ts.name, ts.department, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
-                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
+                    """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", self.db_page_size, offset))
                 else:
                     total_rows = get_total_rows("SELECT COUNT(*) FROM staff_members WHERE role = 'teacher' OR role IS NULL OR role = ''")
 
                     cursor.execute(f"""
                         WITH top_staff AS (
                             SELECT s.id, s.name, COALESCE(s.department, '') as department,
+                                   COALESCE(s.status, 'active') as status,
                                    (SELECT COUNT(*) FROM staff_embeddings e WHERE e.staff_id = s.id) as photos
                             FROM staff_members s
                             WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
                         )
-                        SELECT ts.id, ts.name, ts.department, ts.photos
+                        SELECT ts.id, ts.name, ts.department, ts.status, ts.photos
                         FROM top_staff ts
                         {order_by}
                         LIMIT ? OFFSET ?
                     """, (self.db_page_size, offset))
                 rows = cursor.fetchall()
                 
-                self.db_tree["columns"] = ("id", "name", "department", "photos")
-                self.db_tree.column("id", width=80, anchor="center")
-                self.db_tree.column("name", width=300, anchor="w")
-                self.db_tree.column("department", width=200, anchor="w")
-                self.db_tree.column("photos", width=120, anchor="center")
+                self.db_tree["columns"] = ("id", "name", "department", "status", "photos")
+                self.db_tree.column("id", width=70, anchor="center")
+                self.db_tree.column("name", width=250, anchor="w")
+                self.db_tree.column("department", width=180, anchor="w")
+                self.db_tree.column("status", width=95, anchor="center")
+                self.db_tree.column("photos", width=110, anchor="center")
                 
                 set_tree_heading("id", "ID ครู")
                 set_tree_heading("name", "ชื่อ-นามสกุล คุณครู")
-                set_tree_heading("department", "กลุ่มสาระ / สังกัด")
-                set_tree_heading("photos", "จำนวนรูปที่ลงทะเบียน (รูป)")
+                set_tree_heading("department", "สังกัด")
+                set_tree_heading("status", "สถานะ")
+                set_tree_heading("photos", "จำนวนรูป (รูป)")
                 
                 for r in rows:
-                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in r])
+                    row_list = list(r)
+                    row_list[2] = clean_department_name(row_list[2])
+                    self.db_tree.insert("", "end", values=[fmt_cell(v) for v in row_list])
                     
             elif "staff_members" in selected_table_text and "นักเรียน" in selected_table_text:
                 # ตาราง staff_members (นักเรียน) — v6.29 เพิ่ม class_room, status, graduation_year
