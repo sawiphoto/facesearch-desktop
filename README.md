@@ -1,3 +1,126 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.40 (Full Member Inclusion & Department Fallback Suite)
+
+## 📋 Version 6.40 Changelog (Full Member Inclusion & Department Fallback Suite)
+
+**Date:** 21 ตุลาคม 2026 (14:35 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.40 (Full Member Inclusion & Department Fallback Suite)  
+**Core Technologies:** Full Member Inclusion Architecture (100% Name Seeding with Empty Photo Array `[]`), Automatic Department Fallback Mechanism ("อื่นๆ"), Zero-Empty Department Database Migration, Sharded Cloud Index Sync (`staff_index.json`, `former_staff_index.json`, `person_index.json`), Unit Test Suite TC-111 to TC-115 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การรวมรายชื่อบุคลากรทุกคนลงในดัชนีค้นหา JSON แม้ยังไม่มีภาพกิจกรรม (Full Member Inclusion):**
+   - ผู้ใช้ระบุความต้องการ: *"ตอนที่ sync index json ให้ sync ครบทุกรายชื่อนะครับ ใครไม่มีภาพก็ปล่อยว่างไว้แต่ใส่ชื่อลงไปด้วยนะ"*
+   - เดิมระบบดึงข้อมูลจากตารางผลการตรวจจับใบหน้า `detected_faces` เท่านั้น ทำให้คุณครูที่ยังไม่เคยมีรูปกิจกรรมในระบบหลุดหายไปจากไฟล์ดัชนี JSON (ครู Active หลุดไป 1 ท่าน และครู Inactive หลุดไป 27 ท่าน)
+2. **การจัดการบุคลากรที่ไม่ทราบสังกัดกลุ่มสาระการเรียนรู้ (Department Fallback to "อื่นๆ"):**
+   - ผู้ใช้สั่งการ: *"ครูท่านใดไม่ทราบสังกัดให้โยนไปไว้อื่นๆครับ"*
+   - ในฐานข้อมูลเดิมมีครูที่ไม่ระบุสังกัด (`department IS NULL OR department = ''`) อยู่ 8 ท่าน โดยครูต่างชาติ 2 ท่าน (Mr. Augustine Chukwu Onuh, Mr. Mathias Okyere) ผู้ใช้ได้กำหนดสังกัดเป็น "ภาษาต่างประเทศ" แล้ว ส่วนครูที่เหลืออีก 6 ท่าน (`นางนารีรัตน์ สุวรรณรงค์`, `นางสาวธนพา พรมกุล`, `นางสาวสาวิตรี ศรีช่วง`, `นางสุพิศ สุวรรณนิภา`, `นายประณีต วังนะรา`, `นายวิชิต ศิริพันธ์`) ต้องถูกปรับเป็นสังกัด `"อื่นๆ"`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงกระบวนการสกัดข้อมูลใน [`db_manager.py`](db_manager.py) (`get_sync_data_sharded`):**
+   - ทำการ Query รายชื่อสมาชิกทุกคนจากตาราง `staff_members` มาตั้งต้นใน Master Dictionary ก่อน:
+     - บุคลากรปัจจุบัน (`status != 'inactive'`): ตั้งต้นใน `active_staff` และ `teachers` เป็น `[]` (ครบ 122 ท่าน)
+     - อดีตบุคลากร (`status == 'inactive'`): ตั้งต้นใน `former_staff` เป็น `[]` (ครบ 46 ท่าน)
+     - นักเรียน: ตั้งต้นเป็น `{"photos": [], "years": [], "student_id": ...}`
+   - จากนั้นจึงนำภาพจาก `detected_faces` มา append ใส่เข้าไป
+   - ส่งผลให้ท่านที่ยังไม่มีรูปสแกนในระบบ จะถูกบันทึกเป็นอาร์เรย์ว่าง `[]` (เช่น `"นายวิชิต ศิริพันธ์": []`) ทำให้ค้นหารายชื่อพบบนเว็บพอร์ทัลครบถ้วน 100%
+2. **เพิ่มฟังก์ชันและ Migration กำหนดสังกัดเริ่มต้นเป็น "อื่นๆ":**
+   - เพิ่มเมธอด `assign_unassigned_teachers_to_other()` ใน `DatabaseManager`
+   - เพิ่ม Migration อัตโนมัติใน `init_db()` และปรับปรุง `register_staff_member` ให้กำหนดค่าเริ่มต้น `department = 'อื่นๆ'` เสมอ หากไม่มีการระบุสังกัด
+   - อัปเดตคุณครูทั้ง 6 ท่านให้มีสังกัดเป็น `"อื่นๆ"` ส่งผลให้จำนวนครูไร้สังกัดในระบบเป็น **0 ท่าน**
+3. **ซิงก์ดัชนี JSON ขึ้น Google Drive ครบถ้วน 100%:**
+   - `staff_index.json` บรรจุครูปัจจุบันครบทั้ง **122 ท่าน**
+   - `former_staff_index.json` บรรจุอดีตครูครบทั้ง **46 ท่าน**
+   - `person_index.json` บรรจุครูปัจจุบันครบทั้ง **122 ท่าน** (Dual-Write Legacy)
+   - รวมบุคลากรในดัชนีครบ **168 ท่านพอดี**
+4. **พัฒนาชุดทดสอบความถูกต้อง ([`test_teacher_department_other_suite.py`](test_teacher_department_other_suite.py)):**
+   - ผ่านการทดสอบครอบคลุม TC-111 ถึง TC-115 ครบถ้วน 100%
+5. **อัปเดตเวอร์ชัน v6.40 ข้ามระบบ:**
+   - Window Title และ Sidebar Logo บน [`app_gui.py`](app_gui.py)
+   - Manifest Version บน [`db_manager.py`](db_manager.py)
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การตั้งต้นรายชื่อบุคลากรทุกคน (Full Member Inclusion) ใน `get_sync_data_sharded` ([`db_manager.py`](db_manager.py)):
+**Before (ดึงเฉพาะผู้ที่พบใบหน้าใน `detected_faces` ทำให้ผู้ที่ไม่มีภาพกิจกรรมหลุดหาย):**
+```python
+active_students = {}
+alumni_students = {}
+active_staff = {}
+former_staff = {}
+teachers = {}
+
+for f in faces:
+    person_name = f[1]
+    ...
+```
+
+**After (ตั้งต้นดึงทุกคนจาก `staff_members` ก่อน เพื่อให้คนไม่มีรูปมีค่า `[]` ครบ 100%):**
+```python
+active_students = {}
+alumni_students = {}
+active_staff = {}
+former_staff = {}
+teachers = {}
+
+# ตั้งต้นรายชื่อสมาชิกทุกคนจาก staff_members เพื่อความสมบูรณ์ 100% (Full Member Inclusion - v6.40)
+cursor.execute("SELECT id, name, role, student_id, COALESCE(status, 'active') FROM staff_members ORDER BY name ASC")
+all_members = cursor.fetchall()
+for m in all_members:
+    m_name = m[1]
+    m_role = m[2] if m[2] else "teacher"
+    m_sid = m[3] if m[3] else ""
+    m_status = m[4] if m[4] else "active"
+
+    if m_role == "student":
+        target_dict = alumni_students if m_status == "graduated" else active_students
+        if m_name not in target_dict:
+            target_dict[m_name] = {"photos": [], "years": [], "student_id": m_sid}
+    else:
+        if m_status == "inactive":
+            if m_name not in former_staff:
+                former_staff[m_name] = []
+        else:
+            if m_name not in active_staff:
+                active_staff[m_name] = []
+            if m_name not in teachers:
+                teachers[m_name] = []
+
+for f in faces:
+    ...
+```
+
+#### 2. ฟังก์ชันกำหนดสังกัด "อื่นๆ" และ Migration ใน [`db_manager.py`](db_manager.py):
+**Before (ไม่มีฟังก์ชันและคำสั่ง Migration ป้องกันครูไร้สังกัด):**
+```python
+# ก่อนหน้าไม่มี assign_unassigned_teachers_to_other
+```
+
+**After (เพิ่มเมธอดและ Migration v6.40 ใน init_db):**
+```python
+def assign_unassigned_teachers_to_other(self):
+    """ปรับปรุงบุคลากรครูที่ไม่มีสังกัดกลุ่มสาระ ให้มีสังกัดเป็น 'อื่นๆ' (v6.40)"""
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE staff_members 
+            SET department = 'อื่นๆ' 
+            WHERE (role = 'teacher' OR role IS NULL OR role = '') 
+              AND (department IS NULL OR TRIM(department) = '' OR department = 'ไม่ระบุ')
+        """)
+        affected = cursor.rowcount
+        conn.commit()
+        return affected
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.39 (Staff Department & Inactive Matching Suite)
 
 ## 📋 Version 6.39 Changelog (Staff Department & Inactive Matching Suite)

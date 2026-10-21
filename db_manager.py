@@ -531,6 +531,19 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not clean department names: {e}")
 
+            # Migration v6.40: Assign unassigned teachers (empty/null department) to 'อื่นๆ'
+            try:
+                cursor.execute("""
+                    UPDATE staff_members 
+                    SET department = 'อื่นๆ' 
+                    WHERE (role = 'teacher' OR role IS NULL OR role = '') 
+                      AND (department IS NULL OR TRIM(department) = '' OR department = 'ไม่ระบุ')
+                """)
+                if cursor.rowcount > 0:
+                    logger.info(f"Executed database migration v6.40: assigned {cursor.rowcount} teachers to 'อื่นๆ'.")
+            except Exception as e:
+                logger.warning(f"Could not assign default department: {e}")
+
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
         
@@ -752,7 +765,7 @@ class DatabaseManager:
     def register_staff_member(self, name, department=""):
         """เพิ่มชื่อครูและคืนค่า ID (ตั้งค่า is_backfilled = 0 เพื่อให้ Task 3 ทำ Retroactive Match) พร้อมบันทึกสังกัด (v6.34)"""
         name_clean = (name or "").strip()
-        dep_clean = clean_department_name(department)
+        dep_clean = clean_department_name(department) or "อื่นๆ"
         with self.get_connection() as conn:
             cursor = conn.cursor()
             # ตรวจสอบว่ามีครูชื่อนี้อยู่แล้วหรือไม่
@@ -760,7 +773,7 @@ class DatabaseManager:
             existing = cursor.fetchone()
             if existing:
                 staff_id, curr_dep = existing[0], existing[1]
-                if dep_clean and (not curr_dep or curr_dep != dep_clean):
+                if not curr_dep or (dep_clean and dep_clean != "อื่นๆ" and curr_dep != dep_clean):
                     cursor.execute("UPDATE staff_members SET department = ? WHERE id = ?", (dep_clean, staff_id))
                     conn.commit()
                     logger.info(f"Updated department for existing staff member: {name_clean} -> {dep_clean}")
@@ -1257,6 +1270,25 @@ class DatabaseManager:
                 conn.rollback()
                 logger.error(f"[DATABASE] Error in batch_update_staff_departments_and_statuses: {e}")
                 raise e
+
+    def assign_unassigned_teachers_to_other(self):
+        """
+        ปรับปรุงบุคลากรครูที่ไม่มีสังกัดกลุ่มสาระ (เป็นค่าว่าง หรือ NULL) ให้มีสังกัดเป็น 'อื่นๆ' (v6.40)
+        คืนค่า: จำนวนแถวที่ได้รับการอัปเดต
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE staff_members 
+                SET department = 'อื่นๆ' 
+                WHERE (role = 'teacher' OR role IS NULL OR role = '') 
+                  AND (department IS NULL OR TRIM(department) = '' OR department = 'ไม่ระบุ')
+            """)
+            affected = cursor.rowcount
+            conn.commit()
+            if affected > 0:
+                logger.info(f"[DATABASE] Assigned {affected} unassigned teachers to department 'อื่นๆ' (v6.40).")
+            return affected
 
     def batch_promote_students(self, source_class, target_class):
         """เลื่อนชั้นเรียนนักเรียนทั้งห้อง (เช่น ม.1/1 -> ม.2/1) เฉพาะนักเรียนที่กำลังศึกษา (v6.29)"""
@@ -1836,12 +1868,40 @@ class DatabaseManager:
                 photos_by_shard[shard_key][pid] = entry
                 shard_counts[shard_key] += 1
 
-            # แยกกลุ่มนักเรียนและคุณครู (Sharded: Active Staff vs Former Staff - v6.38)
+            # แยกกลุ่มนักเรียนและคุณครู (Sharded: Active Staff vs Former Staff - v6.38/v6.40)
             active_students = {}
             alumni_students = {}
             active_staff = {}
             former_staff = {}
             teachers = {}  # สำหรับ Dual-Write Compatibility
+
+            # ตั้งต้นรายชื่อสมาชิกทุกคนจาก staff_members เพื่อความสมบูรณ์ 100% (Full Member Inclusion - v6.40)
+            # สมาชิกที่ยังไม่มีรูปสแกนในระบบ จะมีค่าเป็นอาร์เรย์ว่าง [] เสมอ เพื่อให้ค้นหาชื่อพบได้ครบทุกคน
+            cursor.execute("SELECT id, name, role, student_id, COALESCE(status, 'active') FROM staff_members ORDER BY name ASC")
+            all_members = cursor.fetchall()
+            for m in all_members:
+                m_name = m[1]
+                m_role = m[2] if m[2] else "teacher"
+                m_sid = m[3] if m[3] else ""
+                m_status = m[4] if m[4] else "active"
+
+                if m_role == "student":
+                    target_dict = alumni_students if m_status == "graduated" else active_students
+                    if m_name not in target_dict:
+                        target_dict[m_name] = {
+                            "photos": [],
+                            "years": [],
+                            "student_id": m_sid
+                        }
+                else:
+                    if m_status == "inactive":
+                        if m_name not in former_staff:
+                            former_staff[m_name] = []
+                    else:
+                        if m_name not in active_staff:
+                            active_staff[m_name] = []
+                        if m_name not in teachers:
+                            teachers[m_name] = []
 
             for f in faces:
                 person_name = f[1]
@@ -1890,7 +1950,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.39",
+                "version": "v6.40",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
