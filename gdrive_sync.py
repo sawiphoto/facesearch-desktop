@@ -10,6 +10,7 @@ from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.errors import HttpError, ResumableUploadError
 import gspread
 
 # ตั้งเวลา timeout 120 วินาที เพื่อรองรับการอัปโหลดไฟล์ดัชนี JSON ขนาดใหญ่ และป้องกัน connection drop บน Wi-Fi/เครือข่ายโรงเรียน (v6.35)
@@ -671,11 +672,11 @@ class GoogleSyncManager:
                                 logger.info(f"[GDRIVE JSON] Created new '{file_name}' (ID: {new_id}) on Drive.")
                                 return True
 
-                    except (socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, OSError) as net_err:
+                    except (socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, OSError, HttpError, ResumableUploadError) as net_err:
                         if attempt < max_retries:
                             wait_time = 2 * attempt
                             logger.warning(
-                                f"[GDRIVE JSON] Network/SSL glitch uploading '{file_name}' (Attempt {attempt}/{max_retries}): {net_err}. "
+                                f"[GDRIVE JSON] Network/API glitch uploading '{file_name}' (Attempt {attempt}/{max_retries}): {net_err}. "
                                 f"Healing connection pool and retrying in {wait_time}s..."
                             )
                             self.reconnect_drive_service()

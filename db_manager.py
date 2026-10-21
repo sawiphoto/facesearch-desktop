@@ -1235,6 +1235,29 @@ class DatabaseManager:
                 logger.error(f"[DATABASE] Error in batch_update_staff_status: {e}")
                 raise e
 
+    def batch_update_staff_departments_and_statuses(self, updates_list):
+        """
+        อัปเดตสังกัด (department) และสถานะ (status) ของบุคลากรแบบกลุ่มใน 1 Transaction (v6.39)
+        updates_list: [(department, status, staff_id), ...]
+        """
+        if not updates_list:
+            return 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.executemany(
+                    "UPDATE staff_members SET department = ?, status = ? WHERE id = ?",
+                    [(dept.strip(), status.strip(), sid) for dept, status, sid in updates_list]
+                )
+                affected = len(updates_list)
+                conn.commit()
+                logger.info(f"[DATABASE] Batch updated department and status for {affected} staff members (v6.39).")
+                return affected
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[DATABASE] Error in batch_update_staff_departments_and_statuses: {e}")
+                raise e
+
     def batch_promote_students(self, source_class, target_class):
         """เลื่อนชั้นเรียนนักเรียนทั้งห้อง (เช่น ม.1/1 -> ม.2/1) เฉพาะนักเรียนที่กำลังศึกษา (v6.29)"""
         if not source_class or not target_class:
@@ -1867,7 +1890,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.38",
+                "version": "v6.39",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

@@ -1,3 +1,147 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.39 (Staff Department & Inactive Matching Suite)
+
+## 📋 Version 6.39 Changelog (Staff Department & Inactive Matching Suite)
+
+**Date:** 21 ตุลาคม 2026 (14:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.39 (Staff Department & Inactive Matching Suite)  
+**Core Technologies:** Google Drive API Integration (`1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI`), Batch Database Updating (`batch_update_staff_departments_and_statuses`), Name Normalization & Cross-Referencing Engine, Drive API Self-Healing & Transient HttpError/ResumableUpload Auto-Retry, Multi-Shard Index Cloud Synchronization, Automated Test Suite TC-106 to TC-110 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การจับคู่สังกัดกลุ่มสาระและสถานะบุคลากรจาก Google Drive สู่ SQLite Database:**
+   - ผู้ใช้ต้องการให้เข้าตรวจสอบโฟลเดอร์ Google Drive "บุคลากรโรงเรียน" (`1m45wZdZebU0jDrhCYKp3mu18_rTuTzwI`) แล้วทำการจับคู่ (Match) สังกัดกลุ่มสาระ และสถานะ (`active` / `inactive`) ลงในฐานข้อมูล SQLite (`data/faces_db.db`)
+   - กำหนดให้บุคลากรที่มีรายชื่อหรือไฟล์ภาพอยู่ในโฟลเดอร์ย่อย "อดีตบุคลากร" มีสถานะเป็น `inactive`
+   - พร้อมรายงานผลการดำเนินการและระบุว่ามีบุคลากรท่านใดที่มีปัญหาหรือกรณีพิเศษ
+2. **การจัดการไฟล์ภาพซ้ำซ้อนและไฟล์สำเนา (Duplicate & Copy Resolution):**
+   - ใน Google Drive มีไฟล์สำเนา ("สำเนาของ ...") และมีบุคลากร 4 ท่านปรากฏทั้งในโฟลเดอร์กลุ่มสาระปัจจุบันและในโฟลเดอร์ย่อยอดีตบุคลากร
+   - ระบบต้องมีกลไกตรวจสอบและให้สถานะอดีตบุคลากร (`inactive`) มีผลแทนที่ (Precedence)
+3. **การป้องกันปัญหา Transient Errors ระหว่างการอัปโหลดดัชนี JSON บน Google Drive:**
+   - การเชื่อมต่อ Google Drive API อาจพบข้อผิดพลาดชั่วคราว HTTP 500 (Internal Error) หรือ `ResumableUploadError` จากเครือข่าย ซึ่งเดิมไม่ได้รวมอยู่ในชุดข้อยกเว้นสำหรับลองใหม่อัตโนมัติ (Retryable Exceptions)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **สแกนและวิเคราะห์โครงสร้างโฟลเดอร์ Google Drive อย่างละเอียด:**
+   - ตรวจสอบโฟลเดอร์หลัก "บุคลากรโรงเรียน" พบ 12 โฟลเดอร์กลุ่มสาระปัจจุบัน และ 1 โฟลเดอร์ "อดีตบุคลากร" (ซึ่งมีโฟลเดอร์ย่อย 6 โฟลเดอร์: ภาษาต่างประเทศ, วิทยาศาสตร์และเทคโนโลยี, คณิตศาสตร์, อื่นๆ, ภาษาไทย, ผู้บริหาร)
+   - สกัดรายชื่อบุคลากรทั้งหมด 133 ท่าน (ตัดส่วนขยายไฟล์, คำนำหน้า "สำเนาของ", ตัวเลขวงเล็บ และปรับช่องว่างให้เป็นมาตรฐาน)
+2. **ตรวจพบและจัดการกรณีพิเศษ 4 ท่าน (สำเนาในโฟลเดอร์อดีตบุคลากร):**
+   - บุคลากร 4 ท่านที่ปรากฏซ้ำทั้งโฟลเดอร์ปกติและโฟลเดอร์อดีตบุคลากร:
+     1. `นายธนา เทพวารินทร์` (กลุ่มสาระภาษาต่างประเทศ)
+     2. `นางศิโรรัตน์ เปรมไธสง` (กลุ่มสาระวิทยาศาสตร์และเทคโนโลยี)
+     3. `นายพงศกร ยังสวัสดิ์` (กลุ่มสาระคณิตศาสตร์)
+     4. `นางสาวสุดารัตน์ เสนสิงห์` (กลุ่มสาระภาษาไทย)
+   - ดำเนินการตามข้อกำหนด: กำหนดสถานะเป็น `inactive` (อดีตบุคลากร) และคงสังกัดกลุ่มสาระเดิมไว้อย่างถูกต้อง
+3. **จับคู่และอัปเดตข้อมูลลงฐานข้อมูล SQLite แบบ Batch (`batch_update_staff_departments_and_statuses`):**
+   - บุคลากรจาก Google Drive 133 ท่าน แมตช์ตรงกับ SQLite ครบถ้วน 100% (133/133 ท่าน, 0 Missing)
+   - สรุปสถานะบุคลากรใน SQLite หลังอัปเดต:
+     - บุคลากรปัจจุบัน (`status = 'active'`): 122 ท่าน (120 ท่านจาก Drive + 2 ท่านครูต่างชาติเดิมใน DB)
+     - อดีตบุคลากร (`status = 'inactive'`): 46 ท่าน (13 ท่านจาก Drive + 33 ท่านเดิมใน DB)
+     - รวมทั้งสิ้น: 168 ท่าน
+4. **เพิ่มระบบ Self-Healing รองรับ HttpError และ ResumableUploadError ใน [`gdrive_sync.py`](gdrive_sync.py):**
+   - เพิ่ม `HttpError` และ `ResumableUploadError` ใน Exception Handler ของ `upload_overwrite_json` เพื่อรองรับ Exponential Backoff Auto-Retry ทันทีเมื่อเกิด HTTP 500/503 จาก Google Drive
+5. **ซิงก์ดัชนี JSON ขึ้น Google Drive ครบถ้วน 100%:**
+   - ดัชนี `staff_index.json`, `former_staff_index.json`, `person_index.json` และ Sharded Photo Manifest ถูกอัปเดตขึ้นคลาวด์สมบูรณ์
+6. **อัปเดตเลขเวอร์ชัน v6.39 ข้ามระบบและพัฒนาชุดทดสอบความถูกต้อง:**
+   - Window Title และ Sidebar Logo ใน [`app_gui.py`](app_gui.py) แสดง `v6.39`
+   - Manifest Version ใน [`db_manager.py`](db_manager.py) แสดง `v6.39`
+   - พัฒนาชุดทดสอบ [`test_department_and_status_sync_suite.py`](test_department_and_status_sync_suite.py) (TC-106 ถึง TC-110) ผ่านการทดสอบ 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. ฟังก์ชัน Batch Update สังกัดและสถานะบุคลากรใน [`db_manager.py`](db_manager.py):
+**Before (ไม่มีเมธอดสำหรับการอัปเดตกลุ่มสาระและสถานะพร้อมกันแบบ Batch Transaction):**
+```python
+# ก่อนหน้าไม่มีฟังก์ชัน batch_update_staff_departments_and_statuses
+# ต้องวนลูปรันคำสั่ง UPDATE ทีละแถวเดี่ยว
+```
+
+**After (เพิ่ม batch_update_staff_departments_and_statuses พร้อม Transaction Atomic Commit):**
+```python
+def batch_update_staff_departments_and_statuses(self, updates_list):
+    """
+    อัปเดตสังกัด (department) และสถานะ (status) ของบุคลากรแบบกลุ่ม (Batch) ใน Transaction เดียว (v6.39)
+    updates_list: list of tuple [(department, status, staff_id), ...]
+    คืนค่า: จำนวนแถวที่ได้รับผลกระทบ
+    """
+    if not updates_list:
+        return 0
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "UPDATE staff_members SET department = ?, status = ? WHERE id = ?",
+            updates_list
+        )
+        conn.commit()
+        logger.info(f"[DB] Batch updated {cursor.rowcount} staff departments and statuses successfully.")
+        return cursor.rowcount
+```
+
+#### 2. ระบบ Auto-Retry ป้องกัน HttpError และ ResumableUploadError ใน [`gdrive_sync.py`](gdrive_sync.py):
+**Before (ดักจับเฉพาะ Network Socket/SSL ไม่ดักจับ HttpError 500/503 ทำให้เกิดความล้มเหลวทันที):**
+```python
+except (socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, OSError) as net_err:
+    if attempt < max_retries:
+        wait_time = 2 * attempt
+        logger.warning(
+            f"[GDRIVE JSON] Network/SSL glitch uploading '{file_name}' (Attempt {attempt}/{max_retries}): {net_err}. "
+            f"Healing connection pool and retrying in {wait_time}s..."
+        )
+        self.reconnect_drive_service()
+        time.sleep(wait_time)
+```
+
+**After (ครอบคลุม HttpError และ ResumableUploadError พร้อม Exponential Backoff):**
+```python
+from googleapiclient.errors import HttpError, ResumableUploadError
+
+...
+except (socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, OSError, HttpError, ResumableUploadError) as net_err:
+    if attempt < max_retries:
+        wait_time = 2 * attempt
+        logger.warning(
+            f"[GDRIVE JSON] Network/API glitch uploading '{file_name}' (Attempt {attempt}/{max_retries}): {net_err}. "
+            f"Healing connection pool and retrying in {wait_time}s..."
+        )
+        self.reconnect_drive_service()
+        time.sleep(wait_time)
+```
+
+#### 3. สคริปต์จับคู่และตรวจสอบรายชื่อจาก Google Drive ([`execute_department_and_status_sync.py`](execute_department_and_status_sync.py)):
+**Before (ไม่มีสคริปต์เฉพาะกิจสำหรับการจับคู่และซิงก์สังกัด/สถานะบุคลากร):**
+```python
+# ไม่เคยมีสคริปต์ execute_department_and_status_sync.py
+```
+
+**After (สร้างสคริปต์สแกน ปรับชื่อมาตรฐาน และจับคู่อัตโนมัติ):**
+```python
+# สกัดชื่อและทำความสะอาด
+def clean_name(raw_name):
+    name = os.path.splitext(raw_name)[0]
+    name = re.sub(r"^สำเนาของ\s*", "", name)
+    name = re.sub(r"\s*\(\d+\)$", "", name)
+    name = re.sub(r"\s+\d+$", "", name)
+    return name.strip()
+
+# อดีตบุคลากรจะมีผลแทนที่สถานะ (Precedence)
+for t in former_drive_teachers:
+    norm = normalize_thai_name(t["cleaned_name"])
+    existing = all_drive_people.get(norm, {})
+    chosen_dept = t["dept"] if t["dept"] != "อื่นๆ" else existing.get("dept", t["dept"])
+    all_drive_people[norm] = {
+        "raw_name": t["cleaned_name"],
+        "dept": chosen_dept,
+        "status": "inactive",
+        "is_former": True
+    }
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.38 (Staff Index & Former Staff Sharding Suite)
 
 ## 📋 Version 6.38 Changelog (Staff Index & Former Staff Sharding Suite)
