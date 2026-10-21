@@ -4,13 +4,16 @@ import logging
 import io
 import time
 import socket
+import ssl
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import gspread
 
-# ตั้งเวลา timeout 30 วินาที ป้องกัน network call ค้างแบบไร้ขีดจำกัด
-socket.setdefaulttimeout(30)
+# ตั้งเวลา timeout 120 วินาที เพื่อรองรับการอัปโหลดไฟล์ดัชนี JSON ขนาดใหญ่ และป้องกัน connection drop บน Wi-Fi/เครือข่ายโรงเรียน (v6.35)
+socket.setdefaulttimeout(120)
 
 logger = logging.getLogger("FaceSearchApp")
 
@@ -59,10 +62,12 @@ class GoogleSyncManager:
             self.credentials = service_account.Credentials.from_service_account_file(
                 self.credentials_path, scopes=SCOPES
             )
-            self.drive_service = build('drive', 'v3', credentials=self.credentials)
+            # ตั้ง timeout 120s บนระดับ HTTP Client และปิด discovery cache
+            http = AuthorizedHttp(self.credentials, http=httplib2.Http(timeout=120))
+            self.drive_service = build('drive', 'v3', http=http, cache_discovery=False)
             self.gspread_client = gspread.authorize(self.credentials)
             self.connected = True
-            logger.info("Connected to Google Drive API & Sheets API successfully.")
+            logger.info("Connected to Google Drive API & Sheets API successfully (with 120s HTTP timeout).")
             
             if spreadsheet_id:
                 self.spreadsheet_id = spreadsheet_id
@@ -70,6 +75,29 @@ class GoogleSyncManager:
             return True
         except Exception as e:
             logger.error(f"Error connecting to Google Services: {e}", exc_info=True)
+            return False
+
+    def reconnect_drive_service(self):
+        """
+        สร้าง Drive API Service Client ใหม่เพื่อล้าง Socket Pool เก่าที่ตายแล้ว
+        (Self-Healing on Network/SSL Drop หรือเมื่อมีการสลับ Wi-Fi) v6.35
+        """
+        try:
+            if not self.credentials and os.path.exists(self.credentials_path):
+                self.credentials = service_account.Credentials.from_service_account_file(
+                    self.credentials_path, scopes=SCOPES
+                )
+            if self.credentials:
+                http = AuthorizedHttp(self.credentials, http=httplib2.Http(timeout=120))
+                with self.drive_lock:
+                    self.drive_service = build('drive', 'v3', http=http, cache_discovery=False)
+                logger.info("[GDRIVE] Refreshed Google Drive API client & reset connection pool successfully (v6.35).")
+                return True
+            else:
+                logger.warning("[GDRIVE] Cannot reconnect Drive API: credentials not loaded.")
+                return False
+        except Exception as re_err:
+            logger.warning(f"[GDRIVE] Failed to refresh Drive API client: {re_err}")
             return False
 
     def _execute_with_retry(self, func, max_retries=3, initial_delay=2):
@@ -542,7 +570,20 @@ class GoogleSyncManager:
                     formatted_shard[pid] = entry
                 formatted_shards[shard_key] = formatted_shard
 
-            # ฟังก์ชันช่วยอัปโหลดทับไฟล์เดิมบน Google Drive
+            # Pre-fetch existing file IDs in json_folder_id (1 Single API Call แทนที่จะยิง 10 ครั้ง ลด Roundtrip 50%)
+            existing_files_map = {}
+            try:
+                folder_query = f"'{json_folder_id}' in parents and trashed = false"
+                list_res = self.drive_service.files().list(
+                    q=folder_query, fields="files(id, name)", pageSize=100
+                ).execute()
+                for f in list_res.get("files", []):
+                    existing_files_map[f["name"]] = f["id"]
+                logger.info(f"[GDRIVE JSON] Pre-fetched {len(existing_files_map)} existing files from target folder cache.")
+            except Exception as cache_err:
+                logger.warning(f"[GDRIVE JSON] Could not pre-fetch folder files list: {cache_err}")
+
+            # ฟังก์ชันช่วยอัปโหลดทับไฟล์เดิมบน Google Drive พร้อมระบบ Self-Healing และ Auto-Retry 3 ครั้ง (v6.35)
             def upload_overwrite_json(file_name, data_dict, use_compact=True):
                 if use_compact:
                     json_content = json.dumps(data_dict, ensure_ascii=False, separators=(',', ':'))
@@ -552,92 +593,134 @@ class GoogleSyncManager:
                 content_bytes = json_content.encode('utf-8')
                 content_size_mb = len(content_bytes) / (1024 * 1024)
                 
-                # ค้นหา ID ของไฟล์เดิมในโฟลเดอร์ที่กำหนด (json_folder_id)
-                query = f"'{json_folder_id}' in parents and name = '{file_name}' and trashed = false"
-                search_results = self.drive_service.files().list(q=query, fields="files(id)").execute()
-                files = search_results.get("files", [])
-                
-                media = MediaIoBaseUpload(
-                    io.BytesIO(content_bytes),
-                    mimetype='application/json',
-                    resumable=True
-                )
-                
-                if files:
-                    file_id = files[0]['id']
-                    logger.info(f"[GDRIVE JSON] Updating existing file '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB)...")
-                    self.drive_service.files().update(
-                         fileId=file_id,
-                         media_body=media
-                    ).execute()
-                    logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
-                else:
-                    # ป้องกัน 403 Service Account Quota: ขอให้ Web App ช่วยสร้างไฟล์เปล่าเป็นของ sawiphoto@sawi.ac.th ก่อน
-                    logger.info(f"[GDRIVE JSON] File '{file_name}' not found in folder. Requesting placeholder creation via Web App...")
+                # Adaptive Resumable: ไฟล์ < 5MB ใช้ Simple Multipart Upload (resumable=False)
+                # เพื่อลด HTTP Roundtrips และป้องกัน Timeout จากการเจรจา Resumable Session (v6.35)
+                is_resumable = (content_size_mb >= 5.0)
+
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
                     try:
-                        import requests
-                        app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
-                        r = requests.get(app_url, params={'action': 'createPlaceholders', 'secret': 'sawi_sharding_2026', 'files': file_name}, timeout=30)
-                        if r.status_code == 200 and r.json().get('ok'):
+                        # สร้าง media stream ใหม่ในแต่ละรอบที่ retry เพื่อให้ pointer อยู่ที่จุดเริ่มต้นเสมอ
+                        media = MediaIoBaseUpload(
+                            io.BytesIO(content_bytes),
+                            mimetype='application/json',
+                            resumable=is_resumable
+                        )
+
+                        # ค้นหา ID ของไฟล์เดิมจาก Cache ก่อน
+                        file_id = existing_files_map.get(file_name)
+                        if not file_id:
+                            query = f"'{json_folder_id}' in parents and name = '{file_name}' and trashed = false"
                             search_results = self.drive_service.files().list(q=query, fields="files(id)").execute()
                             files = search_results.get("files", [])
-                    except Exception as ep:
-                        logger.warning(f"Could not request placeholder creation via Web App: {ep}")
+                            if files:
+                                file_id = files[0]['id']
+                                existing_files_map[file_name] = file_id
 
-                    if files:
-                        file_id = files[0]['id']
-                        logger.info(f"[GDRIVE JSON] Updating newly created placeholder '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB)...")
-                        self.drive_service.files().update(
-                             fileId=file_id,
-                             media_body=media
-                        ).execute()
-                        logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
-                    else:
-                        logger.info(f"[GDRIVE JSON] Creating new file '{file_name}' (Size: {content_size_mb:.2f} MB) in target folder '{json_folder_id}'...")
-                        file_metadata = {
-                            'name': file_name,
-                            'mimeType': 'application/json',
-                            'parents': [json_folder_id]
-                        }
-                        new_file = self.drive_service.files().create(
-                            body=file_metadata,
-                            media_body=media,
-                            fields='id'
-                        ).execute()
-                        logger.info(f"[GDRIVE JSON] Created new '{file_name}' (ID: {new_file.get('id')}) on Drive.")
+                        if file_id:
+                            logger.info(f"[GDRIVE JSON] Updating existing file '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB, Resumable: {is_resumable})...")
+                            self.drive_service.files().update(
+                                fileId=file_id,
+                                media_body=media
+                            ).execute()
+                            logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
+                            return True
+                        else:
+                            # ป้องกัน 403 Service Account Quota: ขอให้ Web App ช่วยสร้างไฟล์เปล่าเป็นของ sawiphoto@sawi.ac.th ก่อน
+                            logger.info(f"[GDRIVE JSON] File '{file_name}' not found in folder. Requesting placeholder creation via Web App...")
+                            try:
+                                import requests
+                                app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
+                                r = requests.get(app_url, params={'action': 'createPlaceholders', 'secret': 'sawi_sharding_2026', 'files': file_name}, timeout=30)
+                                if r.status_code == 200 and r.json().get('ok'):
+                                    search_results = self.drive_service.files().list(q=f"'{json_folder_id}' in parents and name = '{file_name}' and trashed = false", fields="files(id)").execute()
+                                    files = search_results.get("files", [])
+                                    if files:
+                                        file_id = files[0]['id']
+                                        existing_files_map[file_name] = file_id
+                            except Exception as ep:
+                                logger.warning(f"Could not request placeholder creation via Web App: {ep}")
+
+                            if file_id:
+                                logger.info(f"[GDRIVE JSON] Updating newly created placeholder '{file_name}' (ID: {file_id}, Size: {content_size_mb:.2f} MB)...")
+                                self.drive_service.files().update(
+                                    fileId=file_id,
+                                    media_body=media
+                                ).execute()
+                                logger.info(f"[GDRIVE JSON] Successfully updated '{file_name}' on Google Drive.")
+                                return True
+                            else:
+                                logger.info(f"[GDRIVE JSON] Creating new file '{file_name}' (Size: {content_size_mb:.2f} MB) in target folder '{json_folder_id}'...")
+                                file_metadata = {
+                                    'name': file_name,
+                                    'mimeType': 'application/json',
+                                    'parents': [json_folder_id]
+                                }
+                                new_file = self.drive_service.files().create(
+                                    body=file_metadata,
+                                    media_body=media,
+                                    fields='id'
+                                ).execute()
+                                new_id = new_file.get('id')
+                                if new_id:
+                                    existing_files_map[file_name] = new_id
+                                logger.info(f"[GDRIVE JSON] Created new '{file_name}' (ID: {new_id}) on Drive.")
+                                return True
+
+                    except (socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, OSError) as net_err:
+                        if attempt < max_retries:
+                            wait_time = 2 * attempt
+                            logger.warning(
+                                f"[GDRIVE JSON] Network/SSL glitch uploading '{file_name}' (Attempt {attempt}/{max_retries}): {net_err}. "
+                                f"Healing connection pool and retrying in {wait_time}s..."
+                            )
+                            self.reconnect_drive_service()
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"[GDRIVE JSON] ❌ Failed to upload '{file_name}' after {max_retries} attempts: {net_err}")
+                            return False
+                    except Exception as fatal_err:
+                        logger.error(f"[GDRIVE JSON] Unexpected error uploading '{file_name}': {fatal_err}", exc_info=True)
+                        return False
+                return False
 
             # พิจารณาการอัปโหลดตาม scan_mode
             upload_teachers = (scan_mode in ["all", "teachers", "selected_teachers"])
             upload_students = (scan_mode in ["all", "students", "selected_students"])
+            sync_results = {}
 
             # 1. ดัชนีครู (person_index.json)
             if upload_teachers:
-                upload_overwrite_json("person_index.json", teachers, use_compact=True)
+                sync_results["person_index.json"] = upload_overwrite_json("person_index.json", teachers, use_compact=True)
 
             # 2. ดัชนีนักเรียนแบบ Sharded และ Legacy
             if upload_students:
                 # Sharded Students
-                upload_overwrite_json("student_index_active.json", active_students, use_compact=True)
-                upload_overwrite_json("student_index_alumni.json", alumni_students, use_compact=True)
+                sync_results["student_index_active.json"] = upload_overwrite_json("student_index_active.json", active_students, use_compact=True)
+                sync_results["student_index_alumni.json"] = upload_overwrite_json("student_index_alumni.json", alumni_students, use_compact=True)
                 # Legacy Student Index (Dual-Write)
-                upload_overwrite_json("student_index.json", legacy_student_index, use_compact=True)
+                sync_results["student_index.json"] = upload_overwrite_json("student_index.json", legacy_student_index, use_compact=True)
 
             # 3. ดัชนีรูปภาพแบบ Sharded และ Manifest
             if upload_teachers or upload_students:
                 # Photo Manifest
-                upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
+                sync_results["photo_manifest.json"] = upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
                 
                 # Sharded Photo Files
                 year_file_map = manifest["year_file_map"]
                 for shard_key, shard_data in formatted_shards.items():
                     shard_filename = year_file_map.get(shard_key, f"photo_index_{shard_key}.json")
-                    upload_overwrite_json(shard_filename, shard_data, use_compact=True)
+                    sync_results[shard_filename] = upload_overwrite_json(shard_filename, shard_data, use_compact=True)
 
                 # Legacy Photo Index (Dual-Write)
-                upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
+                sync_results["photo_index.json"] = upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
 
-            logger.info("[GDRIVE JSON] All Sharded & Dual-Write JSON Indexes successfully synchronized.")
-            return True
+            failed_uploads = [fn for fn, ok in sync_results.items() if not ok]
+            if failed_uploads:
+                logger.warning(f"[GDRIVE JSON] Warning: {len(failed_uploads)}/{len(sync_results)} files encountered issues: {failed_uploads}")
+            else:
+                logger.info(f"[GDRIVE JSON] All {len(sync_results)} Sharded & Dual-Write JSON Indexes successfully synchronized.")
+            return len(failed_uploads) == 0
         except Exception as e:
             logger.error(f"[GDRIVE JSON] Error updating JSON search indexes: {e}", exc_info=True)
             return False

@@ -2037,3 +2037,121 @@ flowchart TD
 | **TC-84** | **DB Record Full Update (Status & Department)** | `db_manager.py` | ทดสอบ `update_staff_member_full` เปลี่ยน status เป็น `inactive` และเปลี่ยนสังกัด | ข้อมูลใน SQLite อัปเดตถูกต้อง ไม่เกิดข้อผิดพลาด |
 | **TC-85** | **12 School Departments Coverage & Clean Prefix** | `app_gui.py` | ตรวจสอบรายการ 12 หมวดหมู่ตัดคำว่า "กลุ่มสาระ" ออก 100% ตรงตามโฟลเดอร์จริง และรองรับ "อื่นๆ (ระบุเอง)" | รายการตรงกันครบถ้วน ไม่มีคำว่ากลุ่มสาระนำหน้า |
 | **TC-86** | **Version v6.34 & py_compile Parity** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเวอร์ชัน `v6.34` ทั่วทั้งระบบ | คอมไพล์ผ่าน 100% ปราศจาก Syntax/Runtime Error |
+
+---
+
+## 23. แผนงานแก้ไขปัญหา Task 3 Match ครูใหม่ Error: Socket Read Timeout & SSL SSLEOFError ใน Google Drive JSON Sync (v6.35)
+
+### 23.1 บทวิเคราะห์ต้นตอของปัญหา (Root Cause Analysis)
+
+จากบันทึกข้อผิดพลาด (Traceback) ที่ผู้ใช้พบในการรัน Task 3 (Sync New Teacher & Retroactive Matching):
+```
+[09:12:02] ERROR: [GDRIVE JSON] Error updating JSON search indexes: The read operation timed out
+Traceback (most recent call last):
+  File "D:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\gdrive_sync.py", line 634, in update_json_indexes_on_drive
+    upload_overwrite_json(shard_filename, shard_data, use_compact=True)
+  ...
+  TimeoutError: The read operation timed out
+
+[09:51:02] ERROR: [GDRIVE JSON] Error updating JSON search indexes: EOF occurred in violation of protocol (_ssl.c:2427)
+Traceback (most recent call last):
+  File "D:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\gdrive_sync.py", line 615, in update_json_indexes_on_drive
+    upload_overwrite_json("person_index.json", teachers, use_compact=True)
+  ...
+  ssl.SSLEOFError: EOF occurred in violation of protocol (_ssl.c:2427)
+```
+
+เมื่อทำการตรวจสอบโค้ดใน [`gdrive_sync.py`](gdrive_sync.py) และ [`app_gui.py`](app_gui.py) พบต้นตอสำคัญ 6 ประการ:
+
+1. **Global Socket Timeout สั้นเกินไป (30 วินาที):**
+   - ที่บรรทัดที่ 13 ของ [`gdrive_sync.py`](gdrive_sync.py) มีคำสั่ง `socket.setdefaulttimeout(30)` ซึ่งครอบคลุมทุก Socket ในโปรเซส
+   - เมื่อทำการอัปโหลดไฟล์ JSON ขนาดใหญ่ เช่น `photo_index_2568.json` หรือ `photo_index_archive.json` ที่มีขนาดหลายเมกะไบต์ หรือเมื่ออินเทอร์เน็ตโรงเรียนมีความหน่วง/แบนด์วิดท์จำกัด หากการอัปโหลดหรือรอตอบรับจาก Google Drive เกิน 30 วินาที จะเกิด `TimeoutError: The read operation timed out` ทันที
+2. **การนำ Socket ที่ขาดไปแล้วกลับมาใช้ซ้ำใน `httplib2` ก่อให้เกิด `SSLEOFError`:**
+   - เมื่อเกิด `TimeoutError` หรือการตัดการเชื่อมต่อ Socket ระดับเครือข่าย ไลบรารี `httplib2` (ที่ `googleapiclient` ใช้งานอยู่ภายใน) จะยังคงเก็บ Connection เก่าไว้ใน Connection Pool
+   - เมื่อผู้ใช้รันคำสั่งใหม่อีกครั้ง `httplib2` จะพยายามส่งข้อมูลผ่าน Socket เดิมที่ปิดไปแล้วทางฝั่ง Server ทำให้ OpenSSL ฟ้อง `ssl.SSLEOFError: EOF occurred in violation of protocol` ทันที และจะค้างจนกว่าจะรีสตาร์ตโปรแกรม
+3. **ฟังก์ชัน `upload_overwrite_json` ไม่มีระบบลองใหม่อัตโนมัติ (No Retry Loop) และไม่มีระบบเยียวยาการเชื่อมต่อ (No Connection Healing):**
+   - ใน `upload_overwrite_json` มีการเรียก `self.drive_service.files().list()`, `files().update()`, และ `files().create()` แบบดิบๆ โดยไม่มี Exponential Backoff Retry หากเกิดสะดุดแม้เพียง 1 ครั้ง กระบวนการอัปเดตดัชนีทั้งหมดจะหลุดล้มเหลวทันที
+4. **การค้นหาไฟล์ซ้ำซ้อนแบบ N ครั้ง (Redundant `files().list()` Queries):**
+   - ทุกครั้งที่อัปโหลดไฟล์ 1 ไฟล์ (เช่น 10 ไฟล์ย่อย) โค้ดจะส่งคำสั่ง `files().list()` ไปค้นหา ID บน Drive 10 รอบ = 10 Network Requests ทำให้เสียเวลารวม และเพิ่มโอกาสเกิด Timeout สูงขึ้นถึง 10 เท่า
+5. **การใช้ `resumable=True` ตลอดเวลาสำหรับไฟล์ขนาดเล็ก:**
+   - สำหรับไฟล์ JSON ขนาดเล็ก (< 5 MB) การเปิด `resumable=True` ทำให้ต้องสร้าง Resumable Session เพิ่มอีก 1-2 HTTP Roundtrips ซึ่งไม่จำเป็น และเสี่ยงต่อการหลุดระหว่าง Handshake มากกว่าการอัปโหลดแบบ Simple/Multipart Upload
+6. **Task 3 ส่ง `scan_mode="all"` เกินความจำเป็น:**
+   - ใน [`app_gui.py`](app_gui.py) (`process_retroactive_match_headless` บรรทัด 4529) มีการเรียก `self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")` ทั้งที่ Task 3 มีการอัปเดตเฉพาะครูและรูปภาพที่ตรวจจับใบหน้าครูได้เพิ่ม ไม่ได้มีการแตะต้องข้อมูลนักเรียนเลย การอัปโหลดไฟล์นักเรียนทั้ง 3 ไฟล์ (`student_index_active.json`, `student_index_alumni.json`, `student_index.json`) จึงเป็นการเสียเวลาและเพิ่มภาระเครือข่ายโดยไม่จำเป็น
+
+---
+
+### 23.2 สถาปัตยกรรมและวิธีการแก้ไขที่ออกแบบ (Target Architecture & Solutions)
+
+```mermaid
+flowchart TD
+    A["Task 3: Match ครูใหม่ & Retroactive Matching"] --> B["process_retroactive_match_headless"]
+    B --> C["update_json_indexes_on_drive(scan_mode='teachers')"]
+    C --> D["One-Shot Folder Cache: files().list() 1 ครั้ง ได้ทุกไฟล์ในโฟลเดอร์"]
+    D --> E["วนลูปอัปโหลด JSON แต่ละไฟล์"]
+    E --> F{"ขนาดไฟล์ >= 5MB ?"}
+    F -- "ใช่" --> G["resumable = True (Chunked)"]
+    F -- "ไม่" --> H["resumable = False (Single Multipart Request)"]
+    G --> I["Adaptive Safe Upload with 3 Retries & Exponential Backoff"]
+    H --> I
+    I --> J{"พบ SSL / Timeout Error ?"}
+    J -- "ไม่พบ" --> K["อัปโหลดสำเร็จ (Next File)"]
+    J -- "พบ" --> L["reconnect_drive_service() รีเซ็ต Socket Pool ใหม่สด"]
+    L --> M["Exponential Sleep (2s, 4s, 8s)"]
+    M --> I
+```
+
+---
+
+### 23.3 ขั้นตอนการดำเนินงานอย่างละเอียดทีละข้อ (Step-by-Step Implementation Steps)
+
+#### ข้อที่ 1: ขยาย Timeout และกำหนดค่าการเชื่อมต่อ Google API อย่างยืดหยุ่น ([`gdrive_sync.py`](gdrive_sync.py))
+- ปรับเปลี่ยน `socket.setdefaulttimeout(30)` ให้เป็น `120` วินาที (ขยายจาก 30s เป็น 2 นาที เพื่อรองรับการอัปโหลดไฟล์ JSON สารบัญภาพสะสมหลายปี)
+- เพิ่มเมธอด `reconnect_drive_service()` ในคลาส `GoogleSyncManager`:
+  - เมื่อถูกเรียก จะทำการสร้างออบเจ็กต์ `self.drive_service` ใหม่จาก `self.credentials` โดยใช้ `httplib2.Http(timeout=120)` เพื่อล้าง Cache Socket ที่ตายแล้วทิ้งทั้งหมด และเปิด SSL Session ใหม่ทันที
+
+#### ข้อที่ 2: เพิ่มระบบ Pre-fetch Folder Listing Cache (ลด Network Roundtrip 50%)
+- ใน `update_json_indexes_on_drive`:
+  - ก่อนเริ่มวนลูปอัปโหลดไฟล์ ให้ส่งคำสั่ง `files().list()` เพียงครั้งเดียว เพื่อดึงรายการไฟล์ JSON ทั้งหมดใน `json_folder_id` มาเก็บไว้ใน Dictionary:
+    ```python
+    existing_files_map = {f['name']: f['id'] for f in folder_files}
+    ```
+  - เมื่อ `upload_overwrite_json(file_name, ...)` ทำงาน สามารถนำ `file_id = existing_files_map.get(file_name)` ไปใช้งานได้ในทันทีในเวลา 0 ms โดยไม่ต้องส่ง `files().list()` ยิงไปยัง Google Drive ซ้ำๆ อีก 10 รอบ
+
+#### ข้อที่ 3: ยกเครื่อง `upload_overwrite_json` ให้ทนทานต่อ Timeout และ SSL SSLEOFError
+- ปรับปรุง `upload_overwrite_json`:
+  1. **Adaptive Resumable:** หาก `content_size_mb < 5.0` ให้ใช้ `resumable=False` เพื่อส่งไฟล์ใน 1 Request รวดเดียวจบ ป้องกัน Resumable Session Timeout
+  2. **Auto-Retry & Self-Healing Loop:** ครอบการอัปโหลดด้วยลูป Retry สูงสุด 3 ครั้ง:
+     - ดักจับ `(socket.timeout, TimeoutError, ssl.SSLEOFError, ssl.SSLError, ConnectionError, http.client.RemoteDisconnected)`
+     - เมื่อเกิดข้อผิดพลาด จะบันทึก Warning Log และสั่ง `self.reconnect_drive_service()` เพื่อคืนชีพการเชื่อมต่อใหม่
+     - รอตาม Exponential Backoff Delay (`2s`, `4s`, `8s`) แล้วลองอัปโหลดไฟล์เดิมซ้ำทันที
+  3. **Fault-Tolerant File Isolation:** หากไฟล์ใดยังไม่สามารถอัปโหลดได้หลังลองครบ 3 ครั้ง ระบบจะแจ้งเตือนและข้ามไปอัปโหลดไฟล์อื่นต่ออย่างปลอดภัย ไม่ทำให้ฟังก์ชันหยุดชะงักกลางคัน
+
+#### ข้อที่ 4: ปรับปรุงโหมดการซิงค์ของ Task 3 ให้ตรงจุด ([`app_gui.py`](app_gui.py))
+- ในฟังก์ชัน `process_retroactive_match_headless` ของ [`app_gui.py`](app_gui.py):
+  - เปลี่ยนพารามิเตอร์ `scan_mode="all"` เป็น `scan_mode="teachers"` เพื่อให้อัปเดตเฉพาะ `person_index.json` และ Sharded Photo Indexes ที่มีผลการจับคู่ใบหน้าครูเพิ่มขึ้นจริง ลดการอัปโหลดดัชนีนักเรียนที่ไม่เกี่ยวข้องลงได้ถึง 3 ไฟล์
+
+#### ข้อที่ 5: พัฒนาสวีททดสอบการทำงานจริง (Execution Path Runtime Verification: TC-87 ถึง TC-91)
+- สร้างไฟล์ทดสอบ `test_gdrive_sync_resilience_suite.py` ครอบคลุม:
+  - **TC-87:** ทดสอบ `reconnect_drive_service()` สามารถล้าง Socket เก่าและสร้าง Service ใหม่ได้สมบูรณ์
+  - **TC-88:** ทดสอบตรรกะ One-Shot Folder Listing Cache ค้นหา File ID ได้ใน O(1)
+  - **TC-89:** ทดสอบ Adaptive Resumable Toggle (ไฟล์ < 5MB ใช้ simple multipart, ไฟล์ >= 5MB ใช้ resumable)
+  - **TC-90:** ทดสอบ Retry & Backoff Loop เมื่อจำลองข้อผิดพลาด `TimeoutError` และ `SSLEOFError`
+  - **TC-91:** ตรวจสอบ Version v6.35 Parity และ `py_compile`
+
+#### ข้อที่ 6: อัปเดตเวอร์ชันและเอกสารระบบ (v6.35)
+- ปรับเวอร์ชันเป็น **v6.35 (Google Drive JSON Sync Resilience & Self-Healing Suite)** บน Window Title, Sidebar Logo, `db_manager.py`, `app_gui.py`, และ `gdrive_sync.py`
+- บันทึกประวัติการแก้ไขลงบนสุดของ `README.md`
+- ทำการ Commit และ Push ขึ้น Git Remote Repository (`https://github.com/sawiphoto/facesearch-desktop.git`)
+
+---
+
+### 23.4 ตารางกรณีทดสอบ (Test Cases Matrix: TC-87 ถึง TC-91)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-87** | **Drive Service Self-Healing Reconnect** | `gdrive_sync.py` | เรียกใช้ `reconnect_drive_service()` และตรวจสอบการสร้าง AuthorizedHttp ด้วย timeout 120s | Drive Service ถูกสร้างใหม่พร้อมใช้งาน Connection Pool สะอาด 100% |
+| **TC-88** | **One-Shot Folder Files Cache Lookup** | `gdrive_sync.py` | จำลองรายชื่อไฟล์ในโฟลเดอร์ และทดสอบการดึง ID โดยตรงผ่าน Map | ค้นหา File ID ได้ถูกต้องโดยไม่ต้องยิง `files().list()` ซ้ำ |
+| **TC-89** | **Adaptive Resumable Threshold (<5MB vs >=5MB)** | `gdrive_sync.py` | ทดสอบสร้าง MediaUpload สำหรับไฟล์ขนาด 2MB (ต้องได้ resumable=False) และ 6MB (ได้ resumable=True) | โหมด Upload ตรงตามเกณฑ์ความจุอย่างถูกต้อง |
+| **TC-90** | **Mock TimeoutError & SSLEOFError Recovery** | `gdrive_sync.py` | จำลองการยิง API ที่โยน TimeoutError ในรอบแรก และผ่านในรอบสอง | ระบบตรวจจับ error เรียก self-healing reconnect และ retry สำเร็จ |
+| **TC-91** | **Version v6.35 Parity & py_compile** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเวอร์ชัน `v6.35` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 100% ปราศจากข้อผิดพลาด |
+

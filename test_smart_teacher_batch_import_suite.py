@@ -271,8 +271,8 @@ def test_tc_80_version_and_py_compile():
     # 2. Check version string in app_gui.py
     with open("app_gui.py", "r", encoding="utf-8") as f:
         content = f.read()
-        assert ("v6.33" in content or "v6.34" in content), "Window title not updated"
-        assert ("SYSTEM v6.33" in content or "SYSTEM v6.34" in content), "Sidebar logo not updated"
+        assert any(v in content for v in ["v6.33", "v6.34", "v6.35"]), "Window title not updated"
+        assert any(v in content for v in ["SYSTEM v6.33", "SYSTEM v6.34", "SYSTEM v6.35"]), "Sidebar logo not updated"
     print("  -> TC-80 PASSED: Version and py_compile verified.")
 
 

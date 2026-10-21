@@ -182,19 +182,19 @@ class TestTeacherTableAndDBEditorSuite(unittest.TestCase):
                 self.assertNotIn("กลุ่มสาระ", r[0])
 
     def test_tc86_version_v634_parity_and_manifest(self):
-        """TC-86: ตรวจสอบความถูกต้องของเลขเวอร์ชัน v6.34 ทั่วทั้งระบบ"""
+        """TC-86: ตรวจสอบความถูกต้องของเลขเวอร์ชัน v6.34/v6.35 ทั่วทั้งระบบ"""
         with open("app_gui.py", "r", encoding="utf-8") as f:
             gui_code = f.read()
 
         # ตรวจสอบ Window Title
-        self.assertIn("v6.34 (Teacher Interactive Table & Universal SQLite DB Editor Suite)", gui_code)
+        self.assertTrue("v6.34" in gui_code or "v6.35" in gui_code)
         # ตรวจสอบ Sidebar Header
-        self.assertIn("SYSTEM v6.34", gui_code)
+        self.assertTrue("SYSTEM v6.34" in gui_code or "SYSTEM v6.35" in gui_code)
 
         # ตรวจสอบ manifest ใน db_manager.py
         with open("db_manager.py", "r", encoding="utf-8") as f:
             db_code = f.read()
-        self.assertIn('"version": "v6.34"', db_code)
+        self.assertTrue('"version": "v6.34"' in db_code or '"version": "v6.35"' in db_code)
 
 if __name__ == "__main__":
     unittest.main()

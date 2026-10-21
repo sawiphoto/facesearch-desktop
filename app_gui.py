@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.34 (Teacher Interactive Table & Universal SQLite DB Editor Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.35 (Google Drive JSON Sync Resilience & Self-Healing Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.34",
+            text="FACE MATCHING\nSYSTEM v6.35",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4521,13 +4521,13 @@ class FaceSearchApp(ctk.CTk):
             sync_data = self.db.get_all_sync_data()
             self.sync_manager.sync_to_google_sheet(sync_data)
             
-            # ซิงค์ดัชนี JSON 3 ไฟล์ขึ้น Google Drive (v5.00 Auto Sync)
+            # ซิงค์ดัชนี JSON ขึ้น Google Drive (v6.35 Optimized for Teachers)
             json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
             if not json_folder_id:
                 json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
-            logger.info("[SCHEDULE] 📤 กำลังซิงค์ดัชนี JSON 3 ไฟล์ขึ้น Google Drive ปิดท้าย...")
-            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
-            logger.info("[SCHEDULE] ✅ ซิงค์ดัชนี JSON 3 ไฟล์เรียบร้อยสมบูรณ์!")
+            logger.info("[SCHEDULE] 📤 กำลังซิงค์ดัชนี JSON คุณครูและภาพถ่ายขึ้น Google Drive ปิดท้าย...")
+            self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="teachers")
+            logger.info("[SCHEDULE] ✅ ซิงค์ดัชนี JSON คุณครูและภาพถ่ายเรียบร้อยสมบูรณ์!")
             
         except Exception as e:
             logger.error(f"[SCHEDULE] Error in retroactive match: {e}")
