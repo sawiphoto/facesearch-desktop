@@ -1,3 +1,83 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.37 (Teacher Inactive Scanning & Batch Deactivation Suite)
+
+## 📋 Version 6.37 Changelog (Teacher Inactive Scanning & Batch Deactivation Suite)
+
+**Date:** 21 ตุลาคม 2026 (12:05 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.37 (Teacher Inactive Scanning & Batch Deactivation Suite)  
+**Core Technologies:** Teacher Inactive Scan Retention Policy (`get_all_embeddings` includes all teachers regardless of status for historical archive search), Transaction-safe Batch Staff Status Update (`batch_update_staff_status`), 33 Target Teachers Deactivated to `inactive` (IDs 241-273), Non-Target Staff Integrity, Comprehensive Test Suite TC-97 to TC-100 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความต้องการปรับสถานะคุณครูที่อัปโหลดแบบกลุ่มล่าสุดให้เป็น `inactive`:**
+   - ผู้ใช้ตรวจพบว่าชุดข้อมูลคุณครูและบุคลากรที่อัปโหลดเข้ามาแบบกลุ่มล่าสุด (IDs 241 ถึง 273 รวมทั้งสิ้น 33 ท่าน ซึ่งอัปโหลดเข้ามาเมื่อวันที่ 21 ตุลาคม 2026 เวลา 09:07:40 น.) มีสถานะเป็น `active` ทั้งหมด และต้องการปรับให้เป็น `inactive` ให้หมด
+2. **ข้อกำหนดเฉพาะด้านการสแกนและจับคู่ใบหน้าของคุณครู (Teacher Inactive Retention Policy):**
+   - ผู้ใช้ระบุเงื่อนไขการทำงานชัดเจน: *"inactive สำหรับครูคือยังอยู่ในการสแกนนะครับ"*
+   - ในระบบเดิม เมื่อครูถูกปรับเป็น `inactive` จะถูกคัดออกจาก `get_all_embeddings(active_only=True)` ทำให้ไม่สามารถสแกนหรือค้นหาใบหน้าครูในภาพกิจกรรมหรือหอจดหมายเหตุได้
+   - ระบบต้องการนโยบายที่ว่า: สำหรับคุณครู แม้สถานะเป็น `inactive` (เช่น ครูเกษียณ ครูย้าย หรือพ้นสภาพ) ก็จะต้อง **ยังคงถูกนำไปสแกนและจับคู่ใบหน้าในภาพกิจกรรมเสมอ** เพื่อไม่ให้ข้อมูลทางประวัติศาสตร์สูญหาย ในขณะที่นักเรียนยังคงยึดตามวงจรชีวิตนักเรียนตามเดิม
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงตรรกะการดึง Embedding สแกนใบหน้า ([`db_manager.py`](db_manager.py)):**
+   - ในฟังก์ชัน `get_all_embeddings(active_only=True)` ปรับเงื่อนไข SQL:
+     - ส่วนคุณครู: `(s.role = 'teacher' OR s.role IS NULL OR s.role = '')` เพื่อให้ครูทุกท่านถูกนำเข้าสู่หน่วยความจำเพื่อสแกนใบหน้าเสมอ แม้สถานะจะเป็น `inactive`
+     - ส่วนนักเรียน: `(s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))` ยังคงสแกนเฉพาะนักเรียนปัจจุบัน
+2. **เพิ่มฟังก์ชันปรับสถานะบุคลากรแบบกลุ่มในฐานข้อมูล ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มเมธอด `batch_update_staff_status(self, staff_ids, new_status="inactive")` ดำเนินการผ่าน SQLite `executemany` ภายใต้ Transaction เดียวกันเพื่อความปลอดภัยระดับ ACID
+3. **ดำเนินการปรับสถานะคุณครูกลุ่มล่าสุด 33 ท่าน ([`data/faces_db.db`](data/faces_db.db)):**
+   - ปรับสถานะครู ID 241 ถึง 273 ทั้งหมด 33 ท่าน จาก `'active'` เป็น `'inactive'` ในฐานข้อมูลจริงเรียบร้อยครบ 100%
+4. **พัฒนาสวีททดสอบการทำงานจริง ([`test_batch_inactive_teachers_suite.py`](test_batch_inactive_teachers_suite.py)):**
+   - ผ่านการทดสอบครอบคลุม TC-97 ถึง TC-100 ครบ 100% และผลการทดสอบ Regression Suites ทั้งหมด 19/19 ผ่าน 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การปรับปรุงตรรกะ `get_all_embeddings` ให้คุณครูที่เป็น Inactive ยังคงอยู่ในระบบสแกนใบหน้า ([`db_manager.py`](db_manager.py)):
+**Before (ครูที่เป็น inactive ถูกตัดออกจากการสแกน):**
+```python
+WHERE (s.role = 'teacher' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+   OR (s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+```
+**After (v6.37 ครูทุกคนยังคงถูกนำไปสแกนใบหน้าเสมอ แม้สถานะเป็น inactive):**
+```python
+WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
+   OR (s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+```
+
+#### 2. ฟังก์ชัน `batch_update_staff_status` สำหรับอัปเดตสถานะบุคลากรแบบกลุ่ม ([`db_manager.py`](db_manager.py)):
+**Before (ไม่มีฟังก์ชันอัปเดตสถานะบุคลากรแบบกลุ่ม):**
+```python
+# มีเฉพาะ batch_update_student_status
+```
+**After (v6.37 เพิ่ม batch_update_staff_status ปลอดภัยด้วย Transaction):**
+```python
+def batch_update_staff_status(self, staff_ids, new_status="inactive"):
+    """อัปเดตสถานะของบุคลากร/ครูแบบกลุ่ม (เช่น ปรับเป็น inactive) ใน 1 Transaction (v6.37)"""
+    if not staff_ids:
+        return 0
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(
+                "UPDATE staff_members SET status = ? WHERE id = ?",
+                [(new_status.strip(), sid) for sid in staff_ids]
+            )
+            affected = len(staff_ids)
+            conn.commit()
+            logger.info(f"[DATABASE] Batch updated {affected} staff members to status='{new_status}' (IDs: {staff_ids[:5]}...)")
+            return affected
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[DATABASE] Error in batch_update_staff_status: {e}")
+            raise e
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.36 (Teacher Avatar Directory & Master-Detail Gallery Suite)
 
 ## 📋 Version 6.36 Changelog (Teacher Avatar Directory & Master-Detail Gallery Suite)

@@ -1215,6 +1215,26 @@ class DatabaseManager:
                 logger.error(f"[DATABASE] Error in batch_update_student_status: {e}")
                 raise e
 
+    def batch_update_staff_status(self, staff_ids, new_status="inactive"):
+        """อัปเดตสถานะของบุคลากร/ครูแบบกลุ่ม (เช่น ปรับเป็น inactive) ใน 1 Transaction (v6.37)"""
+        if not staff_ids:
+            return 0
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.executemany(
+                    "UPDATE staff_members SET status = ? WHERE id = ?",
+                    [(new_status.strip(), sid) for sid in staff_ids]
+                )
+                affected = len(staff_ids)
+                conn.commit()
+                logger.info(f"[DATABASE] Batch updated {affected} staff members to status='{new_status}' (IDs: {staff_ids[:5]}...)")
+                return affected
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[DATABASE] Error in batch_update_staff_status: {e}")
+                raise e
+
     def batch_promote_students(self, source_class, target_class):
         """เลื่อนชั้นเรียนนักเรียนทั้งห้อง (เช่น ม.1/1 -> ม.2/1) เฉพาะนักเรียนที่กำลังศึกษา (v6.29)"""
         if not source_class or not target_class:
@@ -1299,8 +1319,9 @@ class DatabaseManager:
             return deleted_count
 
     def get_all_embeddings(self, active_only=True):
-        """ดึงเวกเตอร์ทั้งหมดของครูและนักเรียนเพื่อใช้โหลดลงหน่วยความจำตอนเริ่มต้นโปรแกรม หรือตอนจับคู่ใบหน้า (v6.29)
-        active_only: หากเป็น True จะดึงเฉพาะครู และนักเรียนที่มีสถานะ 'active' (ข้ามศิษย์เก่า/จบการศึกษา)
+        """ดึงเวกเตอร์ทั้งหมดของครูและนักเรียนเพื่อใช้โหลดลงหน่วยความจำตอนเริ่มต้นโปรแกรม หรือตอนจับคู่ใบหน้า (v6.37)
+        active_only: หากเป็น True จะดึงคุณครูทั้งหมด (ทั้ง active และ inactive เพื่อสืบค้นภาพกิจกรรมหอจดหมายเหตุ)
+        และดึงเฉพาะนักเรียนที่มีสถานะ 'active' (ข้ามศิษย์เก่า/จบการศึกษา)
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -1310,7 +1331,7 @@ class DatabaseManager:
                            COALESCE(s.personal_threshold, 0.50), COALESCE(s.status, 'active'), COALESCE(s.class_room, '')
                     FROM staff_embeddings e
                     JOIN staff_members s ON e.staff_id = s.id
-                    WHERE (s.role = 'teacher' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
+                    WHERE (s.role = 'teacher' OR s.role IS NULL OR s.role = '')
                        OR (s.role = 'student' AND (s.status = 'active' OR s.status IS NULL OR s.status = ''))
                 """)
             else:
@@ -1835,7 +1856,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.36",
+                "version": "v6.37",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

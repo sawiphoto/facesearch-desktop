@@ -187,14 +187,14 @@ class TestTeacherTableAndDBEditorSuite(unittest.TestCase):
             gui_code = f.read()
 
         # ตรวจสอบ Window Title
-        self.assertTrue("v6.34" in gui_code or "v6.35" in gui_code or "v6.36" in gui_code)
+        self.assertTrue("v6.34" in gui_code or "v6.35" in gui_code or "v6.36" in gui_code or "v6.37" in gui_code)
         # ตรวจสอบ Sidebar Header
-        self.assertTrue("SYSTEM v6.34" in gui_code or "SYSTEM v6.35" in gui_code or "SYSTEM v6.36" in gui_code)
+        self.assertTrue("SYSTEM v6.34" in gui_code or "SYSTEM v6.35" in gui_code or "SYSTEM v6.36" in gui_code or "SYSTEM v6.37" in gui_code)
 
         # ตรวจสอบ manifest ใน db_manager.py
         with open("db_manager.py", "r", encoding="utf-8") as f:
             db_code = f.read()
-        self.assertTrue('"version": "v6.34"' in db_code or '"version": "v6.35"' in db_code or '"version": "v6.36"' in db_code)
+        self.assertTrue('"version": "v6.34"' in db_code or '"version": "v6.35"' in db_code or '"version": "v6.36"' in db_code or '"version": "v6.37"' in db_code)
 
 if __name__ == "__main__":
     unittest.main()
