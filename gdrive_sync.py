@@ -481,14 +481,16 @@ class GoogleSyncManager:
 
     def update_json_indexes_on_drive(self, sync_data, json_folder_id, scan_mode="all"):
         """
-        สร้างข้อมูลดัชนี JSON แบบ Sharded Architecture พร้อม Dual-Write (v6.30):
-        1. student_index_active.json (นักเรียนปัจจุบัน ~120 KB)
-        2. student_index_alumni.json (ศิษย์เก่า)
-        3. photo_index_YYYY.json (แยกรายปีการศึกษา เช่น 2569, 2568, 2567, 2566)
-        4. photo_index_archive.json (รูปภาพปีก่อนหน้า 2566 ลงไป)
-        5. photo_manifest.json (สารบัญระบุรายการปีและชื่อไฟล์สำหรับ Lazy Loading)
-        6. Dual-Write Legacy: student_index.json, photo_index.json, person_index.json
-        7. บีบอัดด้วย Compact JSON (separators=(',', ':')) ลดขนาดลง 15-20%
+        สร้างข้อมูลดัชนี JSON แบบ Sharded Architecture พร้อม Dual-Write (v6.30 / v6.38):
+        1. staff_index.json (บุคลากรปัจจุบัน ~15-30 KB - v6.38)
+        2. former_staff_index.json (อดีตบุคลากร/ย้าย/เกษียณ - v6.38)
+        3. student_index_active.json (นักเรียนปัจจุบัน ~120 KB)
+        4. student_index_alumni.json (ศิษย์เก่า)
+        5. photo_index_YYYY.json (แยกรายปีการศึกษา เช่น 2569, 2568, 2567, 2566...)
+        6. photo_index_archive.json (รูปภาพปีก่อนหน้าและรูปที่ไม่มีปี)
+        7. photo_manifest.json (สารบัญระบุรายการปีและชื่อไฟล์สำหรับ Lazy Loading)
+        8. Dual-Write Legacy: student_index.json, photo_index.json, person_index.json
+        9. บีบอัดด้วย Compact JSON (separators=(',', ':')) ลดขนาดลง 15-20%
         อัปโหลดทับ/สร้างในโฟลเดอร์ที่แอดมินกำหนด (json_folder_id)
         """
         if not self.connected or not self.drive_service:
@@ -511,7 +513,9 @@ class GoogleSyncManager:
 
             active_students = sharded_data["active_students"]
             alumni_students = sharded_data["alumni_students"]
-            teachers = sharded_data["teachers"]
+            active_staff = sharded_data.get("active_staff", sharded_data.get("teachers", {}))
+            former_staff = sharded_data.get("former_staff", {})
+            teachers = sharded_data.get("teachers", active_staff)
             photos_by_shard = sharded_data["photos_by_shard"]
             manifest = sharded_data["manifest"]
             legacy_photos = sharded_data["photos"]
@@ -689,8 +693,13 @@ class GoogleSyncManager:
             upload_students = (scan_mode in ["all", "students", "selected_students"])
             sync_results = {}
 
-            # 1. ดัชนีครู (person_index.json)
+            # 1. ดัชนีครู/บุคลากร (staff_index.json & former_staff_index.json + Dual-Write person_index.json - v6.38)
             if upload_teachers:
+                # Sharded Staff: ครูปัจจุบัน
+                sync_results["staff_index.json"] = upload_overwrite_json("staff_index.json", active_staff, use_compact=True)
+                # Sharded Former Staff: อดีตครู/ย้าย/เกษียณ
+                sync_results["former_staff_index.json"] = upload_overwrite_json("former_staff_index.json", former_staff, use_compact=True)
+                # Legacy Person Index (Dual-Write Compatibility)
                 sync_results["person_index.json"] = upload_overwrite_json("person_index.json", teachers, use_compact=True)
 
             # 2. ดัชนีนักเรียนแบบ Sharded และ Legacy

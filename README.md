@@ -1,3 +1,157 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.38 (Staff Index & Former Staff Sharding Suite)
+
+## 📋 Version 6.38 Changelog (Staff Index & Former Staff Sharding Suite)
+
+**Date:** 21 ตุลาคม 2026 (13:30 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.38 (Staff Index & Former Staff Sharding Suite)  
+**Core Technologies:** Multi-File Staff Sharding Architecture (`staff_index.json` for Active Staff & `former_staff_index.json` for Inactive Staff), Two-Way Dynamic Status Lifecycle (`active` ⇄ `inactive`), Dual-Write Legacy Guarantee (`person_index.json`), Google Drive Automated Placeholders Creation (`sawiphoto@sawi.ac.th`), Apps Script Teacher Portal v10.6 & Student Portal v2.2 Deployed, Comprehensive Test Suite TC-101 to TC-105 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การจำแนกประเภทดัชนีครูบน Google Drive (Staff Index Sharding):**
+   - เดิมระบบจัดเก็บดัชนีคุณครูรวมกันไว้ในไฟล์เดียวคือ `person_index.json` โดยไม่มีการแยกระหว่างคุณครูปัจจุบัน (Active Staff) กับอดีตคุณครู/ครูที่ย้าย/เกษียณอายุราชการ (Inactive/Former Staff)
+   - ผู้ใช้ต้องการ:
+     - เพิ่มไฟล์ดัชนีใหม่ **`former_staff_index.json`** ขึ้น Google Drive บรรจุเฉพาะคุณครูที่มีสถานะ `status == 'inactive'`
+     - เปลี่ยนชื่อไฟล์ `person_index.json` เป็น **`staff_index.json`** สำหรับคุณครูปัจจุบัน (`status != 'inactive'`)
+2. **การรองรับวงจรชีวิตสถานะแบบสองทางอัตโนมัติ (Two-Way Dynamic Status Lifecycle):**
+   - ผู้ใช้ระบุกรณีการทำงานจริง: *"มันมีกรณีเช่น ครูปัจจุบันย้ายโรงเรียนผมก็ปรับเป็น inactive ดังนั้นในการ sync ครั้งถัดไปข้อมูลครูท่านนี้ก็ไปอยู่ใน former นะครับ... จาก inactive มา active ก็ได้ด้วยนะ สมมติย้ายกลับมาดำรงตำแหน่งใหม่หนะ"*
+   - ระบบต้องยึดสถานะจริงจาก SQLite เป็น Single Source of Truth และคำนวณการจัดกลุ่มแบบ Real-Time อัตโนมัติทุกครั้งที่ซิงก์
+3. **การรักษาความเข้ากันได้แบบ Dual-Write Pattern (Zero-Downtime Backward Compatibility):**
+   - เพื่อป้องกันไม่ให้ไคลเอนต์เดิมหรือ Web App ที่แคชค้างเกิดข้อผิดพลาด 404 ระบบจะต้องสร้างและอัปโหลด `person_index.json` ควบคู่กันไปด้วยเสมอ
+4. **การรองรับบน Google Apps Script (`07.5 ระบบค้นหาใบหน้า appscript`):**
+   - อัปเกรด `DatabaseService.gs` ให้อ่าน `staff_index.json` เป็นหลัก (Fallback: `person_index.json`) และอ่าน `former_staff_index.json` พร้อมกัน
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงกระบวนการสกัดข้อมูลใน [`db_manager.py`](db_manager.py) (`get_sync_data_sharded`):**
+   - จัดกลุ่มคุณครู/บุคลากร:
+     - หาก `status == 'inactive'`: จัดเข้า `former_staff[person_name] = [photo_ids]`
+     - หาก `status != 'inactive'`: จัดเข้า `active_staff[person_name] = [photo_ids]`
+   - จัดเตรียม `teachers = active_staff` สำหรับ Dual-Write Compatibility กับ `person_index.json`
+   - เพิ่ม `staff_file: "staff_index.json"`, `former_staff_file: "former_staff_index.json"` และ `staff_counts: {"active": ..., "former": ...}` ลงใน `manifest`
+2. **ปรับปรุงการอัปโหลดไฟล์บน Google Drive ใน [`gdrive_sync.py`](gdrive_sync.py):**
+   - ใน `update_json_indexes_on_drive`:
+     - อัปโหลด `staff_index.json` (ครูปัจจุบันแบบ Compact JSON)
+     - อัปโหลด `former_staff_index.json` (อดีตครูแบบ Compact JSON)
+     - อัปโหลด `person_index.json` (Dual-Write Legacy แบบ Compact JSON)
+3. **สร้าง Placeholder ไฟล์ใหม่บน Google Drive ล่วงหน้า:**
+   - เรียก Web App Endpoint สร้าง Placeholder `staff_index.json` และ `former_staff_index.json` ภายใต้โควตาของบัญชี `sawiphoto@sawi.ac.th` ป้องกันข้อผิดพลาด 403 Google Service Account Quota
+4. **อัปเกรดตัวตรวจคำขอลบรูปภาพและตั้งค่าใน [`app_gui.py`](app_gui.py):**
+   - ใน `_load_cloud_indexes_for_delete_req`: โหลด `staff_index.json` (Fallback `person_index.json`) และผสานข้อมูลกับ `former_staff_index.json` เพื่อให้คำขอลบรูปภาพของทั้งครูปัจจุบันและอดีตครูทำงานได้ 100%
+   - อัปเดต Window Title และ Sidebar Logo Header เป็น **`v6.38`**
+5. **ปรับปรุงและ Deploy Google Apps Script ตามกฎ Rule 4:**
+   - ระบบค้นหาครู (`07.5`): ปรับปรุง `DatabaseService.gs` และ `Index.html` (Version `v10.6`), Deploy ไปยัง Deployment ID `AKfycby-QaHCIv2M7VCr4VRNsRtdYKbNaDD0fhJe1vLoJXJC1hOlWATuCpOWyIZGUur9oo0DUw` (@194)
+   - ระบบนักเรียน (`07.55`): ปรับปรุง `Routing.gs` (Version `v2.2`), Deploy ไปยัง Deployment ID `AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV` (@29)
+6. **พัฒนาและทดสอบจริงด้วยชุดทดสอบ ([`test_staff_and_former_staff_index_suite.py`](test_staff_and_former_staff_index_suite.py)):**
+   - ผ่านการทดสอบ TC-101 ถึง TC-105 ครบถ้วน 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การสกัดและแบ่งพาร์ทิชันบุคลากรใน `get_sync_data_sharded` ([`db_manager.py`](db_manager.py)):
+**Before (รวมครูทุกคนเข้าเป็นก้อนเดียวใน `teachers`):**
+```python
+# แยกกลุ่มนักเรียนและคุณครู
+active_students = {}
+alumni_students = {}
+teachers = {}
+
+for f in faces:
+    ...
+    if role == "student":
+        ...
+    else:
+        if person_name not in teachers:
+            teachers[person_name] = []
+        if pid not in teachers[person_name]:
+            teachers[person_name].append(pid)
+```
+
+**After (v6.38 แยก active_staff และ former_staff รองรับวงจรชีวิตสองทาง):**
+```python
+# แยกกลุ่มนักเรียนและคุณครู (Sharded: Active Staff vs Former Staff - v6.38)
+active_students = {}
+alumni_students = {}
+active_staff = {}
+former_staff = {}
+teachers = {}  # สำหรับ Dual-Write Compatibility
+
+for f in faces:
+    ...
+    if role == "student":
+        ...
+    else:
+        # คุณครู/บุคลากร: แยก active_staff (status != 'inactive') และ former_staff (status == 'inactive')
+        target_staff = former_staff if status == "inactive" else active_staff
+        if person_name not in target_staff:
+            target_staff[person_name] = []
+        if pid not in target_staff[person_name]:
+            target_staff[person_name].append(pid)
+
+        # สำหรับ Legacy teachers (Dual-Write Compatibility กับ person_index.json)
+        if status != "inactive":
+            if person_name not in teachers:
+                teachers[person_name] = []
+            if pid not in teachers[person_name]:
+                teachers[person_name].append(pid)
+```
+
+#### 2. การอัปโหลดดัชนีบุคลากรขึ้น Google Drive ([`gdrive_sync.py`](gdrive_sync.py)):
+**Before (อัปโหลดเฉพาะ `person_index.json`):**
+```python
+# 1. ดัชนีครู (person_index.json)
+if upload_teachers:
+    sync_results["person_index.json"] = upload_overwrite_json("person_index.json", teachers, use_compact=True)
+```
+
+**After (v6.38 อัปโหลดทั้ง `staff_index.json`, `former_staff_index.json` และ Dual-Write `person_index.json`):**
+```python
+# 1. ดัชนีครู/บุคลากร (staff_index.json & former_staff_index.json + Dual-Write person_index.json - v6.38)
+if upload_teachers:
+    # Sharded Staff: ครูปัจจุบัน
+    sync_results["staff_index.json"] = upload_overwrite_json("staff_index.json", active_staff, use_compact=True)
+    # Sharded Former Staff: อดีตครู/ย้าย/เกษียณ
+    sync_results["former_staff_index.json"] = upload_overwrite_json("former_staff_index.json", former_staff, use_compact=True)
+    # Legacy Person Index (Dual-Write Compatibility)
+    sync_results["person_index.json"] = upload_overwrite_json("person_index.json", teachers, use_compact=True)
+```
+
+#### 3. การโหลดดัชนีบุคลากรใน Google Apps Script Web App ([`DatabaseService.gs`](DatabaseService.gs)):
+**Before (โหลดเฉพาะ `person_index.json`):**
+```javascript
+currentStage = 'personIndex';
+var personData = loadJsonFile(projectFolder, 'person_index.json');
+if (!personData || typeof personData !== 'object' || Array.isArray(personData)) throw new Error('person_index.json หายหรือรูปแบบไม่ถูกต้อง');
+markSyncStage_(syncReport, currentStage, 'SUCCESS', 'อ่านสำเร็จ ' + Object.keys(personData).length + ' รายชื่อ', { names: Object.keys(personData).length });
+```
+
+**After (v10.6 โหลด `staff_index.json` ควบคู่ `former_staff_index.json` พร้อม Fallback):**
+```javascript
+currentStage = 'personIndex';
+var staffData = loadJsonFile(projectFolder, 'staff_index.json');
+var personData = staffData || loadJsonFile(projectFolder, 'person_index.json');
+var formerStaffData = loadJsonFile(projectFolder, 'former_staff_index.json') || {};
+
+if (!personData || typeof personData !== 'object' || Array.isArray(personData)) {
+  throw new Error('staff_index.json / person_index.json หายหรือรูปแบบไม่ถูกต้อง');
+}
+
+var activeCount = Object.keys(personData).length;
+var formerCount = (formerStaffData && typeof formerStaffData === 'object' && !Array.isArray(formerStaffData)) ? Object.keys(formerStaffData).length : 0;
+var staffDetail = 'อ่านสำเร็จ ' + activeCount + ' รายชื่อ (บุคลากรปัจจุบัน)';
+if (formerCount > 0) {
+  staffDetail += ' + ' + formerCount + ' รายชื่อ (อดีตบุคลากร)';
+}
+markSyncStage_(syncReport, currentStage, 'SUCCESS', staffDetail, { names: activeCount, formerNames: formerCount });
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.37 (Teacher Inactive Scanning & Batch Deactivation Suite)
 
 ## 📋 Version 6.37 Changelog (Teacher Inactive Scanning & Batch Deactivation Suite)

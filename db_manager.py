@@ -1813,10 +1813,12 @@ class DatabaseManager:
                 photos_by_shard[shard_key][pid] = entry
                 shard_counts[shard_key] += 1
 
-            # แยกกลุ่มนักเรียนและคุณครู
+            # แยกกลุ่มนักเรียนและคุณครู (Sharded: Active Staff vs Former Staff - v6.38)
             active_students = {}
             alumni_students = {}
-            teachers = {}
+            active_staff = {}
+            former_staff = {}
+            teachers = {}  # สำหรับ Dual-Write Compatibility
 
             for f in faces:
                 person_name = f[1]
@@ -1839,10 +1841,19 @@ class DatabaseManager:
                     if p_year and p_year not in target_dict[person_name]["years"]:
                         target_dict[person_name]["years"].append(p_year)
                 else:
-                    if person_name not in teachers:
-                        teachers[person_name] = []
-                    if pid not in teachers[person_name]:
-                        teachers[person_name].append(pid)
+                    # คุณครู/บุคลากร: แยก active_staff (status != 'inactive') และ former_staff (status == 'inactive')
+                    target_staff = former_staff if status == "inactive" else active_staff
+                    if person_name not in target_staff:
+                        target_staff[person_name] = []
+                    if pid not in target_staff[person_name]:
+                        target_staff[person_name].append(pid)
+
+                    # สำหรับ Legacy teachers (Dual-Write Compatibility กับ person_index.json)
+                    if status != "inactive":
+                        if person_name not in teachers:
+                            teachers[person_name] = []
+                        if pid not in teachers[person_name]:
+                            teachers[person_name].append(pid)
 
             # เรียงลำดับปีของนักเรียนแต่ละคนจากล่าสุดไปหาอดีต
             for s_dict in [active_students, alumni_students]:
@@ -1856,17 +1867,25 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.37",
+                "version": "v6.38",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
                 "year_counts": shard_counts,
-                "total_photos": len(photo_entries)
+                "total_photos": len(photo_entries),
+                "staff_file": "staff_index.json",
+                "former_staff_file": "former_staff_index.json",
+                "staff_counts": {
+                    "active": len(active_staff),
+                    "former": len(former_staff)
+                }
             }
 
             return {
                 "active_students": active_students,
                 "alumni_students": alumni_students,
+                "active_staff": active_staff,
+                "former_staff": former_staff,
                 "teachers": teachers,
                 "photos_by_shard": photos_by_shard,
                 "manifest": manifest,

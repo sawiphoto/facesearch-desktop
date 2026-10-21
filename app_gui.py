@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.37 (Teacher Inactive Scanning & Batch Deactivation Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.38 (Staff Index & Former Staff Sharding Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.37",
+            text="FACE MATCHING\nSYSTEM v6.38",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -2375,9 +2375,9 @@ class FaceSearchApp(ctk.CTk):
                         # อัปเดต Local Excel
                         self.sync_manager.save_local_excel_mirror(sync_data)
 
-                        # อัปเดตไฟล์ดัชนี JSON 2 ไฟล์หลัก บน Google Drive
+                        # อัปเดตไฟล์ดัชนี JSON บน Google Drive (staff_index, former_staff_index, photo_manifest)
                         if json_folder_id:
-                            logger.info("[GDRIVE] Updating person_index.json & photo_index.json on Google Drive...")
+                            logger.info("[GDRIVE] Updating staff_index.json, former_staff_index.json & photo indexes on Google Drive...")
                             self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
                     else:
                         logger.error("[GSHEETS] Failed to connect to Google Sheets during deletion sync.")
@@ -3522,9 +3522,9 @@ class FaceSearchApp(ctk.CTk):
                         # อัปเดต Local Excel
                         self.sync_manager.save_local_excel_mirror(sync_data)
                         
-                        # อัปเดตไฟล์ดัชนี JSON 2 ไฟล์หลัก บน Google Drive
+                        # อัปเดตไฟล์ดัชนี JSON บน Google Drive (staff_index, former_staff_index, photo_manifest)
                         if json_folder_id:
-                            logger.info("[GDRIVE] Updating person_index.json & photo_index.json on Google Drive...")
+                            logger.info("[GDRIVE] Updating staff_index.json, former_staff_index.json & photo indexes on Google Drive...")
                             self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
                     else:
                         logger.error("[GSHEETS] Failed to connect to Google Sheets during deletion sync.")
@@ -3652,7 +3652,7 @@ class FaceSearchApp(ctk.CTk):
         json_folder_input_frame.grid(row=3, column=0, columnspan=2, padx=15, pady=2, sticky="ew")
         json_folder_input_frame.grid_columnconfigure(0, weight=1)
         
-        self.entry_json_folder_id = ctk.CTkEntry(json_folder_input_frame, placeholder_text="ระบุ ID โฟลเดอร์หลักที่แชร์ไฟล์ person_index.json และ photo_index.json", height=36, font=ctk.CTkFont(size=14))
+        self.entry_json_folder_id = ctk.CTkEntry(json_folder_input_frame, placeholder_text="ระบุ ID โฟลเดอร์หลักที่แชร์ไฟล์ JSON Index (staff_index, former_staff_index, photo_manifest)", height=36, font=ctk.CTkFont(size=14))
         self.entry_json_folder_id.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
         btn_pick_json_folder = ctk.CTkButton(json_folder_input_frame, text="🔍 เลือกโฟลเดอร์", width=120, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#1F3A60", hover_color="#20334F", command=lambda: self.open_google_picker("json_folder"))
@@ -9213,41 +9213,66 @@ class FaceSearchApp(ctk.CTk):
         # ตรวจสอบและดึงข้อมูลไฟล์ delete_request.json
         import json
         
-        # ตรวจสอบและดึงข้อมูลไฟล์ person_index.json จากคลาวด์เพื่อใช้ตรวจสอบการคงอยู่ของภาพ
+        # ตรวจสอบและดึงข้อมูลไฟล์ staff_index.json & former_staff_index.json จากคลาวด์ (Fallback: person_index.json - v6.38)
         self.person_index = {}
         json_folder_id = self.entry_json_folder_id.get().strip()
         if json_folder_id and self.sync_manager.connected:
             try:
-                # ค้นหาไฟล์ person_index.json ในโฟลเดอร์หลัก
-                query = f"'{json_folder_id}' in parents and name = 'person_index.json' and trashed = false"
-                search_results = self.sync_manager.drive_service.files().list(q=query, fields="files(id)").execute()
-                files = search_results.get("files", [])
-                
-                # ถ้าไม่พบในโฟลเดอร์หลัก ลองค้นหาแบบ Global
-                if not files:
-                    query = "name = 'person_index.json' and trashed = false"
-                    search_results = self.sync_manager.drive_service.files().list(q=query, fields="files(id)").execute()
-                    files = search_results.get("files", [])
-                    
-                if files:
-                    person_index_file_id = files[0]['id']
-                    logger.info(f"[DELETE_REQ] Downloading person_index.json from Google Drive (ID: {person_index_file_id})...")
-                    media_content = self.sync_manager.drive_service.files().get_media(fileId=person_index_file_id).execute()
-                    self.person_index = json.loads(media_content.decode("utf-8"))
-                    logger.info(f"[DELETE_REQ] Loaded person_index.json successfully. Total keys: {len(self.person_index)}")
+                def _download_staff_file(target_name):
+                    q = f"'{json_folder_id}' in parents and name = '{target_name}' and trashed = false"
+                    res = self.sync_manager.drive_service.files().list(q=q, fields="files(id)").execute()
+                    flist = res.get("files", [])
+                    if not flist:
+                        q_global = f"name = '{target_name}' and trashed = false"
+                        res_g = self.sync_manager.drive_service.files().list(q=q_global, fields="files(id)").execute()
+                        flist = res_g.get("files", [])
+                    if flist:
+                        fid = flist[0]['id']
+                        media = self.sync_manager.drive_service.files().get_media(fileId=fid).execute()
+                        return json.loads(media.decode("utf-8"))
+                    return None
+
+                # 1. โหลด staff_index.json (ครูปัจจุบัน) ถ้าไม่พบให้ fallback person_index.json
+                loaded_staff = _download_staff_file("staff_index.json")
+                if loaded_staff:
+                    self.person_index.update(loaded_staff)
+                    logger.info(f"[DELETE_REQ] Loaded staff_index.json successfully. Total keys: {len(loaded_staff)}")
                 else:
-                    logger.warning("[DELETE_REQ] person_index.json file not found on Google Drive.")
+                    loaded_legacy = _download_staff_file("person_index.json")
+                    if loaded_legacy:
+                        self.person_index.update(loaded_legacy)
+                        logger.info(f"[DELETE_REQ] Loaded fallback person_index.json successfully. Total keys: {len(loaded_legacy)}")
+
+                # 2. โหลด former_staff_index.json (อดีตครู/ย้าย/เกษียณ) ผสานข้อมูลเพื่อให้ลบรูปของอดีตครูได้ด้วย
+                loaded_former = _download_staff_file("former_staff_index.json")
+                if loaded_former:
+                    for k, v in loaded_former.items():
+                        if k not in self.person_index:
+                            self.person_index[k] = v
+                    logger.info(f"[DELETE_REQ] Loaded former_staff_index.json successfully. Total former keys: {len(loaded_former)}")
             except Exception as e:
-                logger.error(f"[DELETE_REQ] Error downloading person_index.json: {e}")
+                logger.error(f"[DELETE_REQ] Error downloading staff indexes: {e}")
 
         # ดึงสำรองจาก Local เผื่อกรณีเชื่อมต่อขัดข้อง
         if not self.person_index:
-            local_person_index_path = os.path.join(get_project_root(), "person_index.json")
-            if os.path.exists(local_person_index_path):
+            for l_name in ["staff_index.json", "person_index.json"]:
+                local_path = os.path.join(get_project_root(), l_name)
+                if os.path.exists(local_path):
+                    try:
+                        with open(local_path, "r", encoding="utf-8") as f:
+                            self.person_index.update(json.load(f))
+                        logger.info(f"[DELETE_REQ] Loaded {l_name} from local file.")
+                        break
+                    except Exception:
+                        pass
+            local_former = os.path.join(get_project_root(), "former_staff_index.json")
+            if os.path.exists(local_former):
                 try:
-                    with open(local_person_index_path, "r", encoding="utf-8") as f:
-                        self.person_index = json.load(f)
-                    logger.info("[DELETE_REQ] Loaded person_index.json from local file.")
+                    with open(local_former, "r", encoding="utf-8") as f:
+                        for k, v in json.load(f).items():
+                            if k not in self.person_index:
+                                self.person_index[k] = v
+                    logger.info("[DELETE_REQ] Loaded former_staff_index.json from local file.")
                 except Exception:
                     pass
 

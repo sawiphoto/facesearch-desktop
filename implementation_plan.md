@@ -2376,5 +2376,142 @@ flowchart TD
 | **TC-99** | **Inactive Teachers Scan Retention** | `db_manager.py` | เรียกใช้ `get_all_embeddings(active_only=True)` | มีรหัสครูที่เป็น inactive (รวม ID 241-273) อยู่ใน embeddings สำหรับสแกน |
 | **TC-100** | **Version v6.37 Parity & py_compile** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเวอร์ชัน `v6.37` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 100% ปราศจากข้อผิดพลาด |
 
+---
+
+## 26. แผนงานการแยกดัชนีบุคลากรปัจจุบันและอดีตบุคลากรขึ้น Google Drive (staff_index.json & former_staff_index.json Sharding Suite: v6.38)
+
+### 26.1 ที่มาและขอบเขตความต้องการ (Background & Scope)
+- **ปัญหาและข้อจำกัดเดิม:**
+  1. ไฟล์ดัชนีครูบน Google Drive ใช้ชื่อเดิมคือ `person_index.json` ซึ่งรวมครูทุกคนเข้าด้วยกัน ไม่มีการจำแนกระหว่างคุณครูและบุคลากรปัจจุบัน (Active) กับอดีตบุคลากร/ครูเกษียณ/ครูที่ย้าย (Inactive)
+  2. ในระบบฝั่งนักเรียนได้มีการแบ่งพาร์ทิชันออกเป็น `student_index_active.json` และ `student_index_alumni.json` สำเร็จแล้ว แต่ฝั่งครูยังคงเป็นไฟล์เดี่ยวแบบ Monolithic
+- **ความต้องการใหม่ของผู้ใช้:**
+  1. **เพิ่มไฟล์ใหม่ `former_staff_index.json`:** อัปโหลดขึ้น Google Drive บรรจุเฉพาะรายชื่อและรูปภาพของคุณครู/บุคลากรที่มีสถานะ `status == 'inactive'` (อดีตบุคลากร)
+  2. **เปลี่ยนชื่อ `person_index.json` เป็น `staff_index.json`:** สำหรับคุณครู/บุคลากรที่มีสถานะปกติ `status != 'inactive'` (บุคลากรปัจจุบัน)
+  3. **การรองรับวงจรชีวิตสถานะแบบสองทางอัตโนมัติ (Two-Way Dynamic Status Lifecycle):**
+     - **ย้ายออก/เกษียณ (`active` ➔ `inactive`):** ครูจะถูกย้ายจาก `staff_index.json` ไปบรรจุใน `former_staff_index.json` ทันทีในการ Sync ครั้งถัดไป
+     - **ย้ายกลับมาดำรงตำแหน่งใหม่ (`inactive` ➔ `active`):** เมื่อมีการปรับสถานะครูกลับมาเป็น `active` ในฐานข้อมูล ครูจะถูกย้ายออกจาก `former_staff_index.json` และกลับเข้ามาอยู่ใน `staff_index.json` โดยอัตโนมัติทันที 100%
+     - ระบบยึดสถานะจากตาราง `staff_members` ใน SQLite เป็น Single Source of Truth ทุกครั้งที่มีการสร้าง Shard ไม่มีการ Hardcode หรือผูกติดสถานะค้างไว้
+  4. **การรับประกันความเข้ากันได้แบบ Dual-Write Pattern (Zero-Downtime Backward Compatibility):**
+     - เพื่อไม่ให้ Web App เดิม หรือระบบไคลเอนต์ที่ยังไม่ได้รีเฟรชแคชเกิดข้อผิดพลาด 404 ระบบจะต้องสร้างและอัปโหลด `person_index.json` ควบคู่กันไปด้วยเสมอ (Dual-Write)
+  5. **การรองรับบน Google Apps Script (`07.5 ระบบค้นหาใบหน้า appscript`):**
+     - อัปเกรด `DatabaseService.gs` ให้อ่าน `staff_index.json` เป็นลำดับแรก หากไม่พบให้ Fallback ไปยัง `person_index.json` และอ่าน `former_staff_index.json` ควบคู่เพื่อแสดงผลอดีตบุคลากรได้อย่างครบถ้วน
+
+---
+
+### 26.2 สถาปัตยกรรมโครงสร้างไฟล์และการกระจายข้อมูล (Staff Index Architecture)
+
+```mermaid
+flowchart TD
+    DB[(SQLite: faces_db.db<br/>staff_members & detected_faces)] --> Extractor["db_manager.py: get_sync_data_sharded()"]
+    
+    Extractor -->|"status != 'inactive'"| ActiveStaff["active_staff dict (บุคลากรปัจจุบัน)"]
+    Extractor -->|"status == 'inactive'"| FormerStaff["former_staff dict (อดีตบุคลากร 33+ ท่าน)"]
+    Extractor -->|"รวมบุคลากร / Fallback"| LegacyStaff["teachers dict (Dual-Write Legacy)"]
+
+    ActiveStaff -->|"อัปโหลดทับ/สร้างใหม่ (Compact JSON)"| File1["staff_index.json ⭐ ใหม่"]
+    FormerStaff -->|"อัปโหลดทับ/สร้างใหม่ (Compact JSON)"| File2["former_staff_index.json ⭐ ใหม่"]
+    LegacyStaff -->|"Dual-Write Guarantee"| File3["person_index.json (Legacy Compatible)"]
+
+    subgraph GDrive["Google Drive: รวมไฟล์ JSON INDEX (1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L)"]
+        File1
+        File2
+        File3
+        Manifest["photo_manifest.json (ระบุ staff_file & former_staff_file)"]
+    end
+
+    File1 --> GAS["Google Apps Script Web App (07.5 & 07.55)"]
+    File2 --> GAS
+    File3 -.->|"Fallback เมื่อไม่พบ Shard"| GAS
+```
+
+---
+
+### 26.3 ขั้นตอนการดำเนินงานอย่างละเอียดทีละข้อ (Step-by-Step Implementation Breakdown: v6.38)
+
+#### ข้อที่ 1: ปรับปรุงการสกัดข้อมูลใน [`db_manager.py`](db_manager.py)
+- **ฟังก์ชัน:** `get_sync_data_sharded()`
+- **สิ่งที่ต้องทำ:**
+  1. ในลูปประมวลผล `faces` ของบุคลากร (`role != 'student'`):
+     - ตรวจสอบสถานะ `status = f[5] if f[5] else 'active'`
+     - หาก `status == 'inactive'`: จัดเก็บลงดิกชันนารี `former_staff[person_name] = [photo_ids]`
+     - หาก `status != 'inactive'`: จัดเก็บลงดิกชันนารี `active_staff[person_name] = [photo_ids]`
+  2. จัดเตรียม `teachers` สำหรับ Dual-Write:
+     - กำหนดให้ `teachers = active_staff` (หรือรวมตามความเหมาะสมของ Legacy Compatibility)
+  3. อัปเดต `manifest` ใน `photo_manifest.json`:
+     - เพิ่มฟิลด์ `"staff_file": "staff_index.json"`
+     - เพิ่มฟิลด์ `"former_staff_file": "former_staff_index.json"`
+     - เพิ่มฟิลด์ `"staff_counts": {"active": len(active_staff), "former": len(former_staff)}`
+  4. คืนค่า Dictionary เพิ่มเติม:
+     - `"active_staff": active_staff`
+     - `"former_staff": former_staff`
+     - `"teachers": teachers`
+
+#### ข้อที่ 2: ปรับปรุงการอัปโหลดไฟล์ใน [`gdrive_sync.py`](gdrive_sync.py)
+- **ฟังก์ชัน:** `update_json_indexes_on_drive()`
+- **สิ่งที่ต้องทำ:**
+  1. ดึงข้อมูล `active_staff = sync_data.get("active_staff", sync_data.get("teachers", {}))` และ `former_staff = sync_data.get("former_staff", {})`
+  2. เมื่อ `upload_teachers == True`:
+     - **อัปโหลด `staff_index.json`:** บรรจุ `active_staff` (ใช้ Compact JSON)
+     - **อัปโหลด `former_staff_index.json`:** บรรจุ `former_staff` (ใช้ Compact JSON)
+     - **อัปโหลด `person_index.json`:** บรรจุ `teachers` ตามหลัก Dual-Write Guarantee
+  3. บันทึกผลลัพธ์การอัปโหลดทั้ง 3 ไฟล์ลงใน `sync_results` และรายงานสรุปใน Log
+
+#### ข้อที่ 3: ปรับปรุง Endpoint สร้าง Placeholder บน Google Drive ([`Routing.gs`](Routing.gs))
+- **ไฟล์เป้าหมาย:** `D:\Projects\07.5 ระบบค้นหาใบหน้า appscript\07.55 ระบบค้นหาใบหน้าสำหรับนักเรียน\Routing.gs`
+- **สิ่งที่ต้องทำ:**
+  1. เพิ่มชื่อไฟล์ `'staff_index.json'` และ `'former_staff_index.json'` ในรายการ `requestedFiles` เริ่มต้น
+  2. เรียก Endpoint Web App เพื่อให้บัญชี `sawiphoto@sawi.ac.th` สร้างไฟล์ Placeholder เปล่าไว้ล่วงหน้าบนโฟลเดอร์ `"รวมไฟล์ JSON INDEX"` (Folder ID: `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`) เพื่อป้องกันข้อผิดพลาด 403 Google Service Account Storage Quota
+
+#### ข้อที่ 4: อัปเดตระบบตรวจสอบและเครื่องมือคำขอลบรูปภาพใน [`app_gui.py`](app_gui.py)
+- **สิ่งที่ต้องทำ:**
+  1. ในฟังก์ชัน `_load_cloud_indexes_for_delete_req`:
+     - ปรับให้ดาวน์โหลด `staff_index.json` เป็นลำดับแรก หากไม่พบจึง Fallback ไปที่ `person_index.json`
+     - ดาวน์โหลด `former_staff_index.json` เพิ่มเติมและผสานข้อมูล (Merge) เข้ากับ `self.person_index` เพื่อให้คำขอลบรูปภาพของทั้งครูปัจจุบันและอดีตครูทำงานได้ 100%
+  2. ปรับข้อความ Placeholder ในหน้าตั้งค่าโฟลเดอร์ JSON ให้แสดงชื่อ `staff_index.json, former_staff_index.json และ photo_manifest.json`
+
+#### ข้อที่ 5: ปรับปรุง Google Apps Script ครู/บุคลากร ([`DatabaseService.gs`](DatabaseService.gs)) & Deployment
+- **โฟลเดอร์:** `D:\Projects\07.5 ระบบค้นหาใบหน้า appscript`
+- **Script ID:** `1YKIQ5-JuGUP4uJ0rijwamhcULNZO-QgKTkHrxk-GHzxkedrSy6LopqDR`
+- **Deployment ID:** `AKfycby-QaHCIv2M7VCr4VRNsRtdYKbNaDD0fhJe1vLoJXJC1hOlWATuCpOWyIZGUur9oo0DUw`
+- **สิ่งที่ต้องทำ:**
+  1. ในฟังก์ชัน `syncDataFromDrive`:
+     - โหลดข้อมูลผ่าน `loadJsonFile(projectFolder, 'staff_index.json') || loadJsonFile(projectFolder, 'person_index.json')`
+     - เพิ่มการโหลด `loadJsonFile(projectFolder, 'former_staff_index.json')`
+     - บันทึกสถานะครูปัจจุบัน (`status = 'active'`) และอดีตครู (`status = 'former'`) ลงในแผนผังบุคคล
+  2. ในฟังก์ชัน `getDatabaseReport`:
+     - รองรับการนับและตรวจสอบความสมบูรณ์ของ `staff_index.json` ควบคู่ `former_staff_index.json`
+  3. ปรับปรุงเวอร์ชันในหน้า UI (`Index.html`) เป็น `v10.6`
+  4. ทำการ Deploy ขึ้นระบบตาม **กฎข้อ 4 (GAS Deployment Rule)**:
+     ```powershell
+     clasp push --force
+     clasp deploy -i 'AKfycby-QaHCIv2M7VCr4VRNsRtdYKbNaDD0fhJe1vLoJXJC1hOlWATuCpOWyIZGUur9oo0DUw' -d 'v10.6: Staff Index & Former Staff Sharding Support'
+     ```
+
+#### ข้อที่ 6: พัฒนาชุดทดสอบการทำงานจริง (Execution Path Runtime Verification: TC-101 ถึง TC-105)
+- สร้างไฟล์ `test_staff_and_former_staff_index_suite.py` ครอบคลุม:
+  - **TC-101:** Staff Index Sharding Logic Verification (Active ครูแยกไป `active_staff`, Inactive ครู 33 ท่านแยกไป `former_staff`)
+  - **TC-102:** Zero Data Loss Integrity (ยอดรวมครูทั้งหมดใน `active_staff` + `former_staff` เท่ากับยอดครูเดิม 100%)
+  - **TC-103:** Compact Format & Dual-Write Output Verification (ทดสอบการสร้าง `staff_index.json`, `former_staff_index.json` และ `person_index.json`)
+  - **TC-104:** Delete Request Index Loader Compatibility (ทดสอบตรรกะ Fallback & Former Staff Merge ใน `app_gui.py`)
+  - **TC-105:** Version v6.38 Parity & `py_compile` All Files
+
+#### ข้อที่ 7: อัปเดตเวอร์ชันและเอกสารระบบ (v6.38)
+- ปรับเวอร์ชันเป็น **v6.38 (Staff Index & Former Staff Sharding Suite)** บน Window Title, Sidebar Logo, `db_manager.py`, และ `app_gui.py`
+- บันทึกประวัติการแก้ไขลงบนสุดของ `README.md` ตามกฎ Rule 3 (แสดง Before / After ชัดเจน)
+- ทำการ Commit และ Push ขึ้น Git Remote Repository ตามกฎ Rule 4
+
+---
+
+### 26.4 ตารางกรณีทดสอบ (Test Cases Matrix: TC-101 ถึง TC-105)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-101** | **Two-Way Staff Index Partitioning Logic** | `db_manager.py` | เรียกใช้ `get_sync_data_sharded()` ตรวจสอบว่าครู Inactive (33 ท่าน) อยู่ใน `former_staff` และครู Active อยู่ใน `active_staff` จากนั้นทดสอบจำลองปรับครูกลับมาเป็น `active` (ย้ายกลับ) แล้วรันซ้ำ | ข้อมูลสลับกลุ่มระหว่าง `former_staff_index.json` และ `staff_index.json` ได้ถูกต้องแบบสองทาง 100% |
+| **TC-102** | **Zero Data Loss Integrity** | `db_manager.py` | เปรียบเทียบผลรวมของ `active_staff` + `former_staff` กับข้อมูลเดิมใน `faces` | รายชื่อและจำนวนรูปภาพของครูทุกคนครบถ้วน 100% ไม่สูญหาย |
+| **TC-103** | **Dual-Write & Shard Drive Upload** | `gdrive_sync.py` | จำลองการเรียก `update_json_indexes_on_drive()` ด้วย Mock Drive Service | มีการอัปโหลด `staff_index.json`, `former_staff_index.json` และ `person_index.json` ครบทั้ง 3 ไฟล์ |
+| **TC-104** | **Delete Request Metadata Compatibility** | `app_gui.py` | ทดสอบการโหลด index ใน `_load_cloud_indexes_for_delete_req` ทั้งกรณีมีเฉพาะไฟล์ใหม่ และกรณี Fallback ไฟล์เดิม | โหลดและผสานข้อมูลได้ถูกต้องทั้งครูปัจจุบันและอดีตครู |
+| **TC-105** | **Version v6.38 Parity & py_compile** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเลขเวอร์ชัน `v6.38` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 100% ปราศจากข้อผิดพลาด |
+
+
 
 
