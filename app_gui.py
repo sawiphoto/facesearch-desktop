@@ -7,7 +7,7 @@ import threading
 import time
 import json
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 from PIL import Image
 import numpy as np
@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.35 (Google Drive JSON Sync Resilience & Self-Healing Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.36 (Teacher Avatar Directory & Master-Detail Gallery Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1078,7 +1078,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.35",
+            text="FACE MATCHING\nSYSTEM v6.36",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -7578,17 +7578,32 @@ class FaceSearchApp(ctk.CTk):
 
     # ==================== (6) หน้าภาพกิจกรรมที่แมตช์แล้ว (v3.2 Fix Bug 5) ====================
     def setup_matched_gallery_ui(self):
-        """จัดสร้างส่วนแสดงผลแกลเลอรีรูปภาพกิจกรรมที่แมตช์แล้วคัดแยกรายบุคคลและเรียงตามเดือน"""
+        """จัดสร้างส่วนแสดงผลแกลเลอรีรูปภาพกิจกรรมที่แมตช์แล้วคัดแยกรายบุคคล: Teacher Avatar Grid & Master-Detail Suite (v6.36)"""
         self.frame_matched_gallery.grid_columnconfigure(0, weight=1)
-        self.frame_matched_gallery.grid_rowconfigure(1, weight=1)
+        self.frame_matched_gallery.grid_rowconfigure(0, weight=1)
 
-        # 1. แถบควบคุมเมนูด้านบน (Header Bar)
-        ctrl_frame = ctk.CTkFrame(self.frame_matched_gallery, fg_color="#1A2636")
-        ctrl_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        # แคชและตัวแปรสถานะ
+        self._teacher_avatar_cache = {}
+        self._all_teachers_avatar_data = []
+        self._filtered_teachers_avatar_data = []
+        self._teacher_search_timer = None
+        self._current_selected_teacher = None
+        self.matched_persons_map = {}
 
-        ctk.CTkLabel(ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
+        # =========================================================================
+        # 1. VIEW A: ตารางเลือกการ์ดคุณครู (Teacher Avatar Directory Grid View)
+        # =========================================================================
+        self.frame_teacher_grid_view = ctk.CTkFrame(self.frame_matched_gallery, fg_color="transparent")
+        self.frame_teacher_grid_view.grid_columnconfigure(0, weight=1)
+        self.frame_teacher_grid_view.grid_rowconfigure(1, weight=1)
+
+        # 1.1 แถบควบคุมด้านบนของ View A (Header Toolbar)
+        teacher_ctrl_frame = ctk.CTkFrame(self.frame_teacher_grid_view, fg_color="#1A2636")
+        teacher_ctrl_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(teacher_ctrl_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
         self.combo_matched_role = ctk.CTkOptionMenu(
-            ctrl_frame, values=["คุณครู", "นักเรียน"], width=130, height=36,
+            teacher_ctrl_frame, values=["คุณครู", "นักเรียน"], width=125, height=36,
             font=ctk.CTkFont(size=14, weight="bold"),
             dropdown_font=ctk.CTkFont(size=14, weight="normal"),
             dropdown_fg_color="#101B2B",
@@ -7598,64 +7613,511 @@ class FaceSearchApp(ctk.CTk):
         )
         self.combo_matched_role.pack(side="left", padx=5, pady=10)
 
-        ctk.CTkLabel(ctrl_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(15, 5), pady=10)
-        self.combo_matched_person = ctk.CTkOptionMenu(
-            ctrl_frame, values=["-- กรุณาเลือก --"], width=320, height=36,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+        # ช่องค้นหาคุณครู
+        self.entry_teacher_avatar_search = ctk.CTkEntry(
+            teacher_ctrl_frame, placeholder_text="🔍 ค้นหาชื่อคุณครู...", width=200, height=36,
+            font=ctk.CTkFont(size=13)
+        )
+        self.entry_teacher_avatar_search.pack(side="left", padx=8, pady=10)
+        self.entry_teacher_avatar_search.bind("<KeyRelease>", lambda event: self.filter_teacher_avatar_grid())
+        if hasattr(self, 'bind_universal_entry_shortcuts'):
+            self.bind_universal_entry_shortcuts(self.entry_teacher_avatar_search)
+
+        # ตัวกรองสังกัด
+        dept_filter_vals = ["ทุกกลุ่ม/สังกัด"] + [d for d in SW_DEPARTMENTS if d != "อื่นๆ (ระบุเอง)"]
+        self.option_teacher_avatar_dept = ctk.CTkOptionMenu(
+            teacher_ctrl_frame, values=dept_filter_vals, width=195, height=36,
+            font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13),
             dropdown_fg_color="#101B2B",
             dropdown_hover_color="#1F3A60",
             dropdown_text_color="white",
+            command=lambda val: self.filter_teacher_avatar_grid(immediate=True)
+        )
+        self.option_teacher_avatar_dept.pack(side="left", padx=5, pady=10)
+
+        # ตัวเลือกจัดเรียง
+        sort_vals = ["📸 รูปแมตช์มากสุด", "🔤 ชื่อ (ก-ฮ)", "🏢 สังกัด", "🆔 รหัส ID"]
+        self.option_teacher_avatar_sort = ctk.CTkOptionMenu(
+            teacher_ctrl_frame, values=sort_vals, width=155, height=36,
+            font=ctk.CTkFont(size=13),
+            dropdown_font=ctk.CTkFont(size=13),
+            dropdown_fg_color="#101B2B",
+            dropdown_hover_color="#1F3A60",
+            dropdown_text_color="white",
+            command=lambda val: self.filter_teacher_avatar_grid(immediate=True)
+        )
+        self.option_teacher_avatar_sort.pack(side="left", padx=5, pady=10)
+
+        # ปุ่มรีเฟรชข้อมูลครู
+        self.btn_refresh_teacher_grid = ctk.CTkButton(
+            teacher_ctrl_frame, text="🔄 รีเฟรช", width=85, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#34495E", hover_color="#2C3E50",
+            command=self.reload_teacher_avatars_data
+        )
+        self.btn_refresh_teacher_grid.pack(side="left", padx=5, pady=10)
+
+        # สรุปจำนวนครู
+        self.lbl_teacher_avatar_count = ctk.CTkLabel(
+            teacher_ctrl_frame, text="พบคุณครู 0 ท่าน",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71"
+        )
+        self.lbl_teacher_avatar_count.pack(side="right", padx=15, pady=10)
+
+        # 1.2 พื้นที่ตารางการ์ดคุณครู (Scrollable Cards Grid)
+        self.scr_teacher_cards = ctk.CTkScrollableFrame(self.frame_teacher_grid_view, fg_color="#0D1622")
+        self.scr_teacher_cards.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.bind_scroll_events(self.scr_teacher_cards, target_scrollable=self.scr_teacher_cards)
+
+        # =========================================================================
+        # 2. VIEW B: หน้ารายละเอียดแกลเลอรีรูปภาพ (Gallery Detail View)
+        # =========================================================================
+        self.frame_gallery_detail_view = ctk.CTkFrame(self.frame_matched_gallery, fg_color="transparent")
+        self.frame_gallery_detail_view.grid_columnconfigure(0, weight=1)
+        self.frame_gallery_detail_view.grid_rowconfigure(1, weight=1)
+
+        # 2.1 แถบควบคุมด้านบนของ View B (Detail Header Toolbar)
+        detail_ctrl_frame = ctk.CTkFrame(self.frame_gallery_detail_view, fg_color="#1A2636")
+        detail_ctrl_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        # ปุ่มกดย้อนกลับไปตารางเลือกครู (Back Button)
+        self.btn_back_to_teacher_grid = ctk.CTkButton(
+            detail_ctrl_frame, text="⬅️ ย้อนกลับไปเลือกคุณครู", width=195, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#D35400", hover_color="#BA4A00", text_color="white",
+            command=self.back_to_teacher_grid
+        )
+        self.btn_back_to_teacher_grid.pack(side="left", padx=(10, 15), pady=10)
+
+        # ข้อมูลคุณครูที่กำลังดู (Avatar ย่อส่วน + ชื่อ + สังกัด)
+        self.detail_teacher_info_frame = ctk.CTkFrame(detail_ctrl_frame, fg_color="transparent")
+        self.lbl_detail_avatar = ctk.CTkLabel(self.detail_teacher_info_frame, text="", width=36, height=36)
+        self.lbl_detail_avatar.pack(side="left", padx=(0, 8))
+        self.lbl_detail_teacher_name = ctk.CTkLabel(
+            self.detail_teacher_info_frame, text="", font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#FFFFFF"
+        )
+        self.lbl_detail_teacher_name.pack(side="left", padx=2)
+        self.detail_teacher_info_frame.pack(side="left", fill="y", padx=5, pady=5)
+
+        # ส่วนควบคุมสำหรับโหมดนักเรียน (Student Controls Frame)
+        self.detail_student_controls_frame = ctk.CTkFrame(detail_ctrl_frame, fg_color="transparent")
+        ctk.CTkLabel(self.detail_student_controls_frame, text="หมวดบุคคล:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(5, 5))
+        self.combo_student_role = ctk.CTkOptionMenu(
+            self.detail_student_controls_frame, values=["คุณครู", "นักเรียน"], width=125, height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+            dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60", dropdown_text_color="white",
+            command=self.on_matched_role_change
+        )
+        self.combo_student_role.pack(side="left", padx=5)
+
+        ctk.CTkLabel(self.detail_student_controls_frame, text="เลือกรายชื่อ:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=(10, 5))
+        self.combo_matched_person = ctk.CTkOptionMenu(
+            self.detail_student_controls_frame, values=["-- กรุณาเลือก --"], width=280, height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=14, weight="normal"),
+            dropdown_fg_color="#101B2B", dropdown_hover_color="#1F3A60", dropdown_text_color="white",
             command=self.on_matched_person_change
         )
-        self.combo_matched_person.pack(side="left", padx=5, pady=10)
+        self.combo_matched_person.pack(side="left", padx=5)
 
-        self.entry_matched_search = ctk.CTkEntry(ctrl_frame, placeholder_text="🔍 กรองชื่อ...", width=180, height=36, font=ctk.CTkFont(size=14))
-        self.entry_matched_search.pack(side="left", padx=10, pady=10)
+        self.entry_matched_search = ctk.CTkEntry(self.detail_student_controls_frame, placeholder_text="🔍 กรองชื่อนักเรียน...", width=160, height=36, font=ctk.CTkFont(size=13))
+        self.entry_matched_search.pack(side="left", padx=5)
         self.entry_matched_search.bind("<KeyRelease>", lambda event: self.filter_matched_person_dropdown())
+        if hasattr(self, 'bind_universal_entry_shortcuts'):
+            self.bind_universal_entry_shortcuts(self.entry_matched_search)
 
-        btn_refresh_gallery = ctk.CTkButton(
-            ctrl_frame, text="🔄 รีเฟรช", width=95, height=36, font=ctk.CTkFont(size=13, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
-            command=lambda: self.on_matched_person_change(self.combo_matched_person.get())
+        # ปุ่มรีเฟรชแกลเลอรีรูปภาพ
+        self.btn_refresh_detail_gallery = ctk.CTkButton(
+            detail_ctrl_frame, text="🔄 รีเฟรช", width=85, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
+            command=self.refresh_current_gallery
         )
-        btn_refresh_gallery.pack(side="left", padx=5, pady=10)
+        self.btn_refresh_detail_gallery.pack(side="left", padx=8, pady=10)
 
-        self.lbl_matched_summary = ctk.CTkLabel(ctrl_frame, text="พบ 0 รูปภาพ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71")
+        # สรุปจำนวนรูปภาพที่พบ
+        self.lbl_matched_summary = ctk.CTkLabel(detail_ctrl_frame, text="พบ 0 รูปภาพ", font=ctk.CTkFont(size=14, weight="bold"), text_color="#2ECC71")
         self.lbl_matched_summary.pack(side="right", padx=15, pady=10)
 
-        # 2. พื้นที่แสดงรูปภาพแบบ Scrollable Frame (รองรับเมาส์ Scroll & Drag)
-        self.scr_matched_gallery = ctk.CTkScrollableFrame(self.frame_matched_gallery, fg_color="#0D1622")
+        # 2.2 พื้นที่แสดงแกลเลอรีรูปภาพ (Scrollable Frame)
+        self.scr_matched_gallery = ctk.CTkScrollableFrame(self.frame_gallery_detail_view, fg_color="#0D1622")
         self.scr_matched_gallery.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
-        self.bind_scroll_events(self.scr_matched_gallery)
+        self.bind_scroll_events(self.scr_matched_gallery, target_scrollable=self.scr_matched_gallery)
 
-        self.matched_persons_map = {}
+        # เริ่มต้นแสดง View A (Teacher Avatar Directory Grid)
+        self.frame_teacher_grid_view.grid(row=0, column=0, sticky="nsew")
+        self.frame_gallery_detail_view.grid_forget()
 
-    def bind_scroll_events(self, widget):
-        """ผูกการ Scroll เมาส์ล้อหมุน เลื่อนรวดเร็วและราบรื่น 150x"""
+    def bind_scroll_events(self, widget, target_scrollable=None):
+        """ผูกการ Scroll เมาส์ล้อหมุน เลื่อนรวดเร็วและราบรื่น 150x รองรับทั้ง Grid และ Gallery"""
         def _on_mousewheel(event):
             try:
-                units = int(-1 * (event.delta / 120) * 150)
-                self.scr_matched_gallery._parent_canvas.yview_scroll(units, "units")
+                target = target_scrollable
+                if target is None:
+                    if hasattr(self, 'frame_teacher_grid_view') and self.frame_teacher_grid_view.winfo_ismapped():
+                        target = getattr(self, 'scr_teacher_cards', None)
+                    else:
+                        target = getattr(self, 'scr_matched_gallery', None)
+                if target and hasattr(target, '_parent_canvas'):
+                    units = int(-1 * (event.delta / 120) * 150)
+                    target._parent_canvas.yview_scroll(units, "units")
             except Exception:
                 pass
         try:
             widget.bind("<MouseWheel>", _on_mousewheel)
             for child in widget.winfo_children():
-                self.bind_scroll_events(child)
+                self.bind_scroll_events(child, target_scrollable)
         except Exception:
             pass
 
-    def on_matched_role_change(self, role):
-        """เมื่อเปลี่ยนหมวดระหว่าง คุณครู และ นักเรียน ให้โหลดรายชื่อใหม่"""
-        self.matched_persons_map.clear()
-        if role == "คุณครู":
-            persons = self.db.get_all_teachers()
-            options = []
-            for p in persons:
-                disp = f"{p['name']} (ID: {p['id']})"
-                options.append(disp)
-                self.matched_persons_map[disp] = p["id"]
+    def get_teacher_avatar_ctk_image(self, staff_id, avatar_path, size=(96, 96)):
+        """ดึงหรือสร้างภาพ Avatar ของครูพร้อมระบบแคชหน่วยความจำ (_teacher_avatar_cache)"""
+        if not hasattr(self, '_teacher_avatar_cache'):
+            self._teacher_avatar_cache = {}
+
+        cache_key = (staff_id, size)
+        if cache_key in self._teacher_avatar_cache:
+            return self._teacher_avatar_cache[cache_key]
+
+        # 1. โหลดจาก avatar_path
+        if avatar_path:
+            full_path = avatar_path if os.path.isabs(avatar_path) else os.path.join(get_project_root(), avatar_path)
+            if os.path.exists(full_path):
+                try:
+                    pil_img = Image.open(full_path).convert("RGB")
+                    pil_img = pil_img.resize(size, Image.Resampling.LANCZOS)
+                    ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=size)
+                    self._teacher_avatar_cache[cache_key] = ctk_img
+                    return ctk_img
+                except Exception as err:
+                    logger.warning(f"[AVATAR] Error loading avatar from {full_path}: {err}")
+
+        # 2. Fallback รูป Placeholder สวยงาม
+        ph_key = ("placeholder", size)
+        if ph_key in self._teacher_avatar_cache:
+            return self._teacher_avatar_cache[ph_key]
+
+        try:
+            w, h = size
+            ph = Image.new("RGB", (w, h), color=(26, 38, 54))
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(ph)
+            draw.ellipse([w * 0.32, h * 0.18, w * 0.68, h * 0.52], fill=(68, 88, 115))
+            draw.pieslice([w * 0.15, h * 0.58, w * 0.85, h * 1.25], 180, 360, fill=(68, 88, 115))
+            ctk_ph = ctk.CTkImage(light_image=ph, dark_image=ph, size=size)
+            self._teacher_avatar_cache[ph_key] = ctk_ph
+            return ctk_ph
+        except Exception:
+            return None
+
+    def reload_teacher_avatars_data(self):
+        """โหลดข้อมูลคุณครูทั้งหมดพร้อมสถิติรูปภาพจากฐานข้อมูล และแสดงผลใน Grid"""
+        self.lbl_teacher_avatar_count.configure(text="⌛ กำลังโหลดข้อมูลคุณครู...")
+
+        def _fetch():
+            try:
+                teachers = self.db.get_all_teachers_with_avatar_stats()
+                self._all_teachers_avatar_data = teachers
+                self.after(0, lambda: self.filter_teacher_avatar_grid(immediate=True))
+            except Exception as err:
+                logger.error(f"[AVATAR GRID] Error fetching teachers: {err}")
+                self.after(0, lambda: self.lbl_teacher_avatar_count.configure(text="❌ เกิดข้อผิดพลาดในการโหลดข้อมูล"))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def filter_teacher_avatar_grid(self, event=None, immediate=False):
+        """กรองและจัดเรียงรายชื่อคุณครูใน Grid ตามคำค้นหา สังกัด และตัวเลือกจัดเรียง (พร้อม Debounce 200ms)"""
+        if getattr(self, "_teacher_search_timer", None) is not None:
+            try:
+                self.after_cancel(self._teacher_search_timer)
+            except Exception:
+                pass
+            self._teacher_search_timer = None
+
+        def _do_filter():
+            self._teacher_search_timer = None
+            if not hasattr(self, '_all_teachers_avatar_data') or not self._all_teachers_avatar_data:
+                return
+
+            query = self.entry_teacher_avatar_search.get().strip().lower()
+            dept_selected = self.option_teacher_avatar_dept.get().strip()
+            sort_selected = self.option_teacher_avatar_sort.get().strip()
+
+            filtered = list(self._all_teachers_avatar_data)
+
+            # 1. กรองสังกัด
+            if dept_selected and dept_selected not in ("ทุกกลุ่ม/สังกัด", "ทั้งหมด (ทุกสังกัด)"):
+                filtered = [
+                    t for t in filtered 
+                    if dept_selected in t.get("department", "") or t.get("department", "") == dept_selected
+                ]
+
+            # 2. กรองคำค้นหา
+            if query:
+                filtered = [
+                    t for t in filtered
+                    if query in t.get("name", "").lower()
+                    or query in str(t.get("id", ""))
+                    or query in t.get("department", "").lower()
+                ]
+
+            # 3. จัดเรียงข้อมูล
+            if "รูปแมตช์" in sort_selected:
+                filtered.sort(key=lambda x: (-x.get("matched_count", 0), x.get("name", "")))
+            elif "ชื่อ" in sort_selected:
+                filtered.sort(key=lambda x: x.get("name", ""))
+            elif "สังกัด" in sort_selected:
+                filtered.sort(key=lambda x: (x.get("department", ""), -x.get("matched_count", 0)))
+            elif "ID" in sort_selected:
+                filtered.sort(key=lambda x: x.get("id", 0))
+
+            self._filtered_teachers_avatar_data = filtered
+            self.render_teacher_avatar_grid(filtered)
+
+        if immediate:
+            _do_filter()
         else:
+            self._teacher_search_timer = self.after(200, _do_filter)
+
+    def render_teacher_avatar_grid(self, teachers_list):
+        """วาดการ์ด Avatar Icon ของคุณครูลงในตาราง scr_teacher_cards"""
+        for child in self.scr_teacher_cards.winfo_children():
+            child.destroy()
+
+        total = len(teachers_list)
+        self.lbl_teacher_avatar_count.configure(text=f"พบคุณครู {total:,} ท่าน")
+
+        if not teachers_list:
+            lbl_empty = ctk.CTkLabel(
+                self.scr_teacher_cards,
+                text="🔍 ไม่พบข้อมูลคุณครูที่ตรงกับเงื่อนไขการค้นหา",
+                font=ctk.CTkFont(size=15),
+                text_color="#A2B5CD"
+            )
+            lbl_empty.pack(pady=60)
+            return
+
+        cols = 5
+        for c in range(cols):
+            self.scr_teacher_cards.grid_columnconfigure(c, weight=1, uniform="teacher_card")
+
+        for idx, teacher in enumerate(teachers_list):
+            r = idx // cols
+            c = idx % cols
+
+            card = ctk.CTkFrame(
+                self.scr_teacher_cards,
+                fg_color="#141E2B",
+                corner_radius=10,
+                border_width=1,
+                border_color="#26384D"
+            )
+            card.grid(row=r, column=c, padx=7, pady=7, sticky="nsew")
+
+            t_id = teacher.get("id")
+            t_name = teacher.get("name", "")
+            t_dept = teacher.get("department", "")
+            t_path = teacher.get("avatar_path", "")
+            m_count = teacher.get("matched_count", 0)
+
+            # Avatar Box
+            avatar_box = ctk.CTkFrame(card, fg_color="#0A111A", width=96, height=96, corner_radius=8)
+            avatar_box.pack(padx=8, pady=(12, 6))
+            avatar_box.pack_propagate(False)
+
+            avatar_img = self.get_teacher_avatar_ctk_image(t_id, t_path, size=(96, 96))
+            if avatar_img:
+                lbl_avatar = ctk.CTkLabel(avatar_box, text="", image=avatar_img)
+            else:
+                lbl_avatar = ctk.CTkLabel(avatar_box, text="👩‍🏫", font=ctk.CTkFont(size=36))
+            lbl_avatar.pack(fill="both", expand=True)
+
+            # ชื่อคุณครู
+            lbl_name = ctk.CTkLabel(
+                card,
+                text=t_name,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#FFFFFF",
+                wraplength=155,
+                justify="center"
+            )
+            lbl_name.pack(padx=6, pady=(2, 2))
+
+            # สังกัด
+            dept_disp = f"🏢 {t_dept}" if t_dept else "🏢 บุคลากร"
+            lbl_dept = ctk.CTkLabel(
+                card,
+                text=dept_disp,
+                font=ctk.CTkFont(size=11),
+                text_color="#8EA2BE",
+                wraplength=155,
+                justify="center"
+            )
+            lbl_dept.pack(padx=6, pady=(0, 4))
+
+            # Matched Count Badge
+            if m_count > 0:
+                count_text = f"📸 พบ {m_count:,} รูป"
+                count_color = "#2ECC71"
+                badge_bg = "#112C1E"
+            else:
+                count_text = "📸 ยังไม่พบรูป"
+                count_color = "#7F8C8D"
+                badge_bg = "#1A2530"
+
+            badge_frame = ctk.CTkFrame(card, fg_color=badge_bg, corner_radius=6, height=24)
+            badge_frame.pack(padx=8, pady=(2, 10), fill="x")
+            lbl_badge = ctk.CTkLabel(
+                badge_frame,
+                text=count_text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color=count_color
+            )
+            lbl_badge.pack(pady=2)
+
+            # Card Hover & Click Event Handling
+            def make_click_handler(t_item):
+                return lambda ev: self.open_teacher_gallery(t_item)
+
+            def on_enter(ev, f=card):
+                try:
+                    f.configure(fg_color="#1F334E", border_color="#3B82F6")
+                except Exception:
+                    pass
+
+            def on_leave(ev, f=card):
+                try:
+                    f.configure(fg_color="#141E2B", border_color="#26384D")
+                except Exception:
+                    pass
+
+            click_cb = make_click_handler(teacher)
+            interactive_widgets = [card, avatar_box, lbl_avatar, lbl_name, lbl_dept, badge_frame, lbl_badge]
+            for w in interactive_widgets:
+                w.bind("<Button-1>", click_cb)
+                w.bind("<Enter>", on_enter)
+                w.bind("<Leave>", on_leave)
+                w.configure(cursor="hand2")
+
+            self.bind_scroll_events(card, target_scrollable=self.scr_teacher_cards)
+
+    def open_teacher_gallery(self, teacher):
+        """เมื่อคลิกการ์ดครู ให้เปิดหน้า Gallery รูปภาพของครูท่านนั้น พร้อมปุ่ม Back (v6.36)"""
+        self._current_selected_teacher = teacher
+        t_id = teacher.get("id")
+        t_name = teacher.get("name", "")
+        t_dept = teacher.get("department", "")
+        t_path = teacher.get("avatar_path", "")
+        m_count = teacher.get("matched_count", 0)
+
+        # สลับหน้าจอ: ซ่อน Grid View แล้วเปิด Gallery Detail View
+        self.frame_teacher_grid_view.grid_forget()
+        self.frame_gallery_detail_view.grid(row=0, column=0, sticky="nsew")
+
+        # จัดส่วนหัวให้อยู่ในโหมดคุณครู
+        self.btn_back_to_teacher_grid.pack(side="left", padx=(10, 15), pady=10)
+        self.detail_teacher_info_frame.pack(side="left", fill="y", padx=5, pady=5)
+        self.detail_student_controls_frame.pack_forget()
+
+        # อัปเดต Avatar ย่อส่วนและชื่อครู
+        mini_avatar = self.get_teacher_avatar_ctk_image(t_id, t_path, size=(36, 36))
+        if mini_avatar:
+            self.lbl_detail_avatar.configure(image=mini_avatar, text="")
+        else:
+            self.lbl_detail_avatar.configure(text="👩‍🏫")
+
+        dept_str = f" ({t_dept})" if t_dept else ""
+        self.lbl_detail_teacher_name.configure(text=f"👩‍🏫 {t_name}{dept_str}")
+        self.lbl_matched_summary.configure(text=f"พบ {m_count:,} รูปภาพที่แมตช์" if m_count else "พบ 0 รูปภาพ")
+
+        # โหลดรูปภาพ
+        self.load_photos_for_teacher(teacher)
+
+    def back_to_teacher_grid(self):
+        """กดย้อนกลับจาก Gallery รูปภาพ กลับมาที่ตาราง Avatar Grid ของคุณครู (v6.36)"""
+        if not hasattr(self, 'gallery_worker_gen'):
+            self.gallery_worker_gen = 0
+        self.gallery_worker_gen += 1
+
+        self.frame_gallery_detail_view.grid_forget()
+        self.frame_teacher_grid_view.grid(row=0, column=0, sticky="nsew")
+
+    def load_photos_for_teacher(self, teacher):
+        """โหลดรูปภาพกิจกรรมที่แมตช์พบของครูท่านที่เลือก (v6.36)"""
+        if not hasattr(self, 'gallery_worker_gen'):
+            self.gallery_worker_gen = 0
+        self.gallery_worker_gen += 1
+        current_gen = self.gallery_worker_gen
+
+        # ล้างแกลเลอรีทันที
+        for widget in self.scr_matched_gallery.winfo_children():
+            widget.destroy()
+
+        staff_id = teacher.get("id")
+        t_name = teacher.get("name", "")
+        if not staff_id:
+            self.lbl_matched_summary.configure(text="พบ 0 รูปภาพ")
+            return
+
+        self.lbl_matched_summary.configure(text=f"⌛ กำลังคิวรีรูปภาพของ {t_name}...")
+
+        def load_thread():
+            try:
+                matched_photos = self.db.get_matched_photos_for_staff(staff_id)
+                if current_gen == self.gallery_worker_gen:
+                    self.after(0, lambda: self.render_matched_gallery(t_name, matched_photos, current_gen))
+            except Exception as err:
+                logger.error(f"[GALLERY] Error querying matched photos for teacher {t_name} (ID: {staff_id}): {err}")
+                if current_gen == self.gallery_worker_gen:
+                    self.after(0, lambda: self.lbl_matched_summary.configure(text=f"❌ เกิดข้อผิดพลาดในการโหลดรูปภาพของ {t_name}"))
+
+        threading.Thread(target=load_thread, daemon=True).start()
+
+    def refresh_current_gallery(self):
+        """รีเฟรชหน้าแกลเลอรีรูปภาพปัจจุบัน (v6.36)"""
+        curr_role = self.combo_matched_role.get() if hasattr(self, 'combo_matched_role') else "คุณครู"
+        if curr_role == "คุณครู" and getattr(self, '_current_selected_teacher', None):
+            self.load_photos_for_teacher(self._current_selected_teacher)
+        else:
+            if hasattr(self, 'combo_matched_person'):
+                self.on_matched_person_change(self.combo_matched_person.get())
+
+    def on_matched_role_change(self, role):
+        """เมื่อเปลี่ยนหมวดระหว่าง คุณครู และ นักเรียน ให้สลับมุมมองและโหลดข้อมูล (v6.36)"""
+        # ซิงค์ค่าระหว่างเมนู
+        if hasattr(self, 'combo_matched_role'):
+            try:
+                self.combo_matched_role.set(role)
+            except Exception:
+                pass
+        if hasattr(self, 'combo_student_role'):
+            try:
+                self.combo_student_role.set(role)
+            except Exception:
+                pass
+
+        if role == "คุณครู":
+            # แสดง Teacher Grid View และซ่อน Gallery Detail View
+            self.frame_gallery_detail_view.grid_forget()
+            self.frame_teacher_grid_view.grid(row=0, column=0, sticky="nsew")
+
+            if not getattr(self, '_all_teachers_avatar_data', None):
+                self.reload_teacher_avatars_data()
+            else:
+                self.filter_teacher_avatar_grid(immediate=True)
+        else:
+            # โหมดนักเรียน: สลับไปแสดง Gallery Detail View พร้อมตัวเลือกนักเรียน
+            self.frame_teacher_grid_view.grid_forget()
+            self.frame_gallery_detail_view.grid(row=0, column=0, sticky="nsew")
+
+            self.btn_back_to_teacher_grid.pack_forget()
+            self.detail_teacher_info_frame.pack_forget()
+            self.detail_student_controls_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+            # โหลดรายชื่อนักเรียน
+            self.matched_persons_map.clear()
             persons = self.db.get_all_students()
             options = []
             for p in persons:
@@ -7664,13 +8126,13 @@ class FaceSearchApp(ctk.CTk):
                 options.append(disp)
                 self.matched_persons_map[disp] = p["id"]
 
-        if not options:
-            options = ["-- ไม่พบข้อมูล --"]
-        
-        self.full_matched_options = options
-        self.combo_matched_person.configure(values=options)
-        self.combo_matched_person.set(options[0])
-        self.on_matched_person_change(options[0])
+            if not options:
+                options = ["-- ไม่พบข้อมูล --"]
+
+            self.full_matched_options = options
+            self.combo_matched_person.configure(values=options)
+            self.combo_matched_person.set(options[0])
+            self.on_matched_person_change(options[0])
 
     def filter_matched_person_dropdown(self, event=None, immediate=False):
         """กรองรายชื่อใน Dropdown ตามคำค้นหาในช่อง entry_matched_search (พร้อม Debounce 250ms v6.28)"""
@@ -7690,7 +8152,7 @@ class FaceSearchApp(ctk.CTk):
                 filtered = self.full_matched_options
             else:
                 filtered = [opt for opt in self.full_matched_options if query in opt.lower()]
-            
+
             if not filtered:
                 filtered = ["-- ไม่พบรายชื่อ --"]
             self.combo_matched_person.configure(values=filtered)

@@ -969,6 +969,34 @@ class DatabaseManager:
                 "status": row[4]
             } for row in cursor.fetchall()]
 
+    def get_all_teachers_with_avatar_stats(self):
+        """
+        ดึงข้อมูลคุณครูทั้งหมดพร้อมพาธรูป Avatar และสถิติจำนวนรูปภาพกิจกรรมที่แมตช์ได้ (v6.36)
+        เรียงลำดับเริ่มต้นตามจำนวนรูปกิจกรรมที่แมตช์พบมากที่สุด (matched_count DESC)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT s.id, s.name, COALESCE(s.department, '') as department,
+                       COALESCE(s.status, 'active') as status,
+                       (SELECT image_path FROM staff_embeddings WHERE staff_id = s.id ORDER BY id ASC LIMIT 1) as avatar_path,
+                       (SELECT COUNT(DISTINCT photo_id) FROM detected_faces WHERE staff_id = s.id) as matched_count,
+                       (SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = s.id) as ref_photos_count
+                FROM staff_members s
+                WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+                GROUP BY s.id
+                ORDER BY matched_count DESC, s.name ASC
+            """)
+            return [{
+                "id": row[0],
+                "name": row[1],
+                "department": clean_department_name(row[2]),
+                "status": row[3],
+                "avatar_path": row[4] or "",
+                "matched_count": row[5] or 0,
+                "ref_photos_count": row[6] or 0
+            } for row in cursor.fetchall()]
+
     def get_all_students(self, status_filter=None, class_filter=None):
         """ดึงรายชื่อนักเรียนทั้งหมด (role = 'student') พร้อม student_id, status, class_room, grad_year (v6.29)"""
         with self.get_connection() as conn:
@@ -1807,7 +1835,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.35",
+                "version": "v6.36",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

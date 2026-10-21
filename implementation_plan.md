@@ -2155,3 +2155,130 @@ flowchart TD
 | **TC-90** | **Mock TimeoutError & SSLEOFError Recovery** | `gdrive_sync.py` | จำลองการยิง API ที่โยน TimeoutError ในรอบแรก และผ่านในรอบสอง | ระบบตรวจจับ error เรียก self-healing reconnect และ retry สำเร็จ |
 | **TC-91** | **Version v6.35 Parity & py_compile** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเวอร์ชัน `v6.35` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 100% ปราศจากข้อผิดพลาด |
 
+---
+
+## 24. แผนงานยกระดับหน้าเลือกครูเป็นตาราง Avatar Icon Grid พร้อมระบบค้นหาและ Master-Detail Navigation (v6.36)
+
+### 24.1 ที่มาและความต้องการ (Background & Requirements)
+- **สถานะปัจจุบันในหน้าแกลเลอรีผลลัพธ์ (`setup_matched_gallery_ui`):**
+  - มีเพียงแถบควบคุม Dropdown `หมวดบุคคล: [คุณครู/นักเรียน]` และ `เลือกรายชื่อ: [Dropdown]`
+  - ผู้ใช้งานต้องเปิด Dropdown ที่มีรายชื่อคุณครูยาวเหยียด (168 ท่าน) เพื่อเลือกดูรูป ทำให้ค้นหาและมองเห็นภาพรวมของคณะครูได้ยาก ขาดความสวยงามและ visual feedback
+- **ความต้องการใหม่ของผู้ใช้ (User Requirements):**
+  1. **ตาราง Avatar Icon Grid เรียงกันมาให้เลือก:** สำหรับหมวด "คุณครู" ให้แสดงผลเป็นตารางการ์ด (Avatar Card Grid) พร้อมรูป Avatar/โปรไฟล์ของคุณครู และมีชื่อ-นามสกุลแสดงอยู่ด้านล่างอย่างชัดเจน สวยงาม สบายตา
+  2. **ระบบค้นหาและตัวกรอง:** มีช่องค้นหาชื่อคุณครู และตัวกรองสังกัด เพื่อให้ค้นหาครูที่ตรงกันได้อย่างรวดเร็ว
+  3. **Master-Detail Navigation & หน้า Gallery:** เมื่อผู้ใช้คลิกเลือกคุณครูท่านใดบนการ์ด ให้เปลี่ยนมุมมองเข้าสู่หน้า Gallery แสดงภาพกิจกรรมทั้งหมดที่แมตช์พบคุณครูท่านนั้น
+  4. **ปุ่มกดย้อนกลับ (Back Button):** ในหน้า Gallery ต้องมีปุ่ม `⬅️ ย้อนกลับไปเลือกคุณครู` ด้านบน เพื่อให้ผู้ใช้สามารถกดย้อนกลับมาเลือกคุณครูท่านอื่นใหม่ได้ทันที โดยไม่สูญเสียสถานะตัวกรองหรือคำค้นหาเดิม
+
+---
+
+### 24.2 สถาปัตยกรรมส่วนต่อประสาน (Target Master-Detail UI Architecture)
+
+```mermaid
+flowchart TD
+    A["ผู้ใช้เปิดหน้าภาพกิจกรรมที่แมตช์แล้ว"] --> B{"หมวดบุคคลที่เลือก"}
+    B -- "นักเรียน" --> C["หน้าจอค้นหาและแกลเลอรีนักเรียนแบบเดิม (Dropdown Selection)"]
+    B -- "คุณครู" --> D["View A: Teacher Avatar Directory Grid"]
+    
+    subgraph ViewA ["View A: Teacher Avatar Directory Grid"]
+        D1["แถบค้นหาและตัวกรองสังกัด (Real-time Filter & Sort)"]
+        D2["ตารางการ์ด Avatar คุณครู (Responsive 4-5 คอลัมน์)"]
+        D3["แต่ละการ์ด: รูป Avatar (96x96) + ชื่อครู + สังกัด + ป้ายยอดรูปที่แมตช์ 📸"]
+        D1 --> D2 --> D3
+    end
+    
+    D3 -- "ผู้ใช้คลิกเลือกการ์ดคุณครู" --> E["View B: Teacher Photo Gallery View"]
+    
+    subgraph ViewB ["View B: Teacher Photo Gallery"]
+        E1["แถบด้านบน: ปุ่ม '⬅️ ย้อนกลับไปเลือกคุณครู' + รูปโปรไฟล์ย่อ + ชื่อ + สถิติจำนวนรูป"]
+        E2["แกลเลอรีรูปภาพกิจกรรมคัดแยกรายเดือน/ปี พร้อมป้าย Event & Confidence %"]
+        E1 --> E2
+    end
+    
+    E1 -- "คลิกปุ่ม '⬅️ ย้อนกลับ'" --> D
+```
+
+---
+
+### 24.3 ขั้นตอนการดำเนินงานอย่างละเอียดทีละข้อ (Step-by-Step Implementation Steps)
+
+#### ข้อที่ 0: แก้ไขข้อผิดพลาด `NameError: name 'ttk' is not defined` ใน [`app_gui.py`](app_gui.py) ทันที
+- ที่บรรทัดที่ 10 ของ [`app_gui.py`](app_gui.py): เพิ่มการนำเข้า `ttk` จากโมดูล `tkinter` (`from tkinter import filedialog, messagebox, ttk`)
+- แก้ไขปัญหาโปรแกรมเปิดไม่ขึ้น (Startup Crash) เนื่องจาก `setup_registry_ui` เรียกใช้ `ttk.Treeview` และ `ttk.Scrollbar` โดยไม่มีการ Import `ttk` ใน Global Scope
+- สร้างบททดสอบ Runtime Initializer Verification ในชุดทดสอบเพื่อป้องกันไม่ให้เกิดข้อผิดพลาดประเภทนี้ซ้ำอีก
+
+#### ข้อที่ 1: เพิ่มฟังก์ชันดึงข้อมูลคุณครูพร้อมสถิติรูปแมตช์และรูป Avatar ([`db_manager.py`](db_manager.py))
+- เพิ่มเมธอด `get_all_teachers_with_avatar_stats()` ใน `DatabaseManager`:
+  - คิวรีข้อมูลแบบ Single SQL Query ประสิทธิภาพสูง:
+    - `id`, `name`, `department`, `status`
+    - `avatar_path`: ดึงพาธรูปภาพใบหน้าแรกจาก `staff_embeddings` เพื่อใช้ทำ Avatar Icon
+    - `matched_count`: ดึงยอดจำนวนรูปภาพกิจกรรมที่พบใบหน้าของครูท่านนี้จาก `detected_faces` (เช่น 784 รูป)
+    - `ref_photos_count`: จำนวนรูปต้นแบบที่ลงทะเบียนไว้
+  - จัดเรียงลำดับเริ่มต้นตามจำนวนรูปที่แมตช์ได้มากที่สุด (Descending) เพื่อให้ครูที่มีกิจกรรมเยอะเด่นชัดทันที
+
+#### ข้อที่ 2: สร้างมุมมอง View A: ตาราง Avatar Icon Grid ใน [`app_gui.py`](app_gui.py)
+- ภายใน `setup_matched_gallery_ui`:
+  - แยก Container ออกเป็น 2 ส่วน:
+    1. `self.frame_teacher_grid_view`: มุมมองตาราง Avatar Card Grid
+    2. `self.frame_gallery_detail_view`: มุมมองแกลเลอรีรูปภาพเมื่อเลือกคุณครู
+- **องค์ประกอบของ View A (Avatar Grid):**
+  - **Filter & Search Bar:**
+    - `หมวดบุคคล: [คุณครู/นักเรียน]`
+    - `entry_teacher_card_search`: ช่องค้นหาชื่อครู หรือสังกัด (Debounce 200ms)
+    - `option_teacher_card_dept`: Dropdown เลือกสังกัด (`SW_DEPARTMENTS`)
+    - `option_teacher_card_sort`: ตัวเลือกจัดเรียง (`รูปที่แมตช์มากที่สุด`, `ชื่อ (ก-ฮ)`, `สังกัด`, `ID`)
+    - ป้ายสรุปจำนวนครูที่พบ: `พบคุณครู XX ท่าน`
+  - **Scrollable Cards Grid (`self.scr_teacher_cards`):**
+    - Grid layout 4-5 คอลัมน์ รองรับการขยายหน้าจออัตโนมัติ
+    - **ดีไซน์การ์ด Avatar คุณครู:**
+      - การ์ดสไตล์ Dark Navy (`#141E2B`, ขอบ `#26384D`, รัศมี 10px) มี Hover Effect เปลี่ยนเป็น `#1F334E` เมื่อนำเมาส์ไปชี้
+      - กรอบรูป Avatar ขนาด 96x96 พิกเซล โหลดรูปใบหน้าจริงจาก `avatar_path` (หรือไอคอนครูรูปบุคคลเท่ๆ หากยังไม่มีรูป)
+      - ชื่อ-นามสกุลของคุณครู ตัวหนา ชัดเจน สวยงาม
+      - Badge แสดงสังกัด (เช่น `วิทยาศาสตร์และเทคโนโลยี`)
+      - Badge สถิติรูปที่แมตช์ได้: `📸 พบ 784 รูป` (สีเขียว `#2ECC71`) หรือ `📸 ยังไม่พบรูปภาพ` (สีเทา)
+      - ผูก Event คลิกที่การ์ดเพื่อเรียก `self.open_teacher_gallery(teacher_info)`
+
+#### ข้อที่ 3: สร้างมุมมอง View B: Teacher Photo Gallery พร้อมปุ่ม Back ใน [`app_gui.py`](app_gui.py)
+- เมื่อเรียก `open_teacher_gallery(teacher_info)`:
+  - สลับการแสดงผล: ซ่อน `self.frame_teacher_grid_view` และเปิด `self.frame_gallery_detail_view`
+  - แสดงแถบส่วนหัวด้านบนของหน้า Gallery:
+    - **ปุ่ม `⬅️ ย้อนกลับไปเลือกคุณครู (Back)`** สีส้มเด่นชัด (`#E67E22`, hover `#D35400`)
+    - ภาพ Avatar ย่อส่วน (36x36) ของคุณครูที่กำลังดู
+    - ชื่อ-นามสกุล, สังกัด และจำนวนรูปภาพที่พบ: `นางวรรณริศา ตันติหัตถ์ (วิทยาศาสตร์และเทคโนโลยี) • พบ 784 รูปภาพที่แมตช์`
+    - ปุ่ม `🔄 รีเฟรช` เพื่อโหลดรูปภาพใหม่
+  - โหลดแกลเลอรีรูปภาพกิจกรรมของครูท่านนั้นใน `self.scr_matched_gallery` แบบแบ่งกลุ่มเดือน/ปี
+- เมื่อคลิกปุ่ม `⬅️ ย้อนกลับไปเลือกคุณครู`:
+  - เรียกฟังก์ชัน `self.back_to_teacher_grid()`:
+    - ซ่อนหน้า Gallery Detail View
+    - เปิดหน้า Avatar Card Grid กลับคืนมา
+    - คงสถานะคำค้นหาและตัวกรองสังกัดเดิมไว้ 100% ทำให้ผู้ใช้เลือกดูคุณครูท่านต่อไปได้อย่างต่อเนื่อง
+
+#### ข้อที่ 4: ระบบแคชและเธรดโหลดรูปภาพ Avatar ป้องกัน GUI ค้าง (Performance Optimization)
+- ใช้ `self._teacher_avatar_cache` เก็บ CTkImage เพื่อให้โหลดและย่อขนาดรูปภาพเพียงครั้งเดียว
+- สตรีมรูปภาพ Avatar แบบ Background Thread สำหรับครูที่มีรูปจำนวนมาก ทำให้หน้าจอเปิดขึ้นมาได้ทันทีอย่างลื่นไหล
+
+#### ข้อที่ 5: พัฒนาสวีททดสอบการทำงานจริง (TC-92 ถึง TC-96)
+- สร้างไฟล์ `test_teacher_avatar_gallery_suite.py` ครอบคลุม:
+  - **TC-92:** ทดสอบ `get_all_teachers_with_avatar_stats()` ดึงข้อมูลครูพร้อม path avatar และยอด matched_count ได้ถูกต้อง
+  - **TC-93:** ทดสอบตรรกะค้นหาและกรองสังกัดของการ์ดครู (Filtering & Search Logic)
+  - **TC-94:** ทดสอบตรรกะจัดเรียงการ์ดครู (Sort by Matched Count, Name, Dept)
+  - **TC-95:** ทดสอบ Master-Detail View Switching (เปิด Gallery และกด Back กลับมา)
+  - **TC-96:** ตรวจสอบ Version v6.36 Parity และ `py_compile`
+
+#### ข้อที่ 6: อัปเดตเวอร์ชันและเอกสารระบบ (v6.36)
+- ปรับเวอร์ชันเป็น **v6.36 (Teacher Avatar Directory & Master-Detail Gallery Suite)** บน Window Title, Sidebar Logo, `db_manager.py`, และ `app_gui.py`
+- บันทึกประวัติการแก้ไขลงบนสุดของ `README.md`
+- ทำการ Commit และ Push ขึ้น Git Remote Repository (`https://github.com/sawiphoto/facesearch-desktop.git`)
+
+---
+
+### 24.4 ตารางกรณีทดสอบ (Test Cases Matrix: TC-92 ถึง TC-96)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-92** | **Teacher Avatar & Match Stats Extraction** | `db_manager.py` | เรียกใช้ `get_all_teachers_with_avatar_stats()` และตรวจสอบคอลัมน์ `avatar_path`, `matched_count` | คืนค่าข้อมูลครบถ้วน ยอดรูปที่แมตช์และ path รูปภาพถูกต้อง |
+| **TC-93** | **Teacher Avatar Grid Search & Filter** | `app_gui.py` | ทดสอบค้นหาชื่อครู และกรองเฉพาะสังกัด `วิทยาศาสตร์และเทคโนโลยี` | ผลลัพธ์การ์ดตรงกับเงื่อนไขการค้นหา 100% |
+| **TC-94** | **Teacher Avatar Card Sorting** | `app_gui.py` | ทดสอบเรียงการ์ดตามยอดรูปที่แมตช์มากที่สุด, เรียงตามชื่อ (ก-ฮ), และเรียงตามสังกัด | ลำดับการ์ดเรียงถูกต้องตามคีย์ที่กำหนด |
+| **TC-95** | **Master-Detail View Navigation & Back Button** | `app_gui.py` | จำลองการคลิกเลือกการ์ดครู (เปิด Gallery) และคลิกปุ่ม Back (กลับสู่ Avatar Grid) | การสลับหน้าจอดำเนินการได้ราบรื่น สถานะตัวกรองไม่สูญหาย |
+| **TC-96** | **Version v6.36 Parity & py_compile** | ทุกไฟล์ | ตรวจสอบการคอมไพล์และเวอร์ชัน `v6.36` ทั่วทั้งระบบ | ทุกไฟล์คอมไพล์ผ่าน 100% ปราศจากข้อผิดพลาด |
+
+

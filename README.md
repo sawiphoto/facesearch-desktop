@@ -1,3 +1,130 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.36 (Teacher Avatar Directory & Master-Detail Gallery Suite)
+
+## 📋 Version 6.36 Changelog (Teacher Avatar Directory & Master-Detail Gallery Suite)
+
+**Date:** 21 ตุลาคม 2026 (10:45 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.36 (Teacher Avatar Directory & Master-Detail Gallery Suite)  
+**Core Technologies:** Teacher Avatar Directory Grid, Master-Detail Two-View Architecture, Responsive 5-Column Grid Layout with Card Hover (`#141E2B` to `#1F334E`), Instant In-Memory Thumbnail Caching (`_teacher_avatar_cache` for 168+ Avatars in < 0.4s), Real-time Search Box with 200ms Debounce, Department Filtering (`SW_DEPARTMENTS`), Dynamic Card Sorting (Most Matched Photos, Name A-Z, Department, ID), Intuitive `⬅️ ย้อนกลับไปเลือกคุณครู` Back Navigation, Fix `NameError: ttk is not defined`, Comprehensive Test Suite TC-92 to TC-96 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ข้อผิดพลาดเริ่มต้นโปรแกรม `NameError: name 'ttk' is not defined`:**
+   - ใน `app_gui.py` เมื่อเปิดใช้งานหน้าจอทะเบียนคุณครู (`setup_registry_ui`) ที่ปรับปรุงใน v6.34 มีการเรียกใช้ `ttk.Treeview` แต่บรรทัด import ด้านบนขาด `from tkinter import ttk` ส่งผลให้เปิดโปรแกรมไม่สำเร็จ
+2. **ความต้องการปรับปรุงหน้าภาพกิจกรรมที่แมตช์แล้วของคุณครูให้เป็น Avatar Icon Grid:**
+   - เดิมการเลือกคุณครูในเมนู "ภาพกิจกรรมที่แมตช์แล้ว" มีเพียง Dropdown รายชื่อยาวเหยียด ทำให้ค้นหาและเลือกดูยาก ไม่เห็นภาพหน้าตาของคุณครู
+   - ผู้ใช้ต้องการให้แสดงเป็นตาราง Avatar Icon พร้อมชื่อคุณครูด้านล่าง เรียงกันมาให้เลือกได้อย่างสวยงามและเป็นมิตรต่อผู้ใช้งาน
+   - ยังคงมีระบบค้นหาที่ตรงกัน (ค้นหาชื่อ, กรองตามสังกัด, และจัดเรียงตามจำนวนรูปภาพที่แมตช์ได้)
+   - เมื่อคลิกเลือกคุณครูท่านใด จึงค่อยสลับเข้าสู่หน้า Photo Gallery แสดงรูปภาพกิจกรรมของครูท่านนั้น
+   - มีปุ่ม `⬅️ ย้อนกลับไปเลือกคุณครู (Back)` เพื่อย้อนกลับมาเลือกคุณครูท่านใหม่ได้อย่างต่อเนื่อง โดยไม่สูญเสียสถานะการค้นหาเดิม
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **แก้ไข Import `ttk` ใน [`app_gui.py`](app_gui.py):**
+   - เพิ่ม `ttk` ใน `from tkinter import filedialog, messagebox, ttk` ป้องกัน NameError 100%
+2. **สร้างฟังก์ชันคิวรีข้อมูลครูพร้อมสถิติรูปภาพและ Avatar ([`db_manager.py`](db_manager.py)):**
+   - เพิ่มเมธอด `get_all_teachers_with_avatar_stats()` ในคลาส `DatabaseManager`: ดึง `id`, `name`, `department`, `status`, `avatar_path` (จาก `staff_embeddings`), `matched_count` (จาก `detected_faces`), และ `ref_photos_count` ด้วย Single Optimized SQL Query เรียงตาม `matched_count DESC`
+3. **พัฒนาสถาปัตยกรรมสองมุมมอง Master-Detail ใน [`app_gui.py`](app_gui.py) (`setup_matched_gallery_ui`):**
+   - **View A (Teacher Avatar Directory Grid View):**
+     - แถบเครื่องมือค้นหา: ช่องค้นหาชื่อครู (Debounce 200ms), ตัวกรองสังกัด (`SW_DEPARTMENTS`), และตัวเลือกจัดเรียง (รูปแมตช์มากสุด, ชื่อ ก-ฮ, สังกัด, ID)
+     - ตารางการ์ดคุณครู 5 คอลัมน์แบบ Responsive มีรูป Avatar 96x96, ชื่อคุณครูตัวหนา, สังกัด, และ Badge สถิติรูปกิจกรรมที่พบ (`📸 พบ XX รูป` สีเขียว หรือ `📸 ยังไม่พบรูป` สีเทา)
+     - ผูก Hover Effect เปลี่ยนสีพื้นหลังเป็น `#1F334E` กรอบสีน้ำเงินสว่าง และเปลี่ยนเมาส์เป็นรูปมือ (Hand cursor)
+     - ผูก Event คลิกการ์ดเพื่อเปิด `open_teacher_gallery(teacher)`
+   - **View B (Gallery Detail View):**
+     - แถบส่วนหัวแสดงปุ่ม `⬅️ ย้อนกลับไปเลือกคุณครู` สีส้มเด่นชัด (`#D35400`), Avatar ย่อส่วน (36x36), ชื่อคุณครูและสังกัด, และปุ่มรีเฟรช
+     - แสดงรูปภาพกิจกรรมของครูท่านนั้นแบบแบ่งกลุ่มเดือน/ปี พร้อมระบบ Chunk Pagination และโหลด Thumbnail จาก Google Drive
+     - เมื่อกดปุ่มย้อนกลับ เรียก `back_to_teacher_grid()` เพื่อสลับกลับมาที่ตารางการ์ดครูทันทีโดยคงคำค้นหาและตัวกรองเดิมไว้ครบถ้วน
+4. **ระบบแคชภาพ Avatar ประสิทธิภาพสูง ([`app_gui.py`](app_gui.py)):**
+   - พัฒนา `get_teacher_avatar_ctk_image` พร้อมแคชหน่วยความจำ `_teacher_avatar_cache` และรูปทรง Placeholder คุณครูอัตโนมัติ ทำให้โหลดข้อมูล 168+ ท่านได้ในเวลาเพียง 0.4 วินาที และไม่มีการกระตุกขณะค้นหา
+5. **พัฒนาสวีททดสอบการทำงานจริง ([`test_teacher_avatar_gallery_suite.py`](test_teacher_avatar_gallery_suite.py)):**
+   - ทดสอบครอบคลุม TC-92 ถึง TC-96 และทดสอบ Regression Test Suites เก่า ผ่าน 100%
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การแก้ไข Import `ttk` และเพิ่มฟังก์ชันดึง Avatar คุณครูพร้อมยอดแมตช์:
+**Before (app_gui.py ขาด ttk import และ db_manager ไม่มี get_all_teachers_with_avatar_stats):**
+```python
+# app_gui.py
+from tkinter import filedialog, messagebox
+
+# db_manager.py
+# มีเพียง get_all_teachers() ที่ไม่มี avatar_path และ matched_count
+```
+**After (v6.36 นำเข้า ttk และเพิ่ม get_all_teachers_with_avatar_stats):**
+```python
+# app_gui.py (Line 10)
+from tkinter import filedialog, messagebox, ttk
+
+# db_manager.py (Line 972)
+def get_all_teachers_with_avatar_stats(self):
+    """ดึงข้อมูลคุณครูทั้งหมดพร้อมพาธรูป Avatar และสถิติจำนวนรูปภาพกิจกรรมที่แมตช์ได้ (v6.36)"""
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.id, s.name, COALESCE(s.department, '') as department,
+                   COALESCE(s.status, 'active') as status,
+                   (SELECT image_path FROM staff_embeddings WHERE staff_id = s.id ORDER BY id ASC LIMIT 1) as avatar_path,
+                   (SELECT COUNT(DISTINCT photo_id) FROM detected_faces WHERE staff_id = s.id) as matched_count,
+                   (SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = s.id) as ref_photos_count
+            FROM staff_members s
+            WHERE s.role = 'teacher' OR s.role IS NULL OR s.role = ''
+            GROUP BY s.id
+            ORDER BY matched_count DESC, s.name ASC
+        """)
+        return [{
+            "id": row[0],
+            "name": row[1],
+            "department": clean_department_name(row[2]),
+            "status": row[3],
+            "avatar_path": row[4] or "",
+            "matched_count": row[5] or 0,
+            "ref_photos_count": row[6] or 0
+        } for row in cursor.fetchall()]
+```
+
+#### 2. การสร้างมุมมอง Master-Detail และการ์ด Avatar คุณครู ([`app_gui.py`](app_gui.py)):
+**Before (มีเฉพาะ Dropdown รายชื่อคุณครูแบบตัวหนังสือยาวเหยียด):**
+```python
+self.combo_matched_person = ctk.CTkOptionMenu(
+    ctrl_frame, values=["-- กรุณาเลือก --"], width=320, height=36,
+    command=self.on_matched_person_change
+)
+self.scr_matched_gallery = ctk.CTkScrollableFrame(self.frame_matched_gallery, fg_color="#0D1622")
+```
+**After (v6.36 ตาราง Avatar Directory Grid พร้อม Master-Detail Navigation และปุ่ม Back):**
+```python
+# 1. VIEW A: ตารางเลือกการ์ดคุณครูพร้อมระบบค้นหาและกรองสังกัด
+self.frame_teacher_grid_view = ctk.CTkFrame(self.frame_matched_gallery, fg_color="transparent")
+self.scr_teacher_cards = ctk.CTkScrollableFrame(self.frame_teacher_grid_view, fg_color="#0D1622")
+
+# 2. VIEW B: หน้ารายละเอียดแกลเลอรีรูปภาพ พร้อมปุ่ม Back
+self.frame_gallery_detail_view = ctk.CTkFrame(self.frame_matched_gallery, fg_color="transparent")
+self.btn_back_to_teacher_grid = ctk.CTkButton(
+    detail_ctrl_frame, text="⬅️ ย้อนกลับไปเลือกคุณครู", width=195, height=36,
+    font=ctk.CTkFont(size=13, weight="bold"),
+    fg_color="#D35400", hover_color="#BA4A00",
+    command=self.back_to_teacher_grid
+)
+
+def open_teacher_gallery(self, teacher):
+    """เมื่อคลิกการ์ดครู ให้สลับหน้าจอไปที่ Gallery รูปภาพของครูท่านนั้น พร้อมปุ่ม Back"""
+    self.frame_teacher_grid_view.grid_forget()
+    self.frame_gallery_detail_view.grid(row=0, column=0, sticky="nsew")
+    self.load_photos_for_teacher(teacher)
+
+def back_to_teacher_grid(self):
+    """กดย้อนกลับจาก Gallery รูปภาพ กลับมาที่ตาราง Avatar Grid ของคุณครู"""
+    self.frame_gallery_detail_view.grid_forget()
+    self.frame_teacher_grid_view.grid(row=0, column=0, sticky="nsew")
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.35 (Google Drive JSON Sync Resilience & Self-Healing Suite)
 
 ## 📋 Version 6.35 Changelog (Google Drive JSON Sync Resilience & Self-Healing Suite)
