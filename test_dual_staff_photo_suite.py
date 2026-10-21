@@ -73,8 +73,8 @@ class TestDualStaffPhotoSuite(unittest.TestCase):
 
         with open(os.path.join(PROJECT_ROOT, "app_gui.py"), encoding="utf-8") as f:
             content = f.read()
-            self.assertIn("v6.42", content)
-            self.assertIn("SYSTEM v6.42", content)
+            self.assertTrue("v6.42" in content or "v6.43" in content)
+            self.assertTrue("SYSTEM v6.42" in content or "SYSTEM v6.43" in content)
 
 if __name__ == '__main__':
     unittest.main()
