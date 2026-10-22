@@ -1,6 +1,8 @@
 import os
 import sys
+import time
 import logging
+import threading
 
 def setup_directories():
     """สร้างไดเรกทอรีพื้นฐานที่จำเป็นสำหรับโครงสร้างโปรเจกต์"""
@@ -28,14 +30,83 @@ if __name__ == "__main__":
         format='[%(asctime)s] %(levelname)s: %(message)s',
         handlers=handlers
     )
-    
+
+    # 1. ป้องกันการเปิดโปรแกรมซ้ำซ้อน (Single-Instance Protection v6.51)
+    from single_instance import acquire_mutex, release_mutex, bring_existing_window_to_front
+    app_mutex = acquire_mutex()
+    if app_mutex is None:
+        logging.warning("⚠️ มีโปรแกรม FaceSearchApp กำลังทำงานอยู่แล้ว ทำการสลับไปหน้าต่างเดิมและปิดตัวจำลองซ้ำ")
+        bring_existing_window_to_front()
+        sys.exit(0)
+
+    # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) พร้อม Progress Bar 0-100%
+    from splash_screen import SplashScreen
+    splash = SplashScreen(version="v6.51")
+    splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
+
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
     setup_directories()
-    
-    # เรียกใช้โปรแกรม GUI หลัก
+    splash.update_progress(20, "กำลังเชื่อมต่อฐานข้อมูล SQLite และการตั้งค่า...")
+
+    # 3. โหลด AI InsightFace & Components ใน Worker Thread แบบ Pre-warming
+    worker_state = {
+        "analyzer": None,
+        "error": None,
+        "done": False,
+        "progress": 30,
+        "status": "กำลังเตรียมโมเดล AI InsightFace & AntelopeV2..."
+    }
+
+    def _init_worker():
+        try:
+            worker_state["progress"] = 40
+            worker_state["status"] = "กำลังโหลดเอนจิน AI InsightFace (Detection & Recognition)..."
+            from face_analyzer import FaceAnalyzer
+            analyzer = FaceAnalyzer(use_gpu=True)
+            worker_state["progress"] = 60
+            worker_state["status"] = "กำลังโหลดโมเดล AntelopeV2 (ONNX) และทดสอบ CUDA Acceleration..."
+            analyzer.initialize()
+            worker_state["analyzer"] = analyzer
+
+            worker_state["progress"] = 85
+            worker_state["status"] = "กำลังเตรียมส่วนติดต่อผู้ใช้ (CustomTkinter UI)..."
+            import app_gui
+
+            worker_state["progress"] = 96
+            worker_state["status"] = "พร้อมเข้าสู่โปรแกรม..."
+        except Exception as err:
+            worker_state["error"] = err
+        finally:
+            worker_state["done"] = True
+
+    init_thread = threading.Thread(target=_init_worker, daemon=True)
+    init_thread.start()
+
+    # ลูปอัปเดตหน้าต่าง Splash Screen ขณะโหลดโมเดลในพื้นหลัง
+    while not worker_state["done"]:
+        splash.update_progress(worker_state["progress"], worker_state["status"])
+        time.sleep(0.05)
+
+    if worker_state["error"]:
+        splash.close()
+        logging.error(f"Failed to start GUI application during model pre-warm: {worker_state['error']}", exc_info=True)
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("เกิดข้อผิดพลาดในการเริ่มโปรแกรม", f"ไม่สามารถโหลดโมเดล AI ได้:\n{worker_state['error']}\n\nกรุณาตรวจสอบ app_execution.log")
+        root.destroy()
+        release_mutex(app_mutex)
+        sys.exit(1)
+
+    splash.update_progress(100, "พร้อมเปิดใช้งานโปรแกรม!")
+    time.sleep(0.25)
+    splash.close()
+
+    # 4. เรียกใช้โปรแกรม GUI หลัก พร้อมส่ง Analyzer ที่โหลดเสร็จแล้ว
     try:
         from app_gui import FaceSearchApp
-        app = FaceSearchApp()
+        app = FaceSearchApp(analyzer=worker_state["analyzer"])
         app.mainloop()
     except Exception as e:
         logging.error(f"Failed to start GUI application: {e}", exc_info=True)
@@ -54,3 +125,5 @@ if __name__ == "__main__":
                 root.destroy()
             except Exception:
                 pass
+    finally:
+        release_mutex(app_mutex)

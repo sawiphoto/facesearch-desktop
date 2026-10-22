@@ -836,8 +836,10 @@ class GoogleSyncManager:
         สำหรับปุ่ม Manual Sync ในหน้าตั้งค่าโฟลเดอร์ หรือ Task 1
         """
         if not self.connected or not self.drive_service:
-            logger.error("[GDRIVE JSON] Google Drive service not connected.")
-            return False, "ไม่ได้เชื่อมต่อ Google Drive Service"
+            logger.info("[GDRIVE JSON] Drive service not connected. Attempting auto-connect (v6.51)...")
+            if not self.connect():
+                logger.error("[GDRIVE JSON] Google Drive service auto-connect failed.")
+                return False, "ไม่ได้เชื่อมต่อ Google Drive Service (เชื่อมต่อไม่สำเร็จ)"
 
         if not json_folder_id:
             logger.warning("[GDRIVE JSON] JSON folder ID is empty.")

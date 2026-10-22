@@ -1,3 +1,75 @@
+# แผนงานระบบ Splash Screen 0-100% & เชื่อมต่อ Google Drive อัตโนมัติเมื่อกดซิงค์ภาพอดีต (v6.51)
+
+## 📌 1. ปัญหาและสาเหตุที่พบ (Root Cause Analysis)
+
+1. **ปัญหาข้อผิดพลาด `ไม่ได้เชื่อมต่อ Google Drive Service` เมื่อกดปุ่ม "⚡ ซิงค์ JSON อดีต":**
+   - จากภาพหน้าจอที่ผู้ใช้ส่งมา เมื่อกดปุ่ม `⚡ ซิงค์ JSON อดีต` หน้าต่างโปรแกรมแสดงข้อความ: `❌ ไม่สามารถซิงค์ไฟล์ได้: ไม่ได้เชื่อมต่อ Google Drive Service`
+   - **สาเหตุ:** ในโปรแกรม GUI เมื่อเริ่มต้นเปิดใช้งาน ตัวแปร `self.sync_manager` จะยังไม่ได้ทำการเรียก `.connect()` โดยอัตโนมัติ (เพื่อไม่ให้เปิดโปรแกรมช้าโดยไม่จำเป็น) และในฟังก์ชัน `sync_archive_crowdsource_json_manual` ไม่ได้มีโค้ดตรวจสอบและสั่ง `.connect()` ก่อนสั่งซิงค์ ทำให้สถานะยังคงเป็น `connected = False`
+   - **แนวทางแก้ไข:** เพิ่มระบบ **Auto-Connect Google Drive** ทั้งใน `sync_archive_crowdsource_json_manual` (`app_gui.py`) และภายใน `sync_archive_crowdsource_only` (`gdrive_sync.py`) หากพบว่ายังไม่ได้เชื่อมต่อ ให้ทำการโหลด Credential และเชื่อมต่อ Drive API โดยอัตโนมัติทันทีก่อนเริ่มกระบวนการซิงค์
+
+2. **สาเหตุที่ต้องดับเบิลคลิก 3 ครั้ง (Perceived Delay & Duplicate Launch Risk):**
+   - เมื่อดับเบิลคลิก `run_app.bat` ระบบจะรัน `pythonw.exe main.py` ซึ่งทำงานแบบ Windowless (ไร้หน้าต่างดำ Command Prompt ตามมาตรฐาน Windows GUI)
+   - กระบวนการโหลดไลบรารีขนาดใหญ่ (`insightface`, `onnxruntime`, `customtkinter`, `opencv`, `numpy`, `torch`) และโมเดล AI AntelopeV2 (`glintr100.onnx`, `scrfd_10g_bnkps.onnx`) พร้อมเตรียม CUDA GPU Acceleration ใช้เวลาจริง **~26.2 วินาที** ก่อนหน้าต่างหลักจะปรากฏขึ้นมา
+   - ในช่วงเวลา 26 วินาทีนี้ ผู้ใช้ไม่เห็นสิ่งใดเกิดขึ้นบนหน้าจอเลย จึงเข้าใจว่าคลิกไม่ติดและคลิกซ้ำอีก 2-3 ครั้ง
+   - การคลิกซ้ำทำให้เกิดโปรเซส `pythonw.exe` ซ้อนกัน 3 ตัว แย่งทรัพยากร RAM/GPU และแย่งล็อกไฟล์ SQLite
+   - **แนวทางแก้ไข:** สร้างหน้าต่าง Splash Screen ที่เด้งขึ้นมาทันทีใน <0.2 วินาที มี Progress Bar 0% - 100% พร้อมระบบ Single-Instance Lock ป้องกันการเปิดซ้ำ
+
+---
+
+## 💡 2. สถาปัตยกรรมและโซลูชันที่ออกแบบ (Architecture & Solution Design)
+
+1. **Auto-Connect Google Drive Resilience:**
+   - ใน `sync_archive_crowdsource_json_manual` (`app_gui.py`):
+     - ตรวจสอบ `if not self.sync_manager.connected:` $\rightarrow$ แจ้ง `logger.info("🔄 กำลังเชื่อมต่อ Google Drive Service อัตโนมัติ...")` แล้วสั่ง `self.sync_manager.connect()`
+   - ใน `sync_archive_crowdsource_only` (`gdrive_sync.py`):
+     - ตรวจสอบ Fallback: หากยังไม่ได้เชื่อมต่อ ให้ลองเรียก `self.connect()` อัตโนมัติก่อนล้มเหลว
+2. **Lightweight Instant Splash Screen (`splash_screen.py`):**
+   - หน้าต่าง Pure Tkinter ขึ้นทันทีใน <0.2 วินาที
+   - โทน Dark Navy (`#1A252F` / `#2C3E50` / `#6CA6CD` / `#3498DB`) เข้าชุดกับโปรแกรม
+   - หัวข้อ: **FACE MATCHING SYSTEM v6.51**
+   - แถบ Progress Bar (0% - 100%) พร้อมคำอธิบายขั้นตอนแบบเรียลไทม์:
+     - `0% - 15%`: ตรวจสอบสภาพแวดล้อมระบบ
+     - `15% - 35%`: โหลดฐานข้อมูล SQLite & Settings
+     - `35% - 65%`: โหลดเอนจิน AI InsightFace (AntelopeV2)
+     - `65% - 85%`: กำหนดค่า GPU CUDA Acceleration
+     - `85% - 95%`: เตรียมส่วนติดต่อผู้ใช้ (GUI Components)
+     - `95% - 100%`: พร้อมเปิดใช้งาน (สลับเข้าสู่หน้าต่างหลักอย่างนุ่มนวล)
+3. **Multi-Threaded Pre-warming:**
+   - โหลดโมเดลใน Background Worker ขณะที่ Main Thread อัปเดต Progress Bar อย่างลื่นไหล
+   - ส่งต่อ `analyzer` ที่โหลดเสร็จแล้วเข้าสู่ `FaceSearchApp(analyzer=analyzer)` ทำให้หน้าต่างหลักเปิดได้ทันที
+4. **Single-Instance Mutex / Lock Protection:**
+   - บันทึก Lockfile (`data/app.lock`) พร้อม PID ป้องกันการเปิดโปรแกรมซ้ำซ้อน 100%
+
+---
+
+## 🏗️ 3. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: แก้ไข Auto-Connect Google Drive ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) และ [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py)
+- เพิ่มการเชื่อมต่อ Google Drive อัตโนมัติใน `sync_archive_crowdsource_json_manual`
+- เพิ่ม Fallback auto-connect ใน `sync_archive_crowdsource_only`
+
+### ขั้นตอนที่ 2: สร้างโมดูล [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py)
+- สร้างคลาส `SplashScreen` ด้วย pure Tkinter โทน Dark Navy มี Progress Bar (0-100%) และข้อความสถานะ
+
+### ขั้นตอนที่ 3: ปรับปรุง [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py)
+- เพิ่ม Single-Instance Lock ป้องกันการเปิดซ้ำ
+- แสดง `SplashScreen` ทันที และใช้ Background Worker โหลดโมเดลพร้อมอัปเดตแถบเปอร์เซ็นต์
+- เมื่อโหลดครบ 100% ปิด Splash แล้วเปิด `FaceSearchApp(analyzer=analyzer)`
+
+### ขั้นตอนที่ 4: ปรับปรุง [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) & [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py)
+- ปรับ `FaceSearchApp.__init__` ให้รับ `analyzer=None`
+- อัปเดต Title Bar, Sidebar Logo, และ Database Manifest เป็น `v6.51`
+
+### ขั้นตอนที่ 5: การทดสอบความถูกต้อง (Runtime Verification)
+- ทดสอบการกดปุ่ม `⚡ ซิงค์ JSON อดีต` เพื่อยืนยันว่าเชื่อมต่อ Drive อัตโนมัติและซิงค์สำเร็จ
+- ทดสอบการทำงานของ `SplashScreen` 0-100% และ Single-Instance Lock
+
+### ขั้นตอนที่ 6: อัปเดต [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) และ Git Workflow
+- Prepend Changelog v6.51 ลงบนสุดของ `README.md`
+- Git commit และ Git push
+
+---
+
 # แผนงานการแก้ไขข้อผิดพลาดปุ่มซิงค์ JSON ภาพอดีต (AttributeError 'log' & UI Button Clipping Fix - v6.50)
 
 ## 📌 1. ปัญหาที่พบจากการตรวจสอบ (Issues Analysis)

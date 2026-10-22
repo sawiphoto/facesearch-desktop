@@ -965,7 +965,7 @@ class StudentLifecycleDialog(ctk.CTkToplevel):
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเลื่อนชั้นได้: {e}", parent=self)
 
 class FaceSearchApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, analyzer=None):
         super().__init__()
 
         # --- การตั้งค่าธีมและหน้าต่างโปรแกรม (Navy Blue Theme) ---
@@ -973,16 +973,19 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.50 (Archive Crowdsource Manual Sync & Layout Fix Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.51 (Instant Splash Screen & Single-Instance Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
         # --- ส่วนประกอบฐานข้อมูลและหลังบ้าน ---
         self.db = DatabaseManager()
         self.sync_manager = GoogleSyncManager()
-        from face_analyzer import FaceAnalyzer
-        self.analyzer = FaceAnalyzer(use_gpu=True)
-        self.analyzer.initialize()
+        if analyzer is not None:
+            self.analyzer = analyzer
+        else:
+            from face_analyzer import FaceAnalyzer
+            self.analyzer = FaceAnalyzer(use_gpu=True)
+            self.analyzer.initialize()
         
         # ThreadPoolExecutor ควบคุมคิวโหลดภาพพรีวิวไม่ให้ค้าง (สูงสุด 4 เธรด)
         from concurrent.futures import ThreadPoolExecutor
@@ -1081,7 +1084,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.50",
+            text="FACE MATCHING\nSYSTEM v6.51",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -5924,11 +5927,22 @@ class FaceSearchApp(ctk.CTk):
             lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
 
     def sync_archive_crowdsource_json_manual(self):
-        """ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีตขึ้น Google Drive ใน Background Daemon Thread (v6.50)"""
+        """ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีตขึ้น Google Drive ใน Background Daemon Thread (v6.51)"""
         import threading
         from tkinter import messagebox
         def _worker():
             try:
+                # ตรวจสอบและเชื่อมต่อ Google Drive Service อัตโนมัติหากยังไม่ได้เชื่อมต่อ (v6.51 Auto-Connect)
+                if not self.sync_manager.connected or not getattr(self.sync_manager, 'drive_service', None):
+                    logger.info("🔄 [GDRIVE] ยังไม่ได้เชื่อมต่อ Drive Service -> กำลังเชื่อมต่ออัตโนมัติ...")
+                    if not self.sync_manager.connect():
+                        logger.error("❌ [GDRIVE] ไม่สามารถเชื่อมต่อ Google Drive Service ได้ กรุณาตรวจสอบไฟล์ credentials")
+                        self.after(0, lambda: messagebox.showerror(
+                            "ข้อผิดพลาด",
+                            "ไม่สามารถเชื่อมต่อ Google Drive Service ได้\nกรุณาตรวจสอบไฟล์ Service Account Credentials ในโฟลเดอร์ config/"
+                        ))
+                        return
+
                 logger.info("🚀 [GDRIVE] เริ่มต้นซิงค์ไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีต (2562-25xx)...")
                 json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
                 if not json_folder_id:
