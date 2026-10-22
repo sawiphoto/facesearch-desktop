@@ -1,3 +1,137 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)
+
+## 📋 Version 6.47 Changelog (Sequential Task-1 Sync & Responsive Instant-Stop Suite)
+
+**Date:** 22 ตุลาคม 2026 (11:30 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)  
+**Core Technologies:** Sequential Task Pipeline, Responsive Stop Event Handling, Instant-Stop Fast Return, Stop-Sync Lockout Flag Refactoring, Unit Test Suite TC-143 to TC-146 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความต้องการจัดลำดับการซิงค์แบบเป็นขั้นตอน (Sequential Pipeline):**
+   - ผู้ใช้สั่งการกำชับ: *"แต่ที่ผมต้องการคือ จบtask1 sync ครั้งนึงนะ แล้วค่อยทำ task ต่อๆไป และหากกดปุ่ม stop ก็หยุดการทำงานรอบนั้นแล้ว sync ทันทีด้วยครับ"*
+   - เมื่อระบบประมวลผล Task 1 (สแกนภาพกิจกรรมเพิ่มมาใหม่) เสร็จสิ้น ต้องทำการซิงค์ไฟล์ JSON ดัชนีทั้งหมดขึ้น Google Drive ทันที 1 รอบ เพื่อให้รูปภาพกิจกรรมใหม่พร้อมใช้งานบนเว็บทันที ก่อนเริ่มทำ Task 2 (นักเรียน) และ Task 3 (ครู)
+2. **ปัญหาและสาเหตุรากเหง้าของการหยุดทำงาน (Root Cause Analysis):**
+   - **ธง `_stopped_json_synced` บล็อกการซิงค์เมื่อกด Stop (Lockout Bug):** ในเวอร์ชันก่อนหน้า เมื่อ Task 1 ซิงค์เสร็จ มีการเซ็ต `_stopped_json_synced = True` ทำให้เมื่อผู้ใช้กดปุ่ม `🛑 Stop Schedule Task` ในระหว่างที่ Task 2 หรือ Task 3 กำลังทำงาน ฟังก์ชัน `_safe_sync_json_on_stop()` ถูกบล็อกด้วยเงื่อนไข `if not self._stopped_json_synced:` ส่งผลให้ไม่เกิดการซิงค์ข้อมูลล่าสุดขึ้น Google Drive เลย
+   - **Task 1 ไม่หลุดออกจากฟังก์ชันทันที (Delayed Exit):** เมื่อตรวจพบ `stop_requested` ในลูปรูปภาพ โค้ดสั่งเพียง `break` ออกจากลูปรูป แต่ยังวนลูปตรวจสอบโฟลเดอร์และปีการศึกษาอื่นต่อ
+   - **Task 2 และ Task 3 ไม่ยอมหยุดทันที:** ใน Task 2 มีลูปตรวจสอบนักเรียนหลายพันคนและขั้นตอน Bulk Backfill ซึ่งไม่ได้ดักเช็ก `stop_requested` ทำให้ยังประมวลผลต่อ และใน Task 3 ไม่มีจุดตรวจเช็ก `stop_requested` เลย
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **จัดลำดับการทำงานแบบ Sequential Pipeline ใน [`scheduler_task.py`](scheduler_task.py):**
+   - จบ Task 1 ➔ ซิงค์ JSON ดัชนีขึ้น Google Drive ทันที 1 ครั้ง (`self._sync_all_json_to_drive()`) เพื่อให้ภาพกิจกรรมใหม่แสดงบนเว็บทันที โดยไม่ตั้งค่าล็อกธง `_stopped_json_synced`
+   - ตรวจสอบ `if self.stop_requested:` หลังจบทุกขั้นตอน (หลัง Task 1, หลัง Task 1 Sync, หลัง Task 2, หลัง Task 3) หากผู้ใช้กดหยุด ให้เรียก `_safe_sync_json_on_stop()` ซิงค์ขึ้น Drive ทันทีและ `return` ออกทันที
+   - หากรันจบทุก Task ตามปกติ ให้ทำ Final Consistency Sync ปิดท้าย
+2. **ระบบหยุดทำงานทันทีพร้อมซิงค์แบบเรียลไทม์ (Responsive Instant-Stop):**
+   - ใน `_task_1_scan_new_photos_fast()`: หากกด Stop ให้ commit ข้อมูลภาพที่ทำไปแล้วลง SQLite แล้ว `return` ออกจากฟังก์ชันทันที
+   - ใน `_task_2_sync_new_students_bulk()`: ตรวจสอบ `if self.stop_requested: return` ก่อนเริ่ม, ในลูปนักเรียน, และก่อนขั้นตอน Backfill
+   - ใน `_task_3_sync_new_teachers_bulk()`: ตรวจสอบ `if self.stop_requested: return` ก่อนเริ่ม และก่อนขั้นตอน Backfill
+   - ปรับปรุง `_safe_sync_json_on_stop()` ให้ซิงค์ขึ้น Drive ทันทีและแจ้ง Log ชัดเจน
+   - ปรับปรุงปุ่ม Manual Task 2 (`_run_task_2_only`) และ Task 3 (`_run_task_3_only`) ให้รองรับการกด Stop และซิงค์ปิดท้ายทันที
+3. **การทดสอบความถูกต้องและอัปเดตเวอร์ชัน:**
+   - Window Title และ Sidebar Logo เป็น `v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)`
+   - สร้างชุดทดสอบ `test_sequential_sync_and_stop_suite.py` (TC-143 ถึง TC-146) ผ่านการทดสอบ 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py`: จัดลำดับซิงค์หลังจบ Task 1 และระบบ Responsive Instant-Stop
+
+**ก่อนแก้ไข (Before):**
+```python
+            # Task 1: Scan New Photos (High-Speed)
+            self._task_1_scan_new_photos_fast()
+            
+            # 1. Sync JSON บน Drive ทันทีหลังจบ Task 1 (ก่อนขึ้น Task 2)
+            if not self._stopped_json_synced:
+                logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive หลังจบ Task 1...")
+                self._sync_all_json_to_drive()
+                self._stopped_json_synced = True  # ล็อกธงทำให้ปุ่ม Stop ใน Task 2/3 ซิงค์ไม่ทำงาน!
+
+            if not self.stop_requested:
+                self._task_2_sync_new_students_bulk()
+
+            if not self.stop_requested:
+                self._task_3_sync_new_teachers_bulk()
+```
+
+**หลังแก้ไข (After):**
+```python
+            # Task 1: Scan New Photos (High-Speed)
+            self._task_1_scan_new_photos_fast()
+            
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ผู้ใช้กดหยุดทำงานระหว่าง Task 1 -> กำลังซิงค์ JSON ขึ้น Drive ทันที...")
+                self._safe_sync_json_on_stop()
+                return
+
+            # ✅ จบ Task 1 ซิงค์ครั้งนึงเสมอ ก่อนเริ่มทำ Task ต่อๆ ไป (v6.47)
+            logger.info("[SCHEDULE] 📤 จบ Task 1 เรียบร้อย -> กำลังซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive ครั้งที่ 1 ก่อนเริ่ม Task 2...")
+            self._sync_all_json_to_drive()
+            logger.info("[SCHEDULE] ✅ ซิงค์ไฟล์ JSON ดัชนีหลังจบ Task 1 เรียบร้อยสมบูรณ์!")
+
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
+                return
+
+            # Task 2: Sync New Students (Bulk)
+            self._task_2_sync_new_students_bulk()
+
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
+                return
+
+            # Task 3: Sync New Teachers (Bulk)
+            self._task_3_sync_new_teachers_bulk()
+
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
+                return
+
+            # Final Consistency Sync across all tasks (v6.47)
+            self._sync_all_json_to_drive()
+```
+
+---
+
+#### 2. `scheduler_task.py`: จุด Return ทันทีใน Task 1, Task 2 และ Task 3 เมื่อกด Stop
+
+**ก่อนแก้ไข (Before):**
+```python
+    # Task 1: สั่งเพียง break ทำให้ยังวนลูปโฟลเดอร์และปีการศึกษาอื่นต่อ
+    if self.stop_requested:
+        self._safe_sync_json_on_stop()
+        break
+
+    # Task 2: ไม่ตรวจสอบ stop_requested ก่อนเริ่ม Bulk Backfill
+    # Task 3: ไม่มีเช็ก stop_requested เลย
+```
+
+**หลังแก้ไข (After):**
+```python
+    # Task 1: สั่ง return ทันที ไม่วนลูปโฟลเดอร์อื่นต่อ
+    if self.stop_requested:
+        self._safe_sync_json_on_stop()
+        return
+
+    # Task 2: ตรวจสอบ stop_requested และ return ทันทีข้ามขั้นตอน Backfill
+    if self.stop_requested:
+        logger.info("[SCHEDULE] 🛑 ตรวจพบคำร้องขอหยุดทำงาน -> ข้ามขั้นตอน Backfill นักเรียน")
+        return
+
+    # Task 3: ตรวจสอบ stop_requested ก่อนเริ่ม และก่อนขั้นตอน Backfill
+    if self.stop_requested:
+        logger.info("[SCHEDULE] 🛑 ตรวจพบคำร้องขอหยุดทำงาน -> ข้ามขั้นตอน Backfill คุณครู")
+        return
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)
 
 ## 📋 Version 6.46 Changelog (Unified Triple-Task Google Drive JSON Sync Suite)

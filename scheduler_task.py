@@ -267,10 +267,12 @@ class SchedulerTask:
         self.thread.start()
 
     def _safe_sync_json_on_stop(self):
-        """ช่วยอัปเดตไฟล์ JSON บน Drive เมื่อหยุดทำงาน โดยป้องกันการรันซ้ำซ้อน (v6.24)"""
+        """ช่วยอัปเดตไฟล์ JSON บน Drive เมื่อหยุดทำงาน โดยป้องกันการรันซ้ำซ้อน (v6.47)"""
         if not self._stopped_json_synced:
+            logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) -> กำลังซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive ทันที...")
             self._sync_all_json_to_drive()
             self._stopped_json_synced = True
+            logger.info("[SCHEDULE] ✅ ซิงค์ไฟล์ JSON ดัชนีหลังหยุดทำงานสำเร็จเรียบร้อยแล้ว")
 
     def request_stop(self):
         if self.is_running:
@@ -297,6 +299,7 @@ class SchedulerTask:
     def _run_task_2_only(self):
         self.is_running = True
         self.stop_requested = False
+        self._stopped_json_synced = False
         try:
             logger.info("="*50)
             logger.info("[SCHEDULE] เริ่มทำงาน Task 2 เฉพาะกิจ (v4.0 - Bulk Sync)")
@@ -304,7 +307,10 @@ class SchedulerTask:
                 self.sync_manager.connect()
             self._ensure_analyzer()
             self._task_2_sync_new_students_bulk()
-            self._sync_all_json_to_drive()
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
+            else:
+                self._sync_all_json_to_drive()
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -312,9 +318,14 @@ class SchedulerTask:
             logger.info("="*50)
         except Exception as e:
             logger.error(f"[SCHEDULE Error] {e}", exc_info=True)
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
         finally:
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
             self.is_running = False
             self.stop_requested = False
+            self._stopped_json_synced = False
 
     def run_task_3_manual(self):
         if self.is_running:
@@ -325,6 +336,7 @@ class SchedulerTask:
     def _run_task_3_only(self):
         self.is_running = True
         self.stop_requested = False
+        self._stopped_json_synced = False
         try:
             logger.info("="*50)
             logger.info("[SCHEDULE] เริ่มทำงาน Task 3 เฉพาะกิจ (v5.30 - Sync New Teachers & Retroactive Matching)")
@@ -332,8 +344,10 @@ class SchedulerTask:
                 self.sync_manager.connect()
             self._ensure_analyzer()
             self._task_3_sync_new_teachers_bulk()
-            # ปิดท้ายด้วยการซิงค์ไฟล์ JSON ดัชนีทั้งหมดขึ้น Drive เสมอ (v6.46)
-            self._sync_all_json_to_drive()
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
+            else:
+                self._sync_all_json_to_drive()
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -341,9 +355,14 @@ class SchedulerTask:
             logger.info("="*50)
         except Exception as e:
             logger.error(f"[SCHEDULE Error] {e}", exc_info=True)
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
         finally:
+            if self.stop_requested:
+                self._safe_sync_json_on_stop()
             self.is_running = False
             self.stop_requested = False
+            self._stopped_json_synced = False
 
     def run_scheduled_tasks(self):
         if self.is_running:
@@ -367,30 +386,53 @@ class SchedulerTask:
             # Ensure Analyzer is initialized
             self._ensure_analyzer()
             
+            # ----------------------------------------------------
             # Task 1: Scan New Photos (High-Speed)
+            # ----------------------------------------------------
             self._task_1_scan_new_photos_fast()
             
-            # 1. Sync JSON บน Drive ทันทีหลังจบ Task 1 (ก่อนขึ้น Task 2)
-            if not self._stopped_json_synced:
-                logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON 3 โฟลเดอร์หลักขึ้น Google Drive หลังจบ Task 1...")
-                self._sync_all_json_to_drive()
-                self._stopped_json_synced = True
-
-            if not self.stop_requested:
-                # Task 2: Sync New Students (Bulk)
-                self._task_2_sync_new_students_bulk()
-
-            if not self.stop_requested:
-                # Task 3: Sync New Teachers (Bulk)
-                self._task_3_sync_new_teachers_bulk()
-            else:
-                logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
+            # ตรวจสอบการหยุดทำงานระหว่างหรือหลัง Task 1 ทันที
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ผู้ใช้กดหยุดทำงานระหว่าง Task 1 -> กำลังซิงค์ JSON ขึ้น Drive ทันที...")
                 self._safe_sync_json_on_stop()
+                return
 
-            # Final Consistency Sync across all tasks (v6.46)
-            if not self.stop_requested:
-                logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON ดัชนีทุกประเภทขึ้น Google Drive (Final Consistency Sync v6.46)...")
-                self._sync_all_json_to_drive()
+            # ✅ จบ Task 1 ซิงค์ครั้งนึงเสมอ ก่อนเริ่มทำ Task ต่อๆ ไป (v6.47)
+            logger.info("[SCHEDULE] 📤 จบ Task 1 เรียบร้อย -> กำลังซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive ครั้งที่ 1 ก่อนเริ่ม Task 2...")
+            self._sync_all_json_to_drive()
+            logger.info("[SCHEDULE] ✅ ซิงค์ไฟล์ JSON ดัชนีหลังจบ Task 1 เรียบร้อยสมบูรณ์!")
+
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ผู้ใช้กดหยุดทำงานหลังจบ Task 1 -> ยุติการทำงาน")
+                self._safe_sync_json_on_stop()
+                return
+
+            # ----------------------------------------------------
+            # Task 2: Sync New Students (Bulk)
+            # ----------------------------------------------------
+            self._task_2_sync_new_students_bulk()
+
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ผู้ใช้กดหยุดทำงานระหว่าง Task 2 -> กำลังซิงค์ JSON ขึ้น Drive ทันที...")
+                self._safe_sync_json_on_stop()
+                return
+
+            # ----------------------------------------------------
+            # Task 3: Sync New Teachers (Bulk)
+            # ----------------------------------------------------
+            self._task_3_sync_new_teachers_bulk()
+
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ผู้ใช้กดหยุดทำงานระหว่าง Task 3 -> กำลังซิงค์ JSON ขึ้น Drive ทันที...")
+                self._safe_sync_json_on_stop()
+                return
+
+            # ----------------------------------------------------
+            # Final Consistency Sync across all tasks (v6.47)
+            # ----------------------------------------------------
+            logger.info("[SCHEDULE] 📤 จบครบทุก Task -> กำลังซิงค์ไฟล์ JSON ดัชนีทุกประเภทขึ้น Google Drive (Final Consistency Sync v6.47)...")
+            self._sync_all_json_to_drive()
+            logger.info("[SCHEDULE] ✅ ซิงค์ Final Consistency Sync เรียบร้อยสมบูรณ์!")
             
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
@@ -1469,7 +1511,7 @@ class SchedulerTask:
                 if self.stop_requested:
                     logger.info(f"[SCHEDULE] 🛑 หยุดการทำงานในโฟลเดอร์ '{folder_name}' ตามคำร้องขอ (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
                     self._safe_sync_json_on_stop()
-                    break
+                    return
                 
             logger.info(f"[SCHEDULE] 🎉 เสร็จสิ้นการทำ Full Scan สำหรับโฟลเดอร์หลัก: '{year_name}'")
 
@@ -1477,6 +1519,8 @@ class SchedulerTask:
 
     def _task_2_sync_new_students_bulk(self):
         logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 2: Sync New Students & Bulk Matching")
+        if self.stop_requested:
+            return
         sheet_id = "1bz81BDC0NkuX1-jzw_glntYZ1xkmuI9xJSi8op_x7To"
         
         try:
@@ -1651,6 +1695,10 @@ class SchedulerTask:
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(new_data, f, ensure_ascii=False, indent=2)
         except: pass
+
+        if self.stop_requested:
+            logger.info("[SCHEDULE] 🛑 ตรวจพบคำร้องขอหยุดทำงาน -> ข้ามขั้นตอน Backfill นักเรียน")
+            return
         
         # ----------------------------------------------------
         # Bulk Backfill Matching (ใช้เมธอดเดิมของระบบ 100%)
@@ -1689,11 +1737,15 @@ class SchedulerTask:
     def _task_3_sync_new_teachers_bulk(self):
         """Task 3: ค้นหาคุณครูที่เพิ่มมาใหม่หรืออัปเดตรูปใหม่จาก SQLite DB (is_backfilled = 0) และนำค่า embedding ไป match กับ embedding ที่เก็บไว้ทั้งหมดใน scanned_photo_faces ทันที"""
         logger.info("[SCHEDULE] 🚀 เริ่มต้น Task 3: Sync New Teachers & Bulk Retroactive Matching")
+        if self.stop_requested:
+            return
         
         self._ensure_analyzer()
         
         # 1. ค้นหาครูที่ยังไม่ได้ทำการจับคู่ย้อนหลัง (is_backfilled = 0)
         logger.info("[SCHEDULE] 🔍 [TASK 3] กำลังค้นหาคุณครูที่มีการเพิ่มใหม่หรืออัปเดตรูปภาพที่ต้องทำ Retroactive Matching...")
+        if self.stop_requested:
+            return
         unbackfilled = self.db.get_unbackfilled_teachers()
         
         if unbackfilled:
@@ -1712,6 +1764,10 @@ class SchedulerTask:
                         emb = np.frombuffer(emb_blob, dtype=np.float32)
                         matched_faces_to_process.append({"staff_id": staff_id, "emb": emb})
             
+            if self.stop_requested:
+                logger.info("[SCHEDULE] 🛑 ตรวจพบคำร้องขอหยุดทำงาน -> ข้ามขั้นตอน Backfill คุณครู")
+                return
+
             if matched_faces_to_process:
                 logger.info(f"[SCHEDULE] [TASK 3] กำลังทำ Retroactive Match สำหรับคุณครูกับเวกเตอร์กิจกรรมทั้งหมด ({len(matched_faces_to_process)} เวกเตอร์)...")
                 if hasattr(self.app_gui, 'process_retroactive_match_headless'):

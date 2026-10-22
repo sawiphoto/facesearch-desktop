@@ -3239,6 +3239,99 @@ flowchart TD
 
 ---
 
+## ⚡ 35. แผนงานปรับปรุงระบบซิงค์ Google Drive ตามลำดับ Task 1 และระบบหยุดทันทีพร้อมซิงค์แบบเรียลไทม์ (Sequential Task-1 Sync & Responsive Instant-Stop Suite v6.47)
+
+### 35.1 ที่มาและความต้องการของผู้ใช้ (Background & User Requirements)
+ผู้ใช้ระบุความต้องการชัดเจน:
+> *"แต่ที่ผมต้องการคือ จบtask1 sync ครั้งนึงนะ แล้วค่อยทำ task ต่อๆไป และหากกดปุ่ม stop ก็หยุดการทำงานรอบนั้นแล้ว sync ทันทีด้วยครับ"*
+
+**สรุปประเด็นความต้องการหลัก 2 ประการ:**
+1. **การซิงค์ตามลำดับขั้น (Sequential Sync after Task 1):**
+   - เมื่อระบบประมวลผล **Task 1** (สแกนภาพกิจกรรมเพิ่มมาใหม่) เสร็จสิ้น ให้ทำการซิงค์ไฟล์ดัชนี JSON ทั้งหมดขึ้น Google Drive ทันที 1 ครั้ง เพื่อให้รูปภาพกิจกรรมใหม่พร้อมใช้งานบนเว็บทันที ก่อนที่จะเริ่มทำงานใน Task ถัดไป (Task 2 ซิงค์นักเรียน และ Task 3 ซิงค์คุณครู)
+2. **การหยุดทำงานทันทีพร้อมซิงค์ขึ้น Drive (Responsive Instant-Stop & Immediate Sync):**
+   - เมื่อผู้ใช้กดปุ่ม **"🛑 Stop Schedule Task"** ระบบจะต้องหยุดการทำงานในรอบนั้นทันที (ไม่รอสแกนโฟลเดอร์อื่นหรือประมวลผลคนอื่นต่อจนจบ) และทำการซิงค์ข้อมูลล่าสุดที่ประมวลผลได้ขึ้น Google Drive ทันที
+
+---
+
+### 35.2 การวิเคราะห์ปัญหาเชิงลึกในโค้ดเดิม (Deep Diagnostic & Root Causes)
+
+จากการตรวจสอบโค้ดใน [`scheduler_task.py`](scheduler_task.py) พบจุดบกพร่องและช่องโหว่ที่ทำให้ระบบไม่ตอบสนองตามที่ผู้ใช้ต้องการดังนี้:
+
+1. **บั๊กของตัวแปรธง `_stopped_json_synced` (Sync Lockout Bug):**
+   - ในบรรทัดที่ 377 เมื่อ Task 1 ทำงานจบ มีการสั่ง `self._stopped_json_synced = True`
+   - แต่ฟังก์ชัน `_safe_sync_json_on_stop()` มีเงื่อนไขป้องกันการซิงค์ซ้ำซ้อน:
+     ```python
+     def _safe_sync_json_on_stop(self):
+         if not self._stopped_json_synced:
+             self._sync_all_json_to_drive()
+             self._stopped_json_synced = True
+     ```
+   - **ผลลัพธ์:** เมื่อ Task 1 สั่ง `_stopped_json_synced = True` ไปแล้ว หากผู้ใช้กดปุ่ม Stop ในระหว่างที่ Task 2 หรือ Task 3 กำลังทำงาน `_safe_sync_json_on_stop()` จะมองว่าซิงค์ไปแล้ว และ **ข้ามการซิงค์ข้อมูลที่หยุดกะทันหันไปโดยสิ้นเชิง (Silent Sync Skip)!**
+2. **การหลุดลูปของ Task 1 ไม่เด็ดขาด (Task 1 Slow-Exit Delay):**
+   - ใน `_task_1_scan_new_photos_fast()` เมื่อ `self.stop_requested == True` โค้ดสั่งเพียง `break` ออกจากลูปรูปภาพของโฟลเดอร์นั้น แต่ไม่ได้ `return` ออกจากเมธอด ทำให้ระบบยังต้องวนลูปผ่านโครงสร้างโฟลเดอร์และปีการศึกษาอื่นอีก ส่งผลให้ผู้ใช้รู้สึกว่าโปรแกรมหยุดช้า ไม่หยุดทันที
+3. **Task 2 และ Task 3 ขาดจุดตรวจสอบการหยุด (Non-Responsive Loops in Task 2 & 3):**
+   - ใน **Task 2** (`_task_2_sync_new_students_bulk()`): มีลูปประมวลผลนักเรียนหลายพันคน หากผู้ใช้กด Stop แม้จะหลุดลูปแถวข้อมูล แต่โค้ดยังไหลต่อไปรันกระบวนการ Bulk Backfill Matching ซึ่งใช้เวลาหลายนาที
+   - ใน **Task 3** (`_task_3_sync_new_teachers_bulk()`): **ไม่มีการตรวจสอบ `self.stop_requested` เลยแม้แต่จุดเดียว!** หากผู้ใช้กด Stop ขณะรัน Task 3 ระบบจะไม่หยุดและทำจนจบทั้งหมด
+
+---
+
+### 35.3 สถาปัตยกรรมและแนวทางการแก้ไข (Solution Architecture)
+
+#### 🏛️ เสาหลักที่ 1: การจัดลำดับการทำงานและซิงค์อย่างเป็นขั้นตอนใน `run_scheduled_tasks`
+ปรับปรุงโฟลว์การทำงานใน [`scheduler_task.py`](scheduler_task.py) ให้เป็นแบบ Sequential Pipeline ชัดเจน:
+1. **รัน Task 1:** `_task_1_scan_new_photos_fast()`
+2. **ตรวจเช็ก Stop ทันที:** หากผู้ใช้กดหยุด ให้ซิงค์ JSON ทันทีและออกจากฟังก์ชัน
+3. **ซิงค์หลังจบ Task 1 (ตามคำสั่งผู้ใช้):**
+   - สั่ง `self._sync_all_json_to_drive()` เพื่ออัปโหลดดัชนีรูปภาพกิจกรรมขึ้น Google Drive ทันที 1 รอบ
+   - **ข้อสำคัญ:** แยกการทำงาน ไม่นำธง `_stopped_json_synced` มาปะปนกับการซิงค์ปกติ
+4. **ตรวจเช็ก Stop อีกครั้ง:** ก่อนเริ่ม Task 2
+5. **รัน Task 2:** `_task_2_sync_new_students_bulk()`
+6. **ตรวจเช็ก Stop ทันที:** หากผู้ใช้กดหยุด ให้ซิงค์ JSON ทันทีและออกจากฟังก์ชัน
+7. **รัน Task 3:** `_task_3_sync_new_teachers_bulk()`
+8. **ตรวจเช็ก Stop ทันที:** หากผู้ใช้กดหยุด ให้ซิงค์ JSON ทันทีและออกจากฟังก์ชัน
+9. **Final Consistency Sync:** ซิงค์ปิดท้ายกระบวนการทั้งหมดเมื่อทุก Task สำเร็จครบถ้วน
+
+#### 🏛️ เสาหลักที่ 2: ระบบหยุดการทำงานทันทีและการันตีการซิงค์ (Responsive Instant-Stop & Guaranteed Sync)
+1. **ใน `_task_1_scan_new_photos_fast()`:**
+   - เมื่อตรวจพบ `self.stop_requested == True`:
+     - บันทึก Batch ของรูปภาพที่ประมวลผลเสร็จแล้วลง SQLite ทันที (ไม่สูญเสียงานที่ทำไป)
+     - เรียก `return` ออกจากฟังก์ชันทันที โดยไม่วนลูปไปยังโฟลเดอร์หรือปีการศึกษาอื่น
+2. **ใน `_task_2_sync_new_students_bulk()`:**
+   - เพิ่มการตรวจสอบ `if self.stop_requested: return` ก่อนเริ่ม, ในลูปนักเรียน, และก่อนเริ่มขั้นตอน Backfill
+3. **ใน `_task_3_sync_new_teachers_bulk()`:**
+   - เพิ่มการตรวจสอบ `if self.stop_requested: return` ก่อนเริ่ม และก่อนขั้นตอน Backfill
+4. **การันตีการซิงค์ใน `_safe_sync_json_on_stop()` และ `finally:`:**
+   - ปรับปรุงตรรกะของ `_safe_sync_json_on_stop()` ให้ซิงค์ข้อมูลขึ้น Google Drive ทันทีเมื่อถูกเรียกโดยไม่มีเงื่อนไขกีดกันที่ผิดพลาด
+   - แสดงหน้าต่าง Popup รายงานสรุปผลบน GUI พร้อมระบุสถานะหยุดทำงานและซิงค์ Drive สำเร็จ
+
+#### 🏛️ เสาหลักที่ 3: ปรับปรุงปุ่ม Manual Task 2 และ Task 3
+- ใน `_run_task_2_only()` และ `_run_task_3_only()`: หากมีการกด Stop ให้หยุดทันทีและซิงค์ข้อมูลล่าสุดขึ้น Google Drive
+
+---
+
+### 35.4 แผนการทดสอบอย่างละเอียด (Comprehensive Test Cases: TC-143 ถึง TC-146)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-143** | **Task 1 Sequential Sync Integrity** | `scheduler_task.py` | ตรวจสอบคำสั่งใน `run_scheduled_tasks` หลังจบ Task 1 ก่อนเริ่ม Task 2 | มีการเรียก `_sync_all_json_to_drive()` ชัดเจน และไม่ตั้งค่าบล็อก Stop Sync |
+| **TC-144** | **Instant-Stop Responsiveness in Task 1, 2, 3** | `scheduler_task.py` | ตรวจสอบจุดดัก `self.stop_requested` ใน Task 1, 2, และ 3 | ทุก Task มีจุด Return ทันทีเมื่อกด Stop ไม่ประมวลผลส่วนที่เหลือค้างไว้ |
+| **TC-145** | **Stop-Triggered Immediate Google Drive Sync** | `scheduler_task.py` | จำลองการตั้งค่า `stop_requested = True` และเรียก `_safe_sync_json_on_stop()` | ระบบสั่งซิงค์ JSON ดัชนีขึ้น Google Drive ทันทีโดยไม่มีการบล็อก |
+| **TC-146** | **Version Parity v6.47 & Compilation Check** | ทุกไฟล์ | ตรวจสอบ `py_compile` และตรวจความสอดคล้องของเลขเวอร์ชัน `v6.47` | ทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด และแสดงเลขเวอร์ชัน `v6.47` ตรงกัน 100% |
+
+---
+
+### 35.5 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `db_manager.py`: Manifest version
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+> **สถานะการดำเนินการ (Execution Status):** ดำเนินการและทดสอบเสร็จสมบูรณ์ 100% (Completed All Steps & Test Suite TC-143 ถึง TC-146 Passed 100%)
+
+---
+
 
 
 

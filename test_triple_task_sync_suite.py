@@ -76,15 +76,15 @@ class TestTripleTaskSyncSuite(unittest.TestCase):
         self.assertEqual(student_obj.get("student_id"), "23371")
         self.assertEqual(len(student_obj.get("photos", [])), 14, f"Student 23371 must have exactly 14 photos, got {len(student_obj.get('photos', []))}")
 
-        # Check Version Parity v6.46
+        # Check Version Parity v6.46+ / v6.47
         with open("app_gui.py", "r", encoding="utf-8") as f:
             gui_code = f.read()
-        self.assertIn("v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)", gui_code)
-        self.assertIn("SYSTEM v6.46", gui_code)
+        self.assertIn("v6.47", gui_code)
+        self.assertIn("SYSTEM v6.47", gui_code)
 
         with open("db_manager.py", "r", encoding="utf-8") as f:
             db_code = f.read()
-        self.assertIn('"version": "v6.46"', db_code)
+        self.assertIn('"version": "v6.47"', db_code)
 
         # py_compile verification
         py_compile.compile("app_gui.py", doraise=True)
