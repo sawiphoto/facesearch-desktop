@@ -2142,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.49",
+                "version": "v6.50",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2199,7 +2199,7 @@ class DatabaseManager:
             
             if not photos:
                 return {
-                    "version": "v6.49",
+                    "version": "v6.50",
                     "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
                     "academic_year": academic_year,
                     "total_photos": 0,
@@ -2345,7 +2345,7 @@ class DatabaseManager:
                 }
 
             return {
-                "version": "v6.49",
+                "version": "v6.50",
                 "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
                 "academic_year": academic_year,
                 "total_photos": len(photo_dict),

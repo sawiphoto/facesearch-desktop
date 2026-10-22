@@ -1,3 +1,102 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.50 (Archive Crowdsource Manual Sync & Layout Fix Suite)
+
+## 📋 Version 6.50 Changelog (Archive Crowdsource Manual Sync & Layout Fix Suite)
+
+**Date:** 23 ตุลาคม 2026 (03:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.50 (Archive Crowdsource Manual Sync & Layout Fix Suite)  
+**Core Technologies:** Tkinter Pack Geometry Dynamic Reordering, Thread-Safe Logging Redirection (`logger.info` / `logger.error`), Permanent Prepend Implementation Plan Architecture, Window Title & Sidebar Brand Synchronized v6.50, Full Regression Unit Testing Suite Passed (TC-151 to TC-155 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **AttributeError ขณะกดปุ่มซิงค์ JSON ภาพอดีต:**
+   - เมื่อผู้ใช้กดปุ่ม `⚡ ซิงค์ JSON ภาพอดีต` ในหน้าตั้งค่าโฟลเดอร์ เกิด Error: `AttributeError: '_tkinter.tkapp' object has no attribute 'log'` เนื่องจากภายในฟังก์ชัน `sync_archive_crowdsource_json_manual` มีการเรียก `self.log(...)` แต่ `FaceSearchApp` ไม่มีเมธอด `self.log`
+2. **ปัญหาการจัดวาง Layout (Widget Clipping / Squished Button):**
+   - ปุ่ม `⚡ ซิงค์ JSON ภาพอดีต` ที่อยู่บนการ์ดแถวโฟลเดอร์ `25xx` ในหน้าตั้งค่าโฟลเดอร์หลัก ถูกบีบข้อความจนเหลือเพียง `ค์ JSON ภ` เนื่องจากวิดเจ็ต `lbl_id` (Folder ID) ถูก pack ด้วย `expand=True` ทางด้านซ้ายก่อนที่จะ pack ปุ่มทางด้านขวา ส่งผลให้ `lbl_id` ขยายกินพื้นที่แนวนอนจนหมด
+3. **การจัดเก็บประวัติ Implementation Plan แบบสะสมจากบนลงล่าง (Prepend Standard):**
+   - ผู้ใช้ต้องการให้ไฟล์ `implementation_plan.md` จัดเก็บแผนงานทุกครั้งแบบสะสมต่อเนื่อง (Cumulative) โดยให้แผนงานใหม่ล่าสุดอยู่บรรทัดบนสุดเสมอ และบันทึกกฎระเบียบนี้ไว้ในคู่มือกฎ Agent เพื่อให้ทุกรอบการทำงานถัดไปปฏิบัติตามมาตรฐานนี้อย่างถาวร
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **แก้ไข AttributeError ใน `sync_archive_crowdsource_json_manual` (`app_gui.py`):**
+   - เปลี่ยนการเรียก `self.log(...)` เป็น `logger.info(...)` และ `logger.error(...)` ซึ่งเชื่อมต่อกับ Console Handler และ Debug Window ของ GUI อยู่แล้วอย่างสมบูรณ์ ปราศจาก Error
+2. **ปรับปรุงลำดับการ Pack Geometry ใน `refresh_root_folders_table` (`app_gui.py`):**
+   - จัดลำดับการ pack ใน `row_card` ใหม่ โดยทำการ pack วิดเจ็ตฝั่งขวาทั้งหมดก่อน (`btn_del`, `btn_edit`, `btn_open`, `btn_sync_archive`, `lbl_cnt`) เพื่อให้ปุ่มและป้ายข้อความฝั่งขวาได้รับพื้นที่ขนาดคงที่ครบถ้วนเต็มที่ 100%
+   - นำ `lbl_id` ที่มี `fill="x", expand=True` มา pack เป็นลำดับสุดท้ายทางฝั่งซ้าย เพื่อให้ยืดหยุ่นใช้เฉพาะพื้นที่ที่เหลืออยู่ตรงกลาง ไม่ไปบีบปุ่มทางขวา
+   - ปรับข้อความปุ่มบนการ์ดแถวเป็น `⚡ ซิงค์ JSON อดีต` (กว้าง 145px) เพื่อให้กระชับและมองเห็นข้อความครบถ้วน สวยงาม ชัดเจน
+3. **จัดเก็บแผนงานสะสมและบันทึกมาตรฐาน Prepend ลงใน `.agents/AGENTS.md`:**
+   - รวมประวัติแผนงานทั้งหมดตั้งแต่ v6.48 ถอยหลังกลับไป 3,450+ บรรทัด และนำแผนงาน v6.49 และ v6.50 มาวางไว้ด้านบนสุดตามลำดับ (Newest on top)
+   - เพิ่มกฎข้อที่ 10 ลงใน `.agents/AGENTS.md`: `มาตรฐานการบันทึกแผนงานแบบสะสมจากบนลงล่าง (Prepend Implementation Plan Standard - ใหม่สุดอยู่บนเสมอ)`
+4. **อัปเดตเวอร์ชันระบบเป็น v6.50:**
+   - ปรับเลขเวอร์ชันใน `app_gui.py` (Title Bar, Sidebar Logo), `db_manager.py` (Manifest Version), และ `tests/test_archive_crowdsource_sync.py`
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การแก้ไข AttributeError ใน `sync_archive_crowdsource_json_manual` (`app_gui.py`):
+```python
+# [Before]
+def sync_archive_crowdsource_json_manual(self):
+    ...
+    self.log("🚀 [GDRIVE] เริ่มต้นซิงค์ไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีต (2562-25xx)...")
+    ...
+    if success:
+        self.log(f"✅ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json สำเร็จ ({msg})")
+    else:
+        self.log(f"❌ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json ไม่สำเร็จ: {msg}")
+
+# [After]
+def sync_archive_crowdsource_json_manual(self):
+    ...
+    logger.info("🚀 [GDRIVE] เริ่มต้นซิงค์ไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีต (2562-25xx)...")
+    ...
+    if success:
+        logger.info(f"✅ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json สำเร็จ ({msg})")
+    else:
+        logger.error(f"❌ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json ไม่สำเร็จ: {msg}")
+```
+
+#### 2. การปรับปรุง Pack Layout ป้องกันการบีบปุ่มใน `refresh_root_folders_table` (`app_gui.py`):
+```python
+# [Before]
+lbl_id = ctk.CTkLabel(row_card, text=f"ID: {f_id}", anchor="w", ...)
+lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)  # <-- expand กินพื้นที่ก่อน ทำให้ปุ่มขวาโดนบีบ
+
+lbl_cnt = ctk.CTkLabel(row_card, text=f"📸 {p_count:,} รูป", ...)
+lbl_cnt.pack(side="left", padx=10, pady=8)
+
+btn_sync_archive = ctk.CTkButton(row_card, text="⚡ ซิงค์ JSON ภาพอดีต", width=160, ...)
+btn_sync_archive.pack(side="right", padx=(4, 6), pady=8)
+
+# [After]
+# 4. ปุ่มจัดการฝั่งขวา (Pack ฝั่งขวาก่อนเพื่อให้ได้พื้นที่ครบถ้วน ไม่โดน expand บีบ)
+btn_del.pack(side="right", padx=(4, 8), pady=8)
+btn_edit.pack(side="right", padx=4, pady=8)
+btn_open.pack(side="right", padx=4, pady=8)
+
+if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
+    btn_sync_archive = ctk.CTkButton(
+        row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
+        font=ctk.CTkFont(size=12, weight="bold"),
+        fg_color="#D35400", hover_color="#BA4A00",
+        command=self.sync_archive_crowdsource_json_manual
+    )
+    btn_sync_archive.pack(side="right", padx=4, pady=8)
+
+lbl_cnt = ctk.CTkLabel(row_card, text=f"📸 {p_count:,} รูป", width=115, ...)
+lbl_cnt.pack(side="right", padx=(6, 12), pady=8)
+
+# 6. Folder ID (Pack ซ้ายตัวสุดท้ายพร้อม fill=x และ expand=True เพื่อยืดหยุ่นในพื้นที่ที่เหลือ)
+lbl_id = ctk.CTkLabel(row_card, text=f"ID: {f_id}", anchor="w", ...)
+lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.49 (Task 1 Archive Historical Crowdsource Face Sync Suite)
 
 ## 📋 Version 6.49 Changelog (Task 1 Archive Historical Crowdsource Face Sync Suite)

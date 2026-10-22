@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.49 (Task 1 Archive Historical Crowdsource Face Sync Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.50 (Archive Crowdsource Manual Sync & Layout Fix Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1081,7 +1081,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.49",
+            text="FACE MATCHING\nSYSTEM v6.50",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -5868,28 +5868,7 @@ class FaceSearchApp(ctk.CTk):
             )
             lbl_name.pack(side="left", padx=8, pady=8)
 
-            # 4. Folder ID
-            lbl_id = ctk.CTkLabel(
-                row_card,
-                text=f"ID: {f_id}",
-                anchor="w",
-                font=ctk.CTkFont(family="Consolas", size=12),
-                text_color="#A2B5CD"
-            )
-            lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
-
-            # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
-            lbl_cnt = ctk.CTkLabel(
-                row_card,
-                text=f"📸 {p_count:,} รูป",
-                width=115,
-                anchor="e",
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color="#2ECC71" if p_count > 0 else "#95A5A6"
-            )
-            lbl_cnt.pack(side="left", padx=10, pady=8)
-
-            # 6. ปุ่มจัดการ (ลบ / แก้ไข / เปิด Drive)
+            # 4. ปุ่มจัดการฝั่งขวา (Pack ฝั่งขวาก่อนเพื่อให้ได้พื้นที่ครบถ้วน ไม่โดน expand บีบ)
             btn_del = ctk.CTkButton(
                 row_card, text="🗑️ ลบ", width=65, height=28,
                 font=ctk.CTkFont(size=12, weight="bold"),
@@ -5916,30 +5895,51 @@ class FaceSearchApp(ctk.CTk):
 
             if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
                 btn_sync_archive = ctk.CTkButton(
-                    row_card, text="⚡ ซิงค์ JSON ภาพอดีต", width=160, height=28,
+                    row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
                     font=ctk.CTkFont(size=12, weight="bold"),
                     fg_color="#D35400", hover_color="#BA4A00",
                     command=self.sync_archive_crowdsource_json_manual
                 )
-                btn_sync_archive.pack(side="right", padx=(4, 6), pady=8)
+                btn_sync_archive.pack(side="right", padx=4, pady=8)
+
+            # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
+            lbl_cnt = ctk.CTkLabel(
+                row_card,
+                text=f"📸 {p_count:,} รูป",
+                width=115,
+                anchor="e",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color="#2ECC71" if p_count > 0 else "#95A5A6"
+            )
+            lbl_cnt.pack(side="right", padx=(6, 12), pady=8)
+
+            # 6. Folder ID (Pack ซ้ายตัวสุดท้ายพร้อม fill=x และ expand=True เพื่อยืดหยุ่นในพื้นที่ที่เหลือ)
+            lbl_id = ctk.CTkLabel(
+                row_card,
+                text=f"ID: {f_id}",
+                anchor="w",
+                font=ctk.CTkFont(family="Consolas", size=12),
+                text_color="#A2B5CD"
+            )
+            lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
 
     def sync_archive_crowdsource_json_manual(self):
-        """ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีตขึ้น Google Drive ใน Background Daemon Thread (v6.49)"""
+        """ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีตขึ้น Google Drive ใน Background Daemon Thread (v6.50)"""
         import threading
         from tkinter import messagebox
         def _worker():
             try:
-                self.log("🚀 [GDRIVE] เริ่มต้นซิงค์ไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีต (2562-25xx)...")
+                logger.info("🚀 [GDRIVE] เริ่มต้นซิงค์ไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีต (2562-25xx)...")
                 json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
                 if not json_folder_id:
                     json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
                 
                 success, msg = self.sync_manager.sync_archive_crowdsource_only(json_folder_id=json_folder_id, db=self.db)
                 if success:
-                    self.log(f"✅ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json สำเร็จ ({msg})")
+                    logger.info(f"✅ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json สำเร็จ ({msg})")
                     self.after(0, lambda: messagebox.showinfo("ซิงค์สำเร็จ", f"ซิงค์ไฟล์ archive_crowdsource_index.json ขึ้น Google Drive สำเร็จ!\n{msg}"))
                 else:
-                    self.log(f"❌ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json ไม่สำเร็จ: {msg}")
+                    logger.error(f"❌ [GDRIVE] ซิงค์ไฟล์ archive_crowdsource_index.json ไม่สำเร็จ: {msg}")
                     self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถซิงค์ไฟล์ได้: {msg}"))
             except Exception as e:
                 logger.error(f"[GDRIVE] Error in sync_archive_crowdsource_json_manual: {e}", exc_info=True)
