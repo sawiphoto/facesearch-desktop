@@ -1,3 +1,156 @@
+# แผนงานโครงสร้าง JSON ภาพเก่าแบบ Ultra-Minimal ฉบับรวบรัด (Ultra-Minimal Archive Crowdsource JSON Suite v6.53)
+
+## 📌 1. โครงสร้างข้อมูลใหม่ (Ultra-Minimal Schema Architecture)
+
+ปรับลดโครงสร้างไฟล์ `archive_crowdsource_index.json` ให้เหลือเฉพาะส่วนที่จำเป็นที่สุดตามความต้องการล่าสุดของผู้ใช้:
+
+```json
+{
+  "schema_version": 1,
+  "photos": {
+    "P59508": {
+      "drive_file_id": "1bY9e5M4axvOGVGHtrxLbdje_8K-FCGXy",
+      "dimensions": {
+        "width": 2952,
+        "height": 2000
+      },
+      "faces": [
+        {
+          "face_id": "P59508_F001",
+          "box_pct": {
+            "left": 51.1,
+            "top": 40.88,
+            "width": 2.86,
+            "height": 5.21
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### 💡 จุดเด่นและการตัดฟิลด์ที่ไม่จำเป็นออก:
+- **Root Level:** มีเพียง 2 คีย์หลักคือ `"schema_version": 1` และ `"photos": { ... }`
+- **Photos:** ใช้คีย์เป็นรหัสภาพถาวร เช่น `"P59508"` มีเฉพาะ `drive_file_id`, `dimensions` (`width`, `height`), และ `faces`
+- **Faces:** รหัสใบหน้าคงที่รูปแบบ `P59508_F001` (`F%03d`) และพิกัด `box_pct` (`left`, `top`, `width`, `height`) ที่คำนวณและตัดขอบให้อยู่ในช่วง 0-100%
+- **ตัดส่วนที่ไม่จำเป็นออกทั้งหมด:** ตัด `generator_version`, `dataset_id`, `revision`, `generated_at`, `total_albums`, `total_photos`, `total_faces`, `albums`, `album_id`, `file_name`, `content_hash`, `face_index`, `center_pct`, `box_px`, `tagged_name`
+- **ขนาดไฟล์เล็กลงอย่างมหาศาล:** รวมทั้งคลัง 202 รูป และ 1,627 ใบหน้า เหลือขนาดไฟล์เพียง **165 KB** เท่านั้น (โหลดได้รวดเร็วทันที ไร้ภาระบนเว็บและมือถือ)
+
+---
+
+## 🏗️ 2. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ปรับปรุงเมธอด `get_archive_crowdsource_data` ใน [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py)
+- ปรับโครงสร้าง Return Dictionary ให้มีเพียง `schema_version: 1` และ `photos` ตามรูปแบบ Ultra-Minimal
+- คำนวณ `face_id` ในรูปแบบ `f"{pid_str}_F{face_index+1:03d}"` (เช่น `P59508_F001`)
+- คำนวณ `box_pct` แบบ Clamped (0–100%) พร้อมปัดเศษทศนิยมให้ตรงตามสเปก
+- ตัดข้อมูล Albums และ Metadata ที่ไม่จำเป็นออกทั้งหมด
+
+### ขั้นตอนที่ 2: ปรับปรุงการอัปโหลดไฟล์ใน [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py)
+- บันทึกและอัปโหลดไฟล์ `archive_crowdsource_index.json` ด้วยรูปแบบ JSON Minified/Compact (ขนาด ~165 KB)
+- อัปเดตข้อมูลสรุปใน `photo_manifest.json` ให้สอดคล้อง
+
+### ขั้นตอนที่ 3: ตรวจสอบความเข้ากันได้ของระบบตรวจจับทิศทางภาพใน [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py)
+- ตรวจสอบให้แน่ใจว่าพิกัดภาพสอดคล้องกับขนาดจริง (W x H)
+
+### ขั้นตอนที่ 4: อัปเดตเวอร์ชันระบบเป็น `v6.53`
+- ปรับปรุงเลขเวอร์ชันบน Window Title และ Sidebar Logo ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- ปรับปรุง [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py) และ [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py) เป็น `v6.53`
+
+### ขั้นตอนที่ 5: เขียนชุดทดสอบ [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py)
+- ทดสอบ Schema ตรงตามโครงสร้าง Ultra-Minimal (ตรวจสอบเฉพาะคีย์ `schema_version` และ `photos`)
+- ตรวจสอบรูปแบบ `face_id` (เช่น `P59508_F001`)
+- ตรวจสอบขอบเขต `box_pct` และการคำนวณที่แม่นยำ
+- รันชุดทดสอบทั้งหมดเพื่อยืนยัน 100% OK
+
+### ขั้นตอนที่ 6: อัปเดต [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) และ Git Workflow
+- Prepend Changelog v6.53 ลงบนสุดของ `README.md`
+- Git commit และ Git push
+
+---
+
+# แผนงานการปรับโครงสร้าง JSON ภาพเก่าแบบรวมศูนย์ไฟล์เดียวตามมาตรฐานใหม่ (Standardized Archive Crowdsource Single JSON Suite v6.53)
+
+## 📌 1. ข้อกำหนดและโครงสร้างไฟล์ใหม่ (Requirements & Schema Architecture)
+
+1. **ขอบเขตการจัดเก็บไฟล์:**
+   - ใช้ JSON รวมไฟล์เดียวต่อโฟลเดอร์ภาพในอดีต (`archive_crowdsource_index.json`)
+   - เก็บไว้ในโฟลเดอร์ Google Drive เดิม (`json_folder_id`)
+   - ไม่ต้องแยกอัลบั้มละไฟล์
+   - ไม่ต้องสร้างไฟล์รูป Avatar เพิ่ม
+2. **โครงสร้าง Schema ใหม่ (`schema_version: 1`, `dataset_id: "sawi_archive_photos"`):**
+   - **Root Level:**
+     - `schema_version`: 1
+     - `generator_version`: "v6.53"
+     - `dataset_id`: "sawi_archive_photos"
+     - `revision`: ISO timestamp (เปลี่ยนเฉพาะเมื่อเนื้อหาข้อมูลในคลังเปลี่ยนจริง)
+     - `generated_at`: ISO timestamp เวลาที่สร้างไฟล์
+     - `total_albums`: จำนวนอัลบั้มกิจกรรมทั้งหมด
+     - `total_photos`: จำนวนรูปภาพทั้งหมด
+     - `total_faces`: จำนวนใบหน้าทั้งหมด
+   - **`albums` (Object keyed by DRIVE_FOLDER_ID):**
+     - `album_id`: รหัสโฟลเดอร์ใน Drive ของกิจกรรมนั้น
+     - `title`: ชื่อโฟลเดอร์ / ชื่อกิจกรรม เช่น `"2531 ต้อนรับบุคคลสำคัญท่านหนึ่ง"`
+     - `event_date`: `{ "year_be": 2531, "month": null, "day": null }` แยกปี พ.ศ. ชัดเจน ไม่ใช้วันที่สแกน (2026) แทน
+     - `cover_photo_id`: รหัสภาพปกอัลบั้ม เช่น `"P59508"`
+   - **`photos` (Object keyed by photo_id เช่น "P59508"):**
+     - `photo_id`: รหัสภาพถาวร เช่น `"P59508"`
+     - `drive_file_id`: รหัสไฟล์ใน Drive
+     - `album_id`: รหัสโฟลเดอร์อัลบั้มใน Drive
+     - `file_name`: ชื่อไฟล์ภาพจริง
+     - `content_hash`: sha256 ของข้อมูลภาพและใบหน้า (`"sha256:..."`)
+     - `dimensions`: `{ "width": W, "height": H }`
+     - `faces`: รายการใบหน้า
+       - `face_id`: รหัสใบหน้าถาวร เช่น `"P59508_F0001"`, `"P59508_F0002"`
+       - `face_index`: ลำดับใบหน้า (0, 1, ...)
+       - `box_pct`: `{ "left": ..., "top": ..., "width": ..., "height": ... }` ทศนิยม 4 ตำแหน่ง จำกัดขอบเขต 0-100% ไม่เลยขอบภาพ
+3. **การจัดการทิศทางภาพ (EXIF Orientation):**
+   - เพิ่ม `ImageOps.exif_transpose` ใน `face_analyzer.py` เพื่อหมุนภาพตามข้อมูล EXIF ก่อนตรวจจับและส่งพิกัด
+4. **ความเสถียรของ Revision และ Content Hash:**
+   - คำนวณ `content_hash` รายภาพจากเนื้อหาที่ Sort key แน่นอน
+   - ตรวจสอบ Hash รวมของทั้งคลัง หากไม่มีการเปลี่ยนแปลงข้อมูล จะคงค่า `revision` เดิม และข้ามการอัปโหลดไฟล์ซ้ำ
+5. **ขนาดไฟล์กะทัดรัด (Compact JSON < 4 MB):**
+   - บันทึก JSON แบบ Minified/Compact (ประมาณ 244 KB สำหรับ 202 รูป / 1,627 ใบหน้า) ซึ่งต่ำกว่าขีดจำกัด 4 MB ของเว็บมาก
+
+---
+
+## 🏗️ 2. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ปรับปรุง [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py)
+- พัฒนาฟังก์ชัน `parse_event_date(title)` สกัดปี พ.ศ. เดือน วัน จากชื่ออัลบั้มกิจกรรม
+- พัฒนาฟังก์ชันคำนวณ `content_hash` รายภาพ (`sha256`)
+- ปรับปรุงเมธอด `get_archive_crowdsource_data(academic_year="25xx", sync_manager=None)`:
+  - ดึงข้อมูลโฟลเดอร์ย่อยใน Google Drive เพื่อจับคู่ `event_name` เป็น `DRIVE_FOLDER_ID` ที่แท้จริง
+  - สร้างโครงสร้าง `albums` และ `photos` ตาม Schema ใหม่ 100%
+  - คำนวณพิกัด `box_pct` แบบ Clamped ทศนิยม 4 ตำแหน่ง
+  - สร้าง `face_id` แบบคงที่ (`P{photo_id}_F{face_index+1:04d}`)
+  - จัดเก็บและเปรียบเทียบ Master Hash เพื่อควบคุม `revision` ไม่ให้เปลี่ยนพร่ำเพรื่อ
+
+### ขั้นตอนที่ 2: ปรับปรุง [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py)
+- ตรวจสอบ Master Hash ของไฟล์ `archive_crowdsource_index.json` ก่อนอัปโหลด หากเนื้อหาไม่เปลี่ยนให้ข้ามการอัปโหลด
+- อัปโหลด JSON ในรูปแบบ Minified/Compact เพื่อความเร็วและประหยัด Bandwidth
+
+### ขั้นตอนที่ 3: ปรับปรุง [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py)
+- เพิ่มการรองรับ `ImageOps.exif_transpose` ในการอ่านภาพ เพื่อให้ทิศทางภาพตรงกับ EXIF 100%
+
+### ขั้นตอนที่ 4: อัปเดตเวอร์ชันระบบเป็น `v6.53`
+- อัปเดต `generator_version` ใน [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py) เป็น `v6.53`
+- อัปเดต Title Bar และ Sidebar Logo ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) เป็น `v6.53`
+- อัปเดต [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py) และ [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py) เป็น `v6.53`
+
+### ขั้นตอนที่ 5: เขียนชุดทดสอบ [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py)
+- ทดสอบ Schema ความถูกต้องของฟิลด์ `schema_version`, `dataset_id`, `albums`, `photos`, `faces`
+- ทดสอบการคำนวณ `box_pct` ทศนิยม 4 ตำแหน่ง และ Clamping
+- ทดสอบ `parse_event_date` รองรับทั้งปีเดี่ยว วันที่ ช่วงวันที่ และ `25xx`
+- ทดสอบ `content_hash` และความเสถียรของ `revision`
+
+### ขั้นตอนที่ 6: อัปเดต [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) และ Git Workflow
+- Prepend Changelog v6.53 ลงบนสุดของ `README.md`
+- Git commit และ Git push
+
+---
+
 # แผนงานการเปิดโปรแกรมแบบไร้รอยต่อทันทีหลังหน้าโหลดเสร็จ (Zero-Gap Instant Seamless Window Launch Suite v6.52)
 
 ## 📌 1. ปัญหาและสาเหตุที่พบ (Root Cause Analysis)

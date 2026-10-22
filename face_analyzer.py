@@ -446,7 +446,9 @@ def decode_image_bytes(img_bytes):
 
     # 2. Fallback ด้วย Pillow + pillow-heif (สำหรับ .HEIC / .HEIF / .WEBP / TIFF / Progressive JPEG)
     try:
+        from PIL import ImageOps
         pil_img = Image.open(io.BytesIO(img_bytes))
+        pil_img = ImageOps.exif_transpose(pil_img)
         if pil_img.mode != "RGB":
             pil_img = pil_img.convert("RGB")
         img_np = np.array(pil_img)

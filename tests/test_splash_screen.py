@@ -77,9 +77,8 @@ class TestSplashScreenAndSingleInstance(unittest.TestCase):
                 
                 mock_db = MagicMock()
                 mock_db.get_archive_crowdsource_data.return_value = {
-                    "version": "v6.52",
-                    "total_photos": 1,
-                    "photos": [{"photo_id": 99, "gdrive_file_id": "test", "file_name": "test.jpg", "faces": []}]
+                    "schema_version": 1,
+                    "photos": {"P99": {"drive_file_id": "test", "dimensions": {"width": 1000, "height": 800}, "faces": []}}
                 }
 
                 # เรียกใช้งาน sync_archive_crowdsource_only
@@ -88,8 +87,8 @@ class TestSplashScreenAndSingleInstance(unittest.TestCase):
                 self.assertTrue(mock_connect.called, "sync_archive_crowdsource_only ต้องเรียก connect() อัตโนมัติหากยังไม่ได้เชื่อมต่อ")
 
     def test_tc159_seamless_splash_to_gui_transition(self):
-        """TC-159: ทดสอบการสลับหน้าต่างแบบไร้รอยต่อระหว่าง Splash Screen และ FaceSearchApp (Zero-Gap v6.52)"""
-        splash = SplashScreen(title="TEST SEAMLESS", version="v6.52")
+        """TC-159: ทดสอบการสลับหน้าต่างแบบไร้รอยต่อระหว่าง Splash Screen และ FaceSearchApp (Zero-Gap v6.53)"""
+        splash = SplashScreen(title="TEST SEAMLESS", version="v6.53")
         mock_analyzer = MagicMock()
         mock_analyzer.app = MagicMock()
         

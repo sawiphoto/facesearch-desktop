@@ -851,7 +851,17 @@ class GoogleSyncManager:
                 db = DatabaseManager()
 
             archive_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
-            if not archive_data or archive_data.get("total_photos", 0) == 0:
+            photos_map = archive_data.get("photos", {}) if archive_data else {}
+            if isinstance(photos_map, dict):
+                total_photos = len(photos_map)
+                total_faces = sum(len(p.get("faces", [])) for p in photos_map.values())
+            elif isinstance(photos_map, list):
+                total_photos = len(photos_map)
+                total_faces = sum(len(p.get("faces", [])) for p in photos_map)
+            else:
+                total_photos = 0
+                total_faces = 0
+            if not archive_data or total_photos == 0:
                 return False, "ไม่พบข้อมูลรูปภาพในโฟลเดอร์ภาพกิจกรรม 2562-25xx ในอดีต"
 
             # Pre-fetch existing files map
@@ -908,15 +918,15 @@ class GoogleSyncManager:
                     content = self.drive_service.files().get_media(fileId=manifest_file_id).execute()
                     manifest = json.loads(content.decode('utf-8'))
                 manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
-                manifest["archive_crowdsource_photos"] = archive_data.get("total_photos", 0)
-                manifest["archive_crowdsource_faces"] = archive_data.get("total_faces", 0)
+                manifest["archive_crowdsource_photos"] = total_photos
+                manifest["archive_crowdsource_faces"] = total_faces
                 manifest["updated_at"] = datetime.now().isoformat()
                 upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
             except Exception as m_err:
                 logger.warning(f"[GDRIVE JSON] Could not update photo_manifest.json: {m_err}")
 
             if ok1:
-                return True, f"อัปโหลดสำเร็จ {archive_data.get('total_photos')} รูป ({archive_data.get('total_faces')} ใบหน้า)"
+                return True, f"อัปโหลดสำเร็จ {total_photos} รูป ({total_faces} ใบหน้า)"
             return False, "อัปโหลด archive_crowdsource_index.json ไม่สำเร็จ"
         except Exception as e:
             logger.error(f"[GDRIVE JSON] Error in sync_archive_crowdsource_only: {e}", exc_info=True)

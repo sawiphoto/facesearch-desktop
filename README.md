@@ -1,3 +1,111 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.53 (Ultra-Minimal Archive Crowdsource JSON Suite)
+
+## 📋 Version 6.53 Changelog (Ultra-Minimal Archive Crowdsource JSON Suite)
+
+**Date:** 23 ตุลาคม 2026 (04:40 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.53 (Ultra-Minimal Archive Crowdsource JSON Suite)  
+**Core Technologies:** Ultra-Minimal JSON Serialization Standard (165 KB for 202 Photos & 1,627 Faces), Direct Percentage Coordinates (`box_pct` with 0-100% Clamping), Standardized 3-Digit Padded Face Identifier (`P{photo_id}_F{idx:03d}`), Auto-Orientation Decoupled EXIF Transpose (`ImageOps.exif_transpose`), Comprehensive Unit Test Suite TC-151 to TC-164 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การปรับลดโครงสร้าง JSON ภาพเก่าให้เป็นแบบ Ultra-Minimal ฉบับรวบรัด:**
+   - ผู้ใช้ต้องการปรับโครงสร้างไฟล์ `archive_crowdsource_index.json` ให้เรียบง่ายและกะทัดรัดที่สุด โดยตัดฟิลด์ที่ไม่จำเป็นออกทั้งหมด ให้เหลือเฉพาะ:
+     ```json
+     {
+       "schema_version": 1,
+       "photos": {
+         "P59508": {
+           "drive_file_id": "GOOGLE_DRIVE_FILE_ID",
+           "dimensions": {
+             "width": 2952,
+             "height": 2000
+           },
+           "faces": [
+             {
+               "face_id": "P59508_F001",
+               "box_pct": {
+                 "left": 51.1,
+                 "top": 40.88,
+                 "width": 2.86,
+                 "height": 5.21
+               }
+             }
+           ]
+         }
+       }
+     }
+     ```
+   - ตัดข้อมูลที่ซ้ำซ้อนออกทั้งหมด เช่น `generator_version`, `dataset_id`, `revision`, `generated_at`, `total_*`, `albums`, `album_id`, `file_name`, `content_hash`, `center_pct`, `box_px`, `tagged_name`
+   - รหัสใบหน้าใช้ฟอร์แมตคงที่ 3 หลัก เช่น `P59508_F001`, `P59508_F002`
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุง `get_archive_crowdsource_data` ใน `db_manager.py`:**
+   - คืนค่า Dictionary เฉพาะ 2 คีย์หลักคือ `schema_version: 1` และ `photos`
+   - จัดรูปแบบรหัสใบหน้าเป็น `f"{pid_str}_F{face_index+1:03d}"`
+   - คำนวณพิกัด `box_pct` แบบ Clamped ทศนิยม 2 ตำแหน่ง
+   - บันทึกและลดขนาดไฟล์ JSON รวมสำหรับภาพในอดีตทั้งหมด 202 รูป และ 1,627 ใบหน้า เหลือขนาดเพียง **165.00 KB** (ลดลงจากเดิมมหาศาล โหลดเร็วมาก)
+2. **ปรับปรุง `gdrive_sync.py`:**
+   - รองรับทั้ง `dict` และ `list` ในการนับจำนวนภาพและใบหน้า
+   - บันทึกและอัปโหลด `archive_crowdsource_index.json` แบบ Compact/Minified
+3. **ปรับปรุง `face_analyzer.py`:**
+   - รองรับ `ImageOps.exif_transpose` เพื่อหมุนภาพตามข้อมูล EXIF ให้ถูกต้องก่อนคำนวณพิกัด
+4. **ชุดทดสอบและการทดสอบความถูกต้อง:**
+   - สร้างชุดทดสอบใหม่ [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py) ครอบคลุม TC-160 ถึง TC-164
+   - รันชุดทดสอบผ่านครบ 100% (14/14 Tests Passed)
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การปรับโครงสร้างข้อมูลใน `get_archive_crowdsource_data` (`db_manager.py`):
+```python
+# [Before]
+face_list.append({
+    "face_index": int(f_idx),
+    "box_pct": { "left": box_left, "top": box_top, "width": box_w, "height": box_h },
+    "center_pct": { "x": cx, "y": cy, "r": radius },
+    "box_px": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
+    "tagged_name": None
+})
+photo_dict[pid] = {
+    "photo_id": pid, "drive_file_id": fid, "event": ev_name, "date": p_date,
+    "drive_link": drive_view_url, "image_url": img_url, "file_name": fname,
+    "dimensions": { "width": int(w), "height": int(h) },
+    "face_count": len(face_list), "faces": face_list
+}
+return { "version": "v6.52", "total_photos": len(photo_dict), "photos": photo_dict }
+
+# [After]
+face_list.append({
+    "face_id": f"{pid_str}_F{int(f_idx) + 1:03d}",
+    "box_pct": {
+        "left": left_pct,
+        "top": top_pct,
+        "width": width_pct,
+        "height": height_pct
+    }
+})
+photo_dict[pid_str] = {
+    "drive_file_id": fid,
+    "dimensions": {
+        "width": int(w),
+        "height": int(h)
+    },
+    "faces": face_list
+}
+return {
+    "schema_version": 1,
+    "photos": photo_dict
+}
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.52 (Zero-Gap Instant Seamless Launch Suite)
 
 ## 📋 Version 6.52 Changelog (Zero-Gap Instant Seamless Launch Suite)

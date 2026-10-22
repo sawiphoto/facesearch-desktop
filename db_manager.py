@@ -2142,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.52",
+                "version": "v6.53",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2199,12 +2199,7 @@ class DatabaseManager:
             
             if not photos:
                 return {
-                    "version": "v6.52",
-                    "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
-                    "academic_year": academic_year,
-                    "total_photos": 0,
-                    "total_faces": 0,
-                    "updated_at": datetime.now().isoformat(),
+                    "schema_version": 1,
                     "photos": {}
                 }
 
@@ -2259,12 +2254,12 @@ class DatabaseManager:
                     faces_by_photo[pid] = []
                 faces_by_photo[pid].append((f_idx, float(x1), float(y1), float(x2), float(y2)))
 
-            # 4. ประกอบข้อมูลในแต่ละรูปภาพ
-            total_faces_count = 0
+            # 4. ประกอบข้อมูลในแต่ละรูปภาพ (Ultra-Minimal Schema v6.53)
             photo_dict = {}
 
             for p in photos:
                 pid, fid, ev_name, d_link, p_date, fname, face_cnt, db_w, db_h = p
+                pid_str = str(pid) if str(pid).startswith('P') else f"P{pid}"
                 
                 # ตรวจสอบขนาดภาพ
                 dim = fetched_dims.get(fid)
@@ -2285,72 +2280,41 @@ class DatabaseManager:
 
                 face_list = []
                 for f_idx, x1, y1, x2, y2 in raw_faces:
-                    bw = max(1.0, x2 - x1)
-                    bh = max(1.0, y2 - y1)
+                    left = max(0.0, min(float(w), float(x1)))
+                    top = max(0.0, min(float(h), float(y1)))
+                    right = max(0.0, min(float(w), float(x2)))
+                    bottom = max(0.0, min(float(h), float(y2)))
+                    bw = right - left
+                    bh = bottom - top
+                    if bw <= 0 or bh <= 0:
+                        continue
                     
-                    box_left = round((x1 / w) * 100.0, 2)
-                    box_top = round((y1 / h) * 100.0, 2)
-                    box_w = round((bw / w) * 100.0, 2)
-                    box_h = round((bh / h) * 100.0, 2)
-                    
-                    cx = round(((x1 + x2) / 2.0 / w) * 100.0, 2)
-                    cy = round(((y1 + y2) / 2.0 / h) * 100.0, 2)
-                    radius = round(max(box_w, box_h) * 0.65, 2)
-                    
-                    # Clamp ให้อยู่ในช่วง 0.0 - 100.0%
-                    box_left = max(0.0, min(100.0, box_left))
-                    box_top = max(0.0, min(100.0, box_top))
-                    box_w = max(0.1, min(100.0, box_w))
-                    box_h = max(0.1, min(100.0, box_h))
-                    cx = max(0.0, min(100.0, cx))
-                    cy = max(0.0, min(100.0, cy))
-                    radius = max(0.5, min(50.0, radius))
+                    left_pct = round((left / w) * 100.0, 2)
+                    top_pct = round((top / h) * 100.0, 2)
+                    width_pct = round((bw / w) * 100.0, 2)
+                    height_pct = round((bh / h) * 100.0, 2)
 
                     face_list.append({
-                        "face_index": int(f_idx),
+                        "face_id": f"{pid_str}_F{int(f_idx) + 1:03d}",
                         "box_pct": {
-                            "left": box_left,
-                            "top": box_top,
-                            "width": box_w,
-                            "height": box_h
-                        },
-                        "center_pct": {
-                            "x": cx,
-                            "y": cy,
-                            "r": radius
-                        },
-                        "box_px": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
-                        "tagged_name": None
+                            "left": left_pct,
+                            "top": top_pct,
+                            "width": width_pct,
+                            "height": height_pct
+                        }
                     })
 
-                total_faces_count += len(face_list)
-                
-                drive_view_url = sync_manager.format_drive_view_url(d_link) if sync_manager else d_link
-                img_url = f"https://lh3.googleusercontent.com/d/{fid}"
-                
-                photo_dict[pid] = {
-                    "photo_id": pid,
+                photo_dict[pid_str] = {
                     "drive_file_id": fid,
-                    "event": ev_name or "",
-                    "date": p_date or "",
-                    "drive_link": drive_view_url,
-                    "image_url": img_url,
-                    "file_name": fname or "",
                     "dimensions": {
                         "width": int(w),
                         "height": int(h)
                     },
-                    "face_count": len(face_list),
                     "faces": face_list
                 }
 
             return {
-                "version": "v6.52",
-                "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
-                "academic_year": academic_year,
-                "total_photos": len(photo_dict),
-                "total_faces": total_faces_count,
-                "updated_at": datetime.now().isoformat(),
+                "schema_version": 1,
                 "photos": photo_dict
             }
 
