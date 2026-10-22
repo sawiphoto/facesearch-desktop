@@ -1,4 +1,139 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)
+
+## 📋 Version 6.48 Changelog (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)
+
+**Date:** 22 ตุลาคม 2026 (14:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)  
+**Core Technologies:** Disk Space Reclamation (11.75 GB Reclaimed / 10.94 GiB), Zero-Impact Workspace Reorganization, Root Directory Pruning, Modular Test Suite (`tests/`), Dedicated Archive Directory (`archive_scripts/`), Dynamic `sys.path` Resolution, Comprehensive Unit Test Suite TC-147 to TC-150 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การสะสมของไฟล์ขนาดใหญ่และการกินพื้นที่ฮาร์ดดิสก์มหาศาล (11.5+ GB):**
+   - มีไฟล์สำรองฐานข้อมูลเก่าที่ไม่ได้ใช้งานแล้วค้างอยู่ในโฟลเดอร์ `data/` และ `data/backups/` รวมกว่า 10.25 GB (`faces_db_backup_20261005_v570.db`, `faces_db_backup.db`, `faces_db_v3.1_backup.db`, `faces_db_v3.2_backup.db`, `faces_db_backup_before_multiselect.db`)
+   - มีไฟล์ ZIP โมเดล AI และแคชโมเดลเก่าที่ซ้ำซ้อนรวมกว่า 1.17 GB (`antelopev2.zip` ใน Root, `models/models/antelopev2.zip`, โฟลเดอร์ `insightface_models/`)
+   - มีไฟล์ฐานข้อมูลว่างเปล่า 0 ไบต์ (`faces_db.db` ใน Root, `data/faces.db`, `data/face_database.db`)
+   - ไฟล์บันทึกการทำงาน `app_execution.log` สะสมประวัติจนมีขนาดใหญ่ถึง 152.3 MB
+   - โฟลเดอร์ `export_student/` ที่เป็นรูปภาพส่งออกชั่วคราวเก่า 123.4 MB
+2. **ความรกและกระจัดกระจายของไฟล์ในโฟลเดอร์ Root:**
+   - มีไฟล์ชุดทดสอบ `test_*.py` มากถึง 27 ไฟล์ ปะปนอยู่กับไฟล์ระบบหลัก ทำให้ค้นหาและจัดการไฟล์สำคัญได้ยากลำบาก
+   - มีสคริปต์เครื่องมือเฉพาะกิจและไมเกรชันข้อมูลเก่าในอดีต 9 ไฟล์ และโฟลเดอร์ `scratch/` 9 ไฟล์ อยู่ใน Root โดยไม่ได้จัดหมวดหมู่
+3. **เงื่อนไขความปลอดภัยสูงสุด (Zero Risk & 100% Core Integrity):**
+   - ฐานข้อมูลจริงปัจจุบัน `data/faces_db.db` (4.81 GB / 4,591 MB) ต้องปลอดภัย 100% ไม่ถูกลบหรือกระทบใดๆ
+   - โมเดล AI ใน `models/antelopev2/*.onnx` (5 ไฟล์) ต้องคงอยู่ครบถ้วน
+   - ไฟล์ซิงค์ชีตและคำขอลบรูป (`sheet_mirror_backup.xlsx`, `delete_request.json`) ต้องไม่ถูกลบ
+   - ชุดทดสอบทั้งหมดเมื่อย้ายไป `tests/` ต้องยังคงรันผ่านได้ 100% โดยไม่มีปัญหา ModuleNotFoundError
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **เรียกคืนพื้นที่ฮาร์ดดิสก์อย่างปลอดภัย (11.75 GB / 10.94 GiB Reclaimed):**
+   - ลบไฟล์สำรองฐานข้อมูลเก่ายุคก่อนหน้าทั้ง 5 ไฟล์ใน `data/` และลบโฟลเดอร์ `data/backups/` คืนพื้นที่ 10.25 GB
+   - ลบไฟล์ ZIP โมเดลและโฟลเดอร์แคชเก่า `insightface_models/`, `models/models/` คืนพื้นที่ 1.17 GB
+   - ลบโฟลเดอร์ `export_student/` คืนพื้นที่ 123.4 MB
+   - ลบไฟล์ 0 ไบต์และไฟล์ DB จำลองเก่า (`test_faces_v600.db`, `test_task3_faces.db`, `test_faces_db.db`, `staff_update_audit_v639.json`)
+   - Truncate เคลียร์ขนาดไฟล์ `app_execution.log` ให้เป็น 0 ไบต์
+2. **จัดระเบียบโครงสร้างโฟลเดอร์โครงการ (Workspace Organization):**
+   - สร้างโฟลเดอร์ `tests/` และย้ายไฟล์ชุดทดสอบ `test_*.py` ทั้ง 27 ไฟล์เข้าไปรวมไว้ในที่เดียว
+   - ปรับปรุงการนำเข้าโมดูลในไฟล์ทดสอบทุกไฟล์ด้วยการแทรก `sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))` ทำให้รันยูนิตเทสต์ได้จากทุกที่
+   - สร้างโฟลเดอร์ `archive_scripts/` และย้ายสคริปต์เฉพาะกิจ 9 ไฟล์ (`clean_student_prefixes.py`, `inspect_student_prefix.py`, `inspect_db.py`, `execute_department_and_status_sync.py`, `export_students.py`, `run_backfill_academic_year.py`, `run_heal_nested_events.py`, `run_sharded_sync_to_drive.py`, `sync_photo_index_now.py`) และโฟลเดอร์ `scratch/` เข้าไปจัดเก็บอย่างเป็นระเบียบ
+   - โฟลเดอร์ Root คงเหลือเฉพาะไฟล์ระบบหลักที่จำเป็น 18 ไฟล์
+3. **การทดสอบความถูกต้องและอัปเดตเวอร์ชัน:**
+   - พัฒนาชุดทดสอบ `tests/test_workspace_organization_suite.py` (TC-147 ถึง TC-150) ครอบคลุมการตรวจเช็กพื้นที่คืน, ตรวจสอบ Integrity ของฐานข้อมูลจริง 4.81 GB และโมเดล ONNX 5 ไฟล์, ตรวจสอบโครงสร้างโฟลเดอร์ และตรวจสอบการคอมไพล์ของไฟล์หลักทุกไฟล์ (ผ่าน 100%)
+   - อัปเดตเลขเวอร์ชันระบบเป็น `v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)` ทั้งบน Window Title และ Sidebar Logo
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. การจัดระเบียบไฟล์ Root Directory และโครงสร้างโฟลเดอร์โครงการ
+
+**ก่อนแก้ไข (Before):**
+```text
+Root Directory มีไฟล์สะสมกระจัดกระจายกว่า 55+ ไฟล์:
+- ไฟล์ระบบหลัก: main.py, app_gui.py, db_manager.py, scheduler_task.py, ฯลฯ
+- ไฟล์ชุดทดสอบ: test_*.py รวม 27 ไฟล์ กองปะปนใน Root
+- สคริปต์เฉพาะกิจ: run_backfill_academic_year.py, inspect_db.py, ฯลฯ 9 ไฟล์ใน Root
+- โฟลเดอร์ขยะ/แคช: insightface_models/ (751 MB), export_student/ (123 MB), models/models/ (67 MB)
+- ไฟล์สำรอง DB ใน data/: faces_db_backup_*.db รวม 10.25 GB
+- antelopev2.zip ใน Root (360 MB)
+- app_execution.log (152.3 MB)
+```
+
+**หลังแก้ไข (After):**
+```text
+Root Directory สะอาด สวยงาม เหลือเฉพาะ 18 ไฟล์ระบบหลัก:
+├── app_gui.py / main.py / db_manager.py / scheduler_task.py
+├── face_analyzer.py / gdrive_sync.py / gradient_chart.py / unknown_analyzer.py
+├── run_app.bat / run_debug.bat / requirements.txt / .gitignore / README.md / implementation_plan.md
+├── sheet_mirror_backup.xlsx / delete_request.json / app_execution.log (0 B) / CLAUDE.md
+├── data/
+│   └── faces_db.db (4.81 GB - ฐานข้อมูลหลักสมบูรณ์ 100%)
+├── models/
+│   └── antelopev2/ (ONNX 5 โมเดลหลักครบถ้วน)
+├── tests/
+│   ├── test_workspace_organization_suite.py (ชุดทดสอบใหม่ TC-147 ถึง TC-150)
+│   └── test_*.py (รวบรวมชุดทดสอบเดิมทั้งหมด 27 ไฟล์)
+└── archive_scripts/
+    ├── clean_student_prefixes.py / run_backfill_academic_year.py / ... (9 ไฟล์)
+    └── scratch/ (รวบรวมสคริปต์ย่อย 9 ไฟล์)
+```
+
+---
+
+#### 2. การเพิ่ม Dynamic `sys.path` Resolution ในไฟล์ทดสอบ `tests/test_*.py`
+
+**ก่อนแก้ไข (Before):**
+```python
+# เมื่อไฟล์ test_*.py อยู่ที่โฟลเดอร์ Root การ import เรียกไฟล์หลักจะทำโดยตรง:
+import unittest
+from db_manager import DatabaseManager
+from scheduler_task import BackgroundScheduler
+```
+
+**หลังแก้ไข (After):**
+```python
+# เมื่อย้ายเข้ามาอยู่ในโฟลเดอร์ tests/ เพิ่ม dynamic sys.path resolution ที่หัวไฟล์ทุกตัว:
+import os
+import sys
+
+# Ensure project root is in sys.path when running from tests/ directory
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+import unittest
+from db_manager import DatabaseManager
+from scheduler_task import BackgroundScheduler
+```
+
+---
+
+#### 3. การอัปเดตเวอร์ชันใน `app_gui.py` และ `db_manager.py`
+
+**ก่อนแก้ไข (Before):**
+```python
+# app_gui.py
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.47 (Sequential Task-1 Sync & Responsive Instant-Stop Suite)")
+self.logo_label.configure(text="FACIAL RECOGNITION\nSYSTEM v6.47")
+
+# db_manager.py
+"version": "v6.47",
+```
+
+**หลังแก้ไข (After):**
+```python
+# app_gui.py
+self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)")
+self.logo_label.configure(text="FACIAL RECOGNITION\nSYSTEM v6.48")
+
+# db_manager.py
+"version": "v6.48",
+```
+
+---
 
 ## 📋 Version 6.47 Changelog (Sequential Task-1 Sync & Responsive Instant-Stop Suite)
 

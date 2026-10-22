@@ -3332,6 +3332,114 @@ flowchart TD
 
 ---
 
+## 🧹 36. แผนงานทำความสะอาดระบบและจัดระเบียบโครงสร้างโฟลเดอร์โปรเจกต์ (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite v6.48)
+
+### 36.1 ที่มาและวัตถุประสงค์ (Background & Objective)
+ผู้ใช้เลือก **"ตัวเลือก B (ทำความสะอาดแบบหมดจด Full Clean)"** เพื่อ:
+1. คืนพื้นที่ความจุของฮาร์ดดิสก์มากกว่า **11.7 GB** จากไฟล์สำรองฐานข้อมูลเก่า, ไฟล์ zip โมเดลซ้ำซ้อน, ไฟล์ 0 ไบต์ และ log ขนาดใหญ่
+2. จัดระเบียบโครงสร้างโฟลเดอร์โปรเจกต์ให้สะอาด สบายตา เป็นมาตรฐานระดับ Enterprise โดยแยกชุดทดสอบ (`tests/`) และสคริปต์อดีต (`archive_scripts/`) ออกจากโฟลเดอร์ราก (Root Directory)
+3. รับประกันความปลอดภัยสูงสุด 100%: ไม่แตะต้องฐานข้อมูลจริง [`data/faces_db.db`](data/faces_db.db), แคชภาพถ่าย [`data/thumbnail_cache/`](data/thumbnail_cache/), ไฟล์คอนฟิก และโค้ดหลักของโปรแกรม
+
+---
+
+### 36.2 รายการไฟล์และโฟลเดอร์ที่จะดำเนินการ (Detailed Inventory & Operations)
+
+#### 🗑️ กลุ่มที่ 1: ไฟล์ขยะและไฟล์ซ้ำซ้อนที่จะถูกลบถาวร (คืนพื้นที่ ~11.7 GB)
+1. **ไฟล์สำรองฐานข้อมูลเก่า (5 ไฟล์ - รวม ~10.25 GB):**
+   - `data/faces_db_backup_20261005_v570.db` (3.30 GB)
+   - `data/faces_db_backup.db` (2.74 GB)
+   - `data/faces_db_v3.1_backup.db` (1.43 GB)
+   - `data/faces_db_v3.2_backup.db` (1.43 GB)
+   - `data/backups/faces_db_backup_before_multiselect.db` (1.35 GB) พร้อมลบโฟลเดอร์ `data/backups/`
+2. **ไฟล์ ZIP โมเดล AI และแคชโมเดลซ้ำซ้อน (~1.17 GB):**
+   - `antelopev2.zip` (360.6 MB ในโฟลเดอร์ Root)
+   - `models/models/antelopev2.zip` (67.6 MB) พร้อมลบโฟลเดอร์ `models/models/`
+   - โฟลเดอร์ `insightface_models/` (751.7 MB - แคชเก่าที่ไม่ใช้งานแล้ว โมเดลจริงอยู่ใน `models/antelopev2/`)
+3. **ไฟล์ฐานข้อมูลว่างเปล่า 0 ไบต์ (3 ไฟล์):**
+   - `faces_db.db` ในโฟลเดอร์ Root (0 Bytes)
+   - `data/faces.db` (0 Bytes)
+   - `data/face_database.db` (0 Bytes)
+4. **ไฟล์ประวัติขนาดใหญ่:**
+   - `app_execution.log` (152.3 MB) ➔ ทำการเคลียร์ (Truncate) เป็นไฟล์ว่าง 0 ไบต์เพื่อเริ่มบันทึกใหม่
+5. **โฟลเดอร์ส่งออกรูปภาพชั่วคราวในอดีต:**
+   - `export_student/` (123.4 MB)
+6. **ไฟล์ฐานข้อมูลและออดิตจำลองเก่าใน `data/`:**
+   - `data/test_faces_v600.db` (90 KB)
+   - `data/test_task3_faces.db` (61 KB)
+   - `data/test_faces_db.db` (45 KB)
+   - `data/staff_update_audit_v639.json` (53 KB)
+
+#### 📁 กลุ่มที่ 2: ย้ายไฟล์ชุดทดสอบไปยังโฟลเดอร์ `tests/` (27 ไฟล์)
+ย้ายไฟล์ `test_*.py` ทั้งหมดเข้าสู่โฟลเดอร์ `tests/` พร้อมปรับปรุง `sys.path` เพื่อให้ยังคงรันชุดทดสอบความถูกต้องได้ตามปกติ:
+- `test_academic_year_suite.py`, `test_batch_inactive_teachers_suite.py`, `test_benchmark_speed.py`, `test_date_reconciliation_suite.py`, `test_department_and_status_sync_suite.py`, `test_dual_staff_photo_suite.py`, `test_face_count_index.py`, `test_full_year_sharding_suite.py`, `test_gdrive_sync_resilience_suite.py`, `test_graph_clustering_suite.py`, `test_nested_events_healing_suite.py`, `test_performance_v628_suite.py`, `test_root_folders_suite.py`, `test_scan_report_summary.py`, `test_sequential_sync_and_stop_suite.py`, `test_sharded_sync_v630_suite.py`, `test_smart_teacher_batch_import_suite.py`, `test_staff_and_former_staff_index_suite.py`, `test_staff_drive_sync_and_avatar_suite.py`, `test_student_lifecycle_v629_suite.py`, `test_teacher_avatar_gallery_suite.py`, `test_teacher_department_other_suite.py`, `test_teacher_table_and_db_editor_suite.py`, `test_triple_task_sync_suite.py`, `test_unknown_analytics_suite.py`, `test_windowless_launcher_suite.py`, `test_zero_lag_suite.py`
+
+#### 📦 กลุ่มที่ 3: ย้ายสคริปต์เฉพาะกิจไปยังโฟลเดอร์ `archive_scripts/` (18 ไฟล์)
+ย้ายสคริปต์ย้ายข้อมูลและเครื่องมือทดสอบชั่วคราวในอดีตเข้าไปจัดเก็บเป็นระเบียบ:
+- **สคริปต์จาก Root (9 ไฟล์):** `clean_student_prefixes.py`, `inspect_student_prefix.py`, `inspect_db.py`, `execute_department_and_status_sync.py`, `export_students.py`, `run_backfill_academic_year.py`, `run_heal_nested_events.py`, `run_sharded_sync_to_drive.py`, `sync_photo_index_now.py`
+- **สคริปต์จาก `scratch/` (9 ไฟล์):** ย้ายโฟลเดอร์ `scratch/` เข้าไปเก็บใน `archive_scripts/scratch/`
+
+---
+
+### 36.3 แผนขั้นตอนการดำเนินการ (Step-by-Step Execution Plan)
+1. **Step 1:** สร้างโฟลเดอร์ `tests/` และ `archive_scripts/`
+2. **Step 2:** ลบไฟล์ขยะและไฟล์ซ้ำซ้อนขนาดใหญ่ตามกลุ่มที่ 1 (คืนพื้นที่ 11.7 GB)
+3. **Step 3:** เคลียร์ขนาดไฟล์ `app_execution.log` ให้เป็น 0 ไบต์
+4. **Step 4:** ย้ายไฟล์ `test_*.py` ทั้ง 27 ไฟล์เข้าสู่ `tests/`
+5. **Step 5:** ย้ายสคริปต์เฉพาะกิจ 9 ไฟล์และโฟลเดอร์ `scratch/` เข้าสู่ `archive_scripts/`
+6. **Step 6:** ตรวจสอบความถูกต้อง (Verify Runtime):
+   - รัน `py_compile` ตรวจสอบไฟล์ระบบหลักทั้งหมด
+   - รันชุดทดสอบผ่าน `tests/`
+7. **Step 7:** อัปเกรดเลขเวอร์ชันเป็น `v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)` ใน `app_gui.py`, `db_manager.py` และ `README.md`
+8. **Step 8:** Git commit และ push ขึ้น remote master
+
+---
+
+### 36.4 แผนการทดสอบอย่างละเอียด (Comprehensive Test Cases: TC-147 ถึง TC-150)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-147** | **Disk Space Reclamation Verification** | ระบบไฟล์ | ตรวจสอบว่าไฟล์ backup เก่าและ zip ซ้ำซ้อนถูกลบเรียบร้อย | พื้นที่ว่างฮาร์ดดิสก์เพิ่มขึ้นกว่า 11.5 GB |
+| **TC-148** | **Active System Core Integrity** | `main.py`, `data/faces_db.db` | ตรวจสอบว่าฐานข้อมูลจริง 4.81 GB และโมเดล ONNX 5 ไฟล์ยังอยู่ครบ 100% | ไฟล์ระบบหลักปลอดภัย 100% ไม่ได้รับผลกระทบ |
+| **TC-149** | **Tests and Archive Folder Organization** | โฟลเดอร์ `tests/`, `archive_scripts/` | ตรวจสอบว่าไฟล์ test และสคริปต์เก่าถูกย้ายเข้าโฟลเดอร์ใหม่อย่างครบถ้วน | หน้า Root Directory สะอาด เป็นระเบียบเรียบร้อย |
+| **TC-150** | **Version Parity v6.48 & Compilation Check** | ทุกไฟล์หลัก | ตรวจสอบ `py_compile` และตรวจความสอดคล้องของเลขเวอร์ชัน `v6.48` | ทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด และแสดงเลขเวอร์ชัน `v6.48` ตรงกัน 100% |
+
+---
+
+### 36.5 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.48 (Comprehensive Workspace Organization & 11.5GB Disk Cleanup Suite)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `db_manager.py`: Manifest version
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+---
+
+### 36.6 ผลการดำเนินการและการตรวจสอบ (Execution & Verification Results)
+- ✅ **สถานะการดำเนินการ:** ดำเนินการเสร็จสมบูรณ์ 100% ตามแผนงาน
+- 💽 **พื้นที่ว่างที่เรียกคืนได้สำเร็จ:** **11.75 GB (10.94 GiB หรือ 11,747,137,877 ไบต์)**
+  - ลบไฟล์ backup เก่าใน `data/` และโฟลเดอร์ `data/backups/` คืนพื้นที่ 10.25 GB
+  - ลบ ZIP โมเดลและโฟลเดอร์แคชเก่า `insightface_models/` คืนพื้นที่ 1.17 GB
+  - ลบโฟลเดอร์ `export_student/` คืนพื้นที่ 123.4 MB
+  - Truncate ไฟล์ `app_execution.log` คืนพื้นที่ 152.3 MB
+  - ลบไฟล์ 0 ไบต์และไฟล์ DB จำลองเก่าทั้งหมด
+- 🛡️ **ความปลอดภัยของระบบหลัก (100% Core Integrity):**
+  - ฐานข้อมูลจริง `data/faces_db.db` ขนาด 4.81 GB (4,591.59 MB) สมบูรณ์ ไม่ได้รับผลกระทบ
+  - โมเดล AI ใน `models/antelopev2/*.onnx` (5 โมเดล) ครบถ้วนและปลอดภัย
+- 📁 **การจัดระเบียบโครงสร้าง:**
+  - รวบรวมชุดทดสอบ 27 ไฟล์ + ไฟล์ทดสอบใหม่ 1 ไฟล์เข้าสู่ `tests/` รวม 28 ไฟล์
+  - จัดเก็บสคริปต์เฉพาะกิจ 9 ไฟล์ และโฟลเดอร์ `scratch/` เข้าสู่ `archive_scripts/`
+  - โฟลเดอร์ Root สะอาด เรียบร้อย เหลือเฉพาะ 18 ไฟล์ระบบหลัก
+- 🧪 **ผลการทดสอบ Unit Test Suite (`tests/test_workspace_organization_suite.py`):**
+  - TC-147: Disk Space Reclamation Verification ➔ **PASSED**
+  - TC-148: Active System Core Integrity ➔ **PASSED**
+  - TC-149: Tests and Archive Folder Organization ➔ **PASSED**
+  - TC-150: Version Parity v6.48 & Compilation Check ➔ **PASSED**
+  - **สรุป: ผ่าน 4/4 กรณีทดสอบ (100% Success)**
+
+
+---
+
 
 
 
