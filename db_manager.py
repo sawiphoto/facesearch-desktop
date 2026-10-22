@@ -570,6 +570,19 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not execute v6.42 migration: {e}")
 
+            # Migration v6.49: เพิ่มคอลัมน์ image_width และ image_height ใน scanned_photos
+            try:
+                cursor.execute("PRAGMA table_info(scanned_photos)")
+                sp_cols = [col[1] for col in cursor.fetchall()]
+                if 'image_width' not in sp_cols:
+                    cursor.execute("ALTER TABLE scanned_photos ADD COLUMN image_width INTEGER DEFAULT 0")
+                    logger.info("Executed database migration v6.49: added image_width to scanned_photos.")
+                if 'image_height' not in sp_cols:
+                    cursor.execute("ALTER TABLE scanned_photos ADD COLUMN image_height INTEGER DEFAULT 0")
+                    logger.info("Executed database migration v6.49: added image_height to scanned_photos.")
+            except Exception as e:
+                logger.warning(f"Could not execute v6.49 migration: {e}")
+
 
             # 7. ตารางระบบสถิติและจัดกลุ่มใบหน้าบุคคลนิรนาม (v6.20 Unknown VIP & Yearly Analytics)
             conn.commit()
@@ -2129,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.48",
+                "version": "v6.49",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2162,6 +2175,183 @@ class DatabaseManager:
                     }
                     for f in faces
                 ]
+            }
+
+    def get_archive_crowdsource_data(self, academic_year="25xx", sync_manager=None):
+        """
+        ดึงข้อมูลภาพกิจกรรมในอดีต (2562-25xx) พร้อมพิกัดใบหน้าทั้งหมดในหน่วยเปอร์เซ็นต์
+        สำหรับ Crowdsourcing Tagging บนเว็บ (v6.49):
+        - ไม่มีข้อมูลชื่อหรือตำแหน่งของบุคคล (เพื่อให้ผู้ใช้บนเว็บระบุชื่อเอง)
+        - แต่ละรูปภาพมีรายการใบหน้าพร้อม box_pct (สำหรับครอปทำ Avatar) และ center_pct (สำหรับ Hover วงกลม)
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 1. ดึงรายการรูปภาพทั้งหมดในปีการศึกษาที่กำหนด (เช่น '25xx')
+            cursor.execute("""
+                SELECT photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, total_faces_detected,
+                       COALESCE(image_width, 0), COALESCE(image_height, 0)
+                FROM scanned_photos
+                WHERE academic_year = ?
+                ORDER BY photo_date DESC, photo_id ASC
+            """, (academic_year,))
+            photos = cursor.fetchall()
+            
+            if not photos:
+                return {
+                    "version": "v6.49",
+                    "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
+                    "academic_year": academic_year,
+                    "total_photos": 0,
+                    "total_faces": 0,
+                    "updated_at": datetime.now().isoformat(),
+                    "photos": {}
+                }
+
+            # 2. ตรวจสอบรูปภาพที่ยังไม่มีมิติภาพ (image_width <= 0 หรือ image_height <= 0)
+            # และเติมเต็มจาก Drive API (Batch)
+            missing_dim_fids = [p[1] for p in photos if p[7] <= 0 or p[8] <= 0]
+            fetched_dims = {}
+            if missing_dim_fids and sync_manager and hasattr(sync_manager, 'drive_service') and sync_manager.drive_service:
+                try:
+                    def _batch_cb(req_id, response, exception):
+                        if not exception and response:
+                            meta = response.get('imageMediaMetadata', {})
+                            w = meta.get('width', 0)
+                            h = meta.get('height', 0)
+                            rot = meta.get('rotation', 0)
+                            if rot in (1, 3):
+                                w, h = h, w
+                            if w > 0 and h > 0:
+                                fetched_dims[req_id] = (w, h)
+                    
+                    chunk_size = 50
+                    for i in range(0, len(missing_dim_fids), chunk_size):
+                        chunk = missing_dim_fids[i:i + chunk_size]
+                        batch = sync_manager.drive_service.new_batch_http_request(callback=_batch_cb)
+                        for fid in chunk:
+                            batch.add(sync_manager.drive_service.files().get(fileId=fid, fields='id,imageMediaMetadata'), request_id=fid)
+                        batch.execute()
+
+                    if fetched_dims:
+                        update_rows = [(w, h, fid) for fid, (w, h) in fetched_dims.items()]
+                        cursor.executemany("UPDATE scanned_photos SET image_width = ?, image_height = ? WHERE drive_file_id = ?", update_rows)
+                        conn.commit()
+                        logger.info(f"[DB] Backfilled image dimensions for {len(fetched_dims)} photos to SQLite.")
+                except Exception as b_err:
+                    logger.warning(f"[DB] Could not batch fetch dimensions from Drive: {b_err}")
+
+            # 3. ดึงพิกัดใบหน้าทั้งหมดจาก scanned_photo_faces
+            photo_ids = [p[0] for p in photos]
+            placeholders = ",".join("?" for _ in photo_ids)
+            cursor.execute(f"""
+                SELECT photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2
+                FROM scanned_photo_faces
+                WHERE photo_id IN ({placeholders}) AND face_index >= 0
+                ORDER BY photo_id ASC, face_index ASC
+            """, photo_ids)
+            faces_raw = cursor.fetchall()
+
+            faces_by_photo = {}
+            for r in faces_raw:
+                pid, f_idx, x1, y1, x2, y2 = r
+                if pid not in faces_by_photo:
+                    faces_by_photo[pid] = []
+                faces_by_photo[pid].append((f_idx, float(x1), float(y1), float(x2), float(y2)))
+
+            # 4. ประกอบข้อมูลในแต่ละรูปภาพ
+            total_faces_count = 0
+            photo_dict = {}
+
+            for p in photos:
+                pid, fid, ev_name, d_link, p_date, fname, face_cnt, db_w, db_h = p
+                
+                # ตรวจสอบขนาดภาพ
+                dim = fetched_dims.get(fid)
+                w = dim[0] if dim else db_w
+                h = dim[1] if dim else db_h
+                
+                raw_faces = faces_by_photo.get(pid, [])
+                
+                # Fallback หาขนาดภาพถ้ายังเป็น 0
+                if w <= 0 or h <= 0:
+                    if raw_faces:
+                        max_x = max(f[3] for f in raw_faces)
+                        max_y = max(f[4] for f in raw_faces)
+                        w = max(2000, int(max_x * 1.15))
+                        h = max(1500, int(max_y * 1.15))
+                    else:
+                        w, h = 2880, 1920
+
+                face_list = []
+                for f_idx, x1, y1, x2, y2 in raw_faces:
+                    bw = max(1.0, x2 - x1)
+                    bh = max(1.0, y2 - y1)
+                    
+                    box_left = round((x1 / w) * 100.0, 2)
+                    box_top = round((y1 / h) * 100.0, 2)
+                    box_w = round((bw / w) * 100.0, 2)
+                    box_h = round((bh / h) * 100.0, 2)
+                    
+                    cx = round(((x1 + x2) / 2.0 / w) * 100.0, 2)
+                    cy = round(((y1 + y2) / 2.0 / h) * 100.0, 2)
+                    radius = round(max(box_w, box_h) * 0.65, 2)
+                    
+                    # Clamp ให้อยู่ในช่วง 0.0 - 100.0%
+                    box_left = max(0.0, min(100.0, box_left))
+                    box_top = max(0.0, min(100.0, box_top))
+                    box_w = max(0.1, min(100.0, box_w))
+                    box_h = max(0.1, min(100.0, box_h))
+                    cx = max(0.0, min(100.0, cx))
+                    cy = max(0.0, min(100.0, cy))
+                    radius = max(0.5, min(50.0, radius))
+
+                    face_list.append({
+                        "face_index": int(f_idx),
+                        "box_pct": {
+                            "left": box_left,
+                            "top": box_top,
+                            "width": box_w,
+                            "height": box_h
+                        },
+                        "center_pct": {
+                            "x": cx,
+                            "y": cy,
+                            "r": radius
+                        },
+                        "box_px": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
+                        "tagged_name": None
+                    })
+
+                total_faces_count += len(face_list)
+                
+                drive_view_url = sync_manager.format_drive_view_url(d_link) if sync_manager else d_link
+                img_url = f"https://lh3.googleusercontent.com/d/{fid}"
+                
+                photo_dict[pid] = {
+                    "photo_id": pid,
+                    "drive_file_id": fid,
+                    "event": ev_name or "",
+                    "date": p_date or "",
+                    "drive_link": drive_view_url,
+                    "image_url": img_url,
+                    "file_name": fname or "",
+                    "dimensions": {
+                        "width": int(w),
+                        "height": int(h)
+                    },
+                    "face_count": len(face_list),
+                    "faces": face_list
+                }
+
+            return {
+                "version": "v6.49",
+                "folder_name": "ภาพกิจกรรม 2562- 25xx ในอดีต",
+                "academic_year": academic_year,
+                "total_photos": len(photo_dict),
+                "total_faces": total_faces_count,
+                "updated_at": datetime.now().isoformat(),
+                "photos": photo_dict
             }
 
     def clear_scan_history(self):

@@ -3,6 +3,7 @@ import json
 import logging
 import io
 import time
+from datetime import datetime
 import socket
 import ssl
 import httplib2
@@ -107,7 +108,6 @@ class GoogleSyncManager:
         ครอบการทำงานของการเชื่อมต่อ Google API ด้วยระบบลองใหม่อัตโนมัติ (Exponential Backoff Auto-Retry)
         เพื่อป้องกันข้อผิดพลาดชั่วคราว เช่น HTTP 503 (Service Unavailable), 500 (Internal Error), 429 (Rate Limit)
         """
-        import time
         delay = initial_delay
         for attempt in range(1, max_retries + 1):
             try:
@@ -804,6 +804,22 @@ class GoogleSyncManager:
                 # Legacy Photo Index (Dual-Write)
                 sync_results["photo_index.json"] = upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
 
+                # 4. ดัชนีภาพกิจกรรมในอดีต (2562-25xx) สำหรับ Crowdsourcing Tagging (v6.49)
+                try:
+                    archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
+                    if archive_crowdsource_data and archive_crowdsource_data.get("total_photos", 0) > 0:
+                        sync_results["archive_crowdsource_index.json"] = upload_overwrite_json(
+                            "archive_crowdsource_index.json", archive_crowdsource_data, use_compact=True
+                        )
+                        manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
+                        manifest["archive_crowdsource_photos"] = archive_crowdsource_data.get("total_photos", 0)
+                        manifest["archive_crowdsource_faces"] = archive_crowdsource_data.get("total_faces", 0)
+                        # อัปเดต photo_manifest.json ให้มีคีย์ของไฟล์ภาพในอดีตนี้ด้วย
+                        sync_results["photo_manifest.json"] = upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
+                        logger.info(f"[GDRIVE JSON] Synced archive_crowdsource_index.json ({archive_crowdsource_data.get('total_photos')} photos).")
+                except Exception as arc_err:
+                    logger.warning(f"[GDRIVE JSON] Could not sync archive_crowdsource_index.json: {arc_err}")
+
             failed_uploads = [fn for fn, ok in sync_results.items() if not ok]
             if failed_uploads:
                 logger.warning(f"[GDRIVE JSON] Warning: {len(failed_uploads)}/{len(sync_results)} files encountered issues: {failed_uploads}")
@@ -813,6 +829,96 @@ class GoogleSyncManager:
         except Exception as e:
             logger.error(f"[GDRIVE JSON] Error updating JSON search indexes: {e}", exc_info=True)
             return False
+
+    def sync_archive_crowdsource_only(self, json_folder_id="1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L", db=None):
+        """
+        ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json และอัปเดต photo_manifest.json (v6.49)
+        สำหรับปุ่ม Manual Sync ในหน้าตั้งค่าโฟลเดอร์ หรือ Task 1
+        """
+        if not self.connected or not self.drive_service:
+            logger.error("[GDRIVE JSON] Google Drive service not connected.")
+            return False, "ไม่ได้เชื่อมต่อ Google Drive Service"
+
+        if not json_folder_id:
+            logger.warning("[GDRIVE JSON] JSON folder ID is empty.")
+            return False, "ยังไม่ได้ระบุโฟลเดอร์ Google Drive สำหรับเก็บ JSON"
+
+        try:
+            if db is None:
+                from db_manager import DatabaseManager
+                db = DatabaseManager()
+
+            archive_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
+            if not archive_data or archive_data.get("total_photos", 0) == 0:
+                return False, "ไม่พบข้อมูลรูปภาพในโฟลเดอร์ภาพกิจกรรม 2562-25xx ในอดีต"
+
+            # Pre-fetch existing files map
+            existing_files_map = {}
+            try:
+                folder_query = f"'{json_folder_id}' in parents and trashed = false"
+                list_res = self.drive_service.files().list(
+                    q=folder_query, fields="files(id, name)", pageSize=100
+                ).execute()
+                for f in list_res.get("files", []):
+                    existing_files_map[f["name"]] = f["id"]
+            except Exception as cache_err:
+                logger.warning(f"[GDRIVE JSON] Could not pre-fetch folder files list: {cache_err}")
+
+            def upload_overwrite_json(file_name, data_dict, use_compact=True):
+                if use_compact:
+                    json_content = json.dumps(data_dict, ensure_ascii=False, separators=(',', ':'))
+                else:
+                    json_content = json.dumps(data_dict, ensure_ascii=False, indent=2)
+                content_bytes = json_content.encode('utf-8')
+                media = MediaIoBaseUpload(io.BytesIO(content_bytes), mimetype='application/json', resumable=False)
+                file_id = existing_files_map.get(file_name)
+                if not file_id:
+                    try:
+                        import requests
+                        app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
+                        r = requests.get(app_url, params={'action': 'createPlaceholders', 'secret': 'sawi_sharding_2026', 'files': file_name}, timeout=30)
+                        if r.status_code == 200 and r.json().get('ok'):
+                            search_results = self.drive_service.files().list(q=f"'{json_folder_id}' in parents and name = '{file_name}' and trashed = false", fields="files(id)").execute()
+                            files = search_results.get("files", [])
+                            if files:
+                                file_id = files[0]['id']
+                                existing_files_map[file_name] = file_id
+                    except Exception as ep:
+                        logger.warning(f"[GDRIVE JSON] Could not request placeholder creation via Web App: {ep}")
+
+                if file_id:
+                    self.drive_service.files().update(fileId=file_id, media_body=media).execute()
+                    return True
+                else:
+                    file_metadata = {'name': file_name, 'mimeType': 'application/json', 'parents': [json_folder_id]}
+                    new_file = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                    if new_file.get('id'):
+                        existing_files_map[file_name] = new_file.get('id')
+                    return True
+
+            ok1 = upload_overwrite_json("archive_crowdsource_index.json", archive_data, use_compact=True)
+
+            # อัปเดต photo_manifest.json
+            try:
+                manifest_file_id = existing_files_map.get("photo_manifest.json")
+                manifest = {}
+                if manifest_file_id:
+                    content = self.drive_service.files().get_media(fileId=manifest_file_id).execute()
+                    manifest = json.loads(content.decode('utf-8'))
+                manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
+                manifest["archive_crowdsource_photos"] = archive_data.get("total_photos", 0)
+                manifest["archive_crowdsource_faces"] = archive_data.get("total_faces", 0)
+                manifest["updated_at"] = datetime.now().isoformat()
+                upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
+            except Exception as m_err:
+                logger.warning(f"[GDRIVE JSON] Could not update photo_manifest.json: {m_err}")
+
+            if ok1:
+                return True, f"อัปโหลดสำเร็จ {archive_data.get('total_photos')} รูป ({archive_data.get('total_faces')} ใบหน้า)"
+            return False, "อัปโหลด archive_crowdsource_index.json ไม่สำเร็จ"
+        except Exception as e:
+            logger.error(f"[GDRIVE JSON] Error in sync_archive_crowdsource_only: {e}", exc_info=True)
+            return False, str(e)
 
     def format_drive_view_url(self, raw_url):
         """แปลง Drive URL ให้เป็นลิงก์เปิดดูบน Web Browser เสมอ (ไม่บังคับดาวน์โหลด)"""

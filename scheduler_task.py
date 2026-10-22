@@ -1436,7 +1436,9 @@ class SchedulerTask:
                             "file_extension": f_ext,
                             "academic_year": target.get("academic_year", current_academic_year),
                             "matches": photo_matches,
-                            "face_embeddings": face_embeddings
+                            "face_embeddings": face_embeddings,
+                            "image_width": int(w) if 'w' in locals() and w else 0,
+                            "image_height": int(h) if 'h' in locals() and h else 0
                         })
                         
                         processed_count += 1
@@ -1462,11 +1464,13 @@ class SchedulerTask:
                                 r.get("file_name", ""),
                                 r.get("file_extension", ""),
                                 len(r.get("face_embeddings", [])),
-                                r.get("academic_year", current_academic_year)
+                                r.get("academic_year", current_academic_year),
+                                r.get("image_width", 0),
+                                r.get("image_height", 0)
                             )
                             for r in results_data
                         ]
-                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected, academic_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
+                        c.executemany("INSERT OR REPLACE INTO scanned_photos (photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, file_extension, total_faces_detected, academic_year, image_width, image_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", scanned_rows)
                         
                         photo_ids_batch = [r["photo_id"] for r in results_data]
                         if photo_ids_batch:
