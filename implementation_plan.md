@@ -3158,6 +3158,89 @@ flowchart TD
 
 ---
 
+## 🔄 34. แผนงานตรวจสอบและแก้ไขระบบซิงค์ไฟล์ JSON ดัชนีขึ้น Google Drive ครบทั้ง Task 1, Task 2 และ Task 3 (Unified Triple-Task Google Drive JSON Sync Suite v6.46)
+
+### 34.1 ที่มาและข้อค้นพบเชิงลึก (Background & Problem Rationale)
+ผู้ใช้สอบถามและสั่งการ:
+> *"ช่วยเช็คกรณีแบบนี้จอง task1 task 3 ด้วยครับ"*
+- สืบเนื่องจากปัญหาที่พบใน **Task 2**: นักเรียน "จตุรพร พูลสวัสดิ์" (รหัส 23371) แมตช์พบ 14 รูปในฐานข้อมูล SQLite เรียบร้อย แต่ไฟล์ `student_index.json` และ `student_index_active.json` บน Google Drive โฟลเดอร์ `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` กลับไม่อัปเดต (ยังค้างเป็นของเมื่อวาน 21 ต.ค.)
+- ผู้ใช้ต้องการให้ตรวจสอบพฤติกรรมและการทำงานของการซิงค์ไฟล์ JSON บน Google Drive ใน **Task 1** และ **Task 3** ด้วย ว่ามีข้อบกพร่องหรือบั๊กลักษณะเดียวกันนี้หรือไม่
+
+---
+
+### 34.2 ผลการตรวจสอบเชิงลึกเปรียบเทียบทั้ง 3 Tasks (Deep Audit Matrix: Task 1 vs Task 2 vs Task 3)
+
+จากการสืบค้นโค้ดใน [`scheduler_task.py`](scheduler_task.py), [`app_gui.py`](app_gui.py) และ [`gdrive_sync.py`](gdrive_sync.py) พบข้อเท็จจริงดังนี้:
+
+| มิติการตรวจสอบ (Audit Dimension) | Task 1 (สแกนรูปภาพกิจกรรม) | Task 2 (ซิงค์/แมตช์นักเรียน) | Task 3 (ซิงค์/แมตช์คุณครู) |
+| :--- | :--- | :--- | :--- |
+| **หน้าที่หลัก (Core Responsibility)** | สแกนหาไฟล์รูปภาพใหม่ใน Google Drive และตรวจจับใบหน้าเทียบกับทุกคน (ครู + นักเรียน) | ดึงข้อมูลนักเรียนจาก Google Sheet, ดาวน์โหลดรูปต้นแบบ, สกัดเวกเตอร์ และทำ Retroactive Match | ตรวจหาคุณครูที่เพิ่มใหม่หรืออัปเดตรูปจากฐานข้อมูล และทำ Retroactive Match |
+| **ฟังก์ชันที่เรียกซิงค์ JSON** | เรียก `self._sync_all_json_to_drive()` โดยตรง | เรียกผ่าน `self.app_gui.process_retroactive_match_headless()` | เรียกผ่าน `self.app_gui.process_retroactive_match_headless()` |
+| **โหมดการอัปโหลด (`scan_mode`)** | ✅ **`scan_mode="all"`** (อัปโหลดทั้งครู, นักเรียน, และรูปภาพครบทุกไฟล์) | ❌ **`scan_mode="teachers"`** (Hardcoded ใน `app_gui.py` บรรทัด 4808 ทำให้ **ข้ามไฟล์นักเรียน 100%**) | ⚠️ **`scan_mode="teachers"`** (อัปโหลดเฉพาะไฟล์ครูและรูปภาพ แต่ **ข้ามไฟล์นักเรียน**) |
+| **กรณีรันปุ่มเฉพาะกิจ (Manual Button)** | ไม่มีปุ่ม Task 1 เดี่ยว (รันผ่าน Full Scan) | ❌ **ไม่ซิงค์ไฟล์นักเรียน:** แม้จะพบนักเรียนและแมตช์ได้ 14 รูป ก็ข้ามไฟล์นักเรียนเพราะ `scan_mode="teachers"` | ⚠️ **มีช่องโหว่:** หากไม่มีครูใหม่ที่ต้อง Backfill (`unbackfilled = 0`) จะ **ไม่มีการซิงค์ JSON ขึ้น Drive เลยแม้แต่ไฟล์เดียว** |
+| **ลำดับในลูปอัตโนมัติ (`run_scheduled_tasks`)** | รันเป็นลำดับที่ 1 ➔ ซิงค์ JSON ทันทีหลังจบ Task 1 ด้วย `scan_mode="all"` | รันเป็นลำดับที่ 2 ➔ แมตช์นักเรียนเสร็จ แต่ซิงค์ด้วย `scan_mode="teachers"` (ไฟล์นักเรียนไม่อัปเดต) | รันเป็นลำดับที่ 3 ➔ แมตช์ครูเสร็จ แต่ **ไม่มีคำสั่ง Final Sync ปิดท้ายกระบวนการทั้งหมด!** |
+| **ค่า Default Folder ID Fallback** | ⚠️ ตกหล่นเป็น `1YYkDLsalb0jVM0K876lcejLoiggoJ18N` (โฟลเดอร์รูป 2568) ในบางจุด | ⚠️ เหมือนกัน | ⚠️ เหมือนกัน |
+
+#### 🚨 สรุปข้อบกพร่องที่ค้นพบในแต่ละ Task:
+1. **ข้อบกพร่องใน Task 1:**
+   - ใน `run_scheduled_tasks()` การสั่ง `self._sync_all_json_to_drive()` ทำงานถูกต้อง (`scan_mode="all"`) แต่รัน **เร็วเกินไป (รันหลังจบ Task 1 ก่อนเริ่ม Task 2/3)** ทำให้การเปลี่ยนแปลงใดๆ ที่เกิดขึ้นใน Task 2 (นักเรียนใหม่) และ Task 3 (ครูใหม่) ไม่ได้ถูกส่งขึ้น Drive ปิดท้าย
+2. **ข้อบกพร่องร้ายแรงใน Task 2 (ที่ผู้ใช้ประสบจริง):**
+   - ใน `_task_2_sync_new_students_bulk()` เรียก `process_retroactive_match_headless()` ซึ่งมี Hardcoded `scan_mode="teachers"` ทำให้ `upload_students = False` ไฟล์ `student_index.json` และ `student_index_active.json` จึงไม่เคยถูกอัปโหลดใน Task 2 เลย!
+3. **ข้อบกพร่องใน Task 3:**
+   - ใน `_task_3_sync_new_teachers_bulk()`: หากไม่มีครูใหม่ที่ต้องทำ Backfill (`unbackfilled = 0`) เช่น กรณีผู้ใช้แก้ไขข้อมูลสังกัดครู หรือแก้สถานะครูในระบบ แล้วมากดปุ่ม "เริ่มทำงาน Task 3" ระบบจะไม่เรียก `process_retroactive_match_headless()` และไม่มีการอัปเดตไฟล์ JSON บน Google Drive เลย
+   - และในขั้นตอนการทำ Retroactive Match ก็ส่ง `scan_mode="teachers"` ซึ่งไม่ครอบคลุมไฟล์นักเรียน
+
+---
+
+### 34.3 เสาหลักสถาปัตยกรรมและการแก้ไขระบบแบบครบวงจร (Unified Solution Architecture)
+
+#### 🏛️ เสาหลักที่ 1: ปลดล็อก `scan_mode="all"` ใน `process_retroactive_match_headless` ([`app_gui.py`](app_gui.py))
+- ปรับปรุงเมธอด `process_retroactive_match_headless(self, matched_faces_to_process, scan_mode="all")`:
+  - ให้รองรับพารามิเตอร์ `scan_mode` โดยมีค่าดีฟอลต์เป็น `"all"`
+  - เปลี่ยนบรรทัด 4808 จาก `scan_mode="teachers"` เป็น `scan_mode=scan_mode` (หรือ `"all"`) เพื่อให้เมื่อ Task 2 เรียกใช้งาน ไฟล์ `student_index.json`, `student_index_active.json` และ `student_index_alumni.json` จะถูกอัปโหลดขึ้น Google Drive 100%
+
+#### 🏛️ เสาหลักที่ 2: ปรับปรุงกระบวนการทำงานใน [`scheduler_task.py`](scheduler_task.py) สำหรับทุก Task
+1. **ปรับปรุง Task 2 (`_task_2_sync_new_students_bulk` และ `_run_task_2_only`):**
+   - ส่ง `scan_mode="all"` เมื่อเรียก `process_retroactive_match_headless`
+   - ใน `_run_task_2_only()`: เพิ่มการเรียก `self._sync_all_json_to_drive()` ปิดท้ายเสมอ เพื่อรับประกันว่าไม่ว่าจะพบนักเรียนใหม่หรือไม่ ไฟล์บน Google Drive จะตรงกับ SQLite เสมอ
+2. **ปรับปรุง Task 3 (`_task_3_sync_new_teachers_bulk` และ `_run_task_3_only`):**
+   - ส่ง `scan_mode="all"` เมื่อเรียก `process_retroactive_match_headless`
+   - ใน `_run_task_3_only()`: เพิ่มการเรียก `self._sync_all_json_to_drive()` ปิดท้ายเสมอ แม้จะไม่มีครูใหม่ที่ต้อง Backfill ก็ตาม
+3. **ปรับปรุงลูปอัตโนมัติ (`run_scheduled_tasks`):**
+   - เพิ่มคำสั่ง **Final Consistency Sync** ด้วย `self._sync_all_json_to_drive()` ที่บรรทัดสุดท้ายหลังจบทั้ง Task 1, Task 2 และ Task 3 เพื่อการันตีว่าข้อมูลทุกประเภท (รูปภาพ, ครู, นักเรียน) บน Google Drive จะเป็นเวอร์ชันล่าสุดพร้อมกัน 100%
+4. **แก้ไขค่า Fallback Folder ID:**
+   - แก้ไขค่า fallback ของ `json_folder_id` ใน [`scheduler_task.py`](scheduler_task.py) และ [`app_gui.py`](app_gui.py) จากเดิม `1YYkDLsalb0jVM0K876lcejLoiggoJ18N` ให้เป็น `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` (โฟลเดอร์ JSON Index ที่แท้จริง)
+
+#### 🏛️ เสาหลักที่ 3: สั่งรัน Full Sync อัปเดตไฟล์ดัชนีนักเรียนและครูขึ้น Google Drive ทันที
+- รันคำสั่งอัปเดตไฟล์ JSON ดัชนีทั้งหมด (`student_index_active.json`, `student_index.json`, `staff_index.json`, `former_staff_index.json`, `photo_manifest.json`) ขึ้นโฟลเดอร์ Google Drive `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`
+- ยืนยันว่า "จตุรพร พูลสวัสดิ์" (รหัส 23371) พร้อมรูปทั้ง 14 รูป ถูกอัปโหลดขึ้น Google Drive และพร้อมใช้งานบนเว็บทันที
+
+---
+
+### 34.4 แผนการทดสอบอย่างละเอียด (Comprehensive Test Cases: TC-139 ถึง TC-142)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-139** | **Retroactive Match Scan Mode Parity** | `app_gui.py` | ตรวจสอบการส่งพารามิเตอร์ `scan_mode="all"` ใน `process_retroactive_match_headless` | รองรับการอัปโหลดไฟล์นักเรียนครบถ้วน ไม่ถูกจำกัดเฉพาะ teachers |
+| **TC-140** | **Task 2 & Task 3 Manual Sync Resilience** | `scheduler_task.py` | ตรวจสอบคำสั่งใน `_run_task_2_only` และ `_run_task_3_only` | ทั้ง Task 2 และ Task 3 มีการเรียกซิงค์ JSON ขึ้น Drive ทุกครั้งที่รัน |
+| **TC-141** | **Scheduled Tasks Final Consistency Sync** | `scheduler_task.py` | ตรวจสอบลำดับการทำงานใน `run_scheduled_tasks` | มีการเรียก `_sync_all_json_to_drive()` ปิดท้ายหลังจบ Task 3 เสมอ |
+| **TC-142** | **Student Index Data Integrity & Version Parity v6.46** | ทุกไฟล์ | ตรวจสอบข้อมูล "จตุรพร พูลสวัสดิ์" (23371) และตรวจ `py_compile` เลขเวอร์ชัน `v6.46` | ดัชนีมีรูป 14 รูปครบถ้วน และทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด |
+
+---
+
+### 34.5 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+> **สถานะการดำเนินการ (Execution Status):** ดำเนินการและทดสอบเสร็จสมบูรณ์ 100% (Completed All Steps & Test Suite TC-139 ถึง TC-142 Passed 100% พร้อมซิงค์ Google Drive สำเร็จสมบูรณ์)
+
+---
+
+
+
 
 
 

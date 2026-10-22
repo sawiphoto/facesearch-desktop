@@ -304,6 +304,7 @@ class SchedulerTask:
                 self.sync_manager.connect()
             self._ensure_analyzer()
             self._task_2_sync_new_students_bulk()
+            self._sync_all_json_to_drive()
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -331,6 +332,8 @@ class SchedulerTask:
                 self.sync_manager.connect()
             self._ensure_analyzer()
             self._task_3_sync_new_teachers_bulk()
+            # ปิดท้ายด้วยการซิงค์ไฟล์ JSON ดัชนีทั้งหมดขึ้น Drive เสมอ (v6.46)
+            self._sync_all_json_to_drive()
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
             bkk_time = datetime.now(bkk_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -383,6 +386,11 @@ class SchedulerTask:
             else:
                 logger.info("[SCHEDULE] 🛑 มีคำร้องขอหยุดทำงาน (Stop Requested) กำลังบันทึกไฟล์ JSON ปิดท้าย...")
                 self._safe_sync_json_on_stop()
+
+            # Final Consistency Sync across all tasks (v6.46)
+            if not self.stop_requested:
+                logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON ดัชนีทุกประเภทขึ้น Google Drive (Final Consistency Sync v6.46)...")
+                self._sync_all_json_to_drive()
             
             from datetime import datetime, timedelta, timezone
             bkk_tz = timezone(timedelta(hours=7))
@@ -421,7 +429,7 @@ class SchedulerTask:
             sync_data = self.db.get_all_sync_data() if hasattr(self, 'db') and self.db else None
             json_folder_id = self.app_gui.entry_json_folder_id.get().strip() if hasattr(self, 'app_gui') and hasattr(self.app_gui, 'entry_json_folder_id') else ""
             if not json_folder_id:
-                json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+                json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
             self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
             logger.info("[SCHEDULE] ✅ อัปเดตไฟล์ JSON สรุปย่อขึ้น Google Drive สำเร็จเรียบร้อยแล้ว")
         except Exception as e:
@@ -941,7 +949,7 @@ class SchedulerTask:
         if matched_faces_to_process:
             logger.info(f"[SCHEDULE] กำลังทำ task นักเรียนใหม่ -> Retroactive Match จำนวน {len(matched_faces_to_process)} ใบหน้า...")
             if hasattr(self.app_gui, 'process_retroactive_match_headless'):
-                self.app_gui.process_retroactive_match_headless(matched_faces_to_process)
+                self.app_gui.process_retroactive_match_headless(matched_faces_to_process, scan_mode="all")
             else:
                 logger.error("[SCHEDULE] Error: app_gui does not have process_retroactive_match_headless")
             logger.info("[SCHEDULE] ซิงค์นักเรียนและอัปเดตใบหน้าเสร็จสิ้น")
@@ -1668,7 +1676,7 @@ class SchedulerTask:
             if matched_faces_to_process:
                 logger.info(f"[SCHEDULE] กำลังทำ Retroactive Match กับเวกเตอร์ทั้งหมด {len(matched_faces_to_process)} เวกเตอร์...")
                 if hasattr(self.app_gui, 'process_retroactive_match_headless'):
-                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process)
+                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process, scan_mode="all")
                 else:
                     logger.error("[SCHEDULE] Error: app_gui does not have process_retroactive_match_headless")
             
@@ -1707,7 +1715,7 @@ class SchedulerTask:
             if matched_faces_to_process:
                 logger.info(f"[SCHEDULE] [TASK 3] กำลังทำ Retroactive Match สำหรับคุณครูกับเวกเตอร์กิจกรรมทั้งหมด ({len(matched_faces_to_process)} เวกเตอร์)...")
                 if hasattr(self.app_gui, 'process_retroactive_match_headless'):
-                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process)
+                    self.app_gui.process_retroactive_match_headless(matched_faces_to_process, scan_mode="all")
                 else:
                     logger.error("[SCHEDULE] Error: app_gui does not have process_retroactive_match_headless")
             

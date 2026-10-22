@@ -1,3 +1,123 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)
+
+## 📋 Version 6.46 Changelog (Unified Triple-Task Google Drive JSON Sync Suite)
+
+**Date:** 22 ตุลาคม 2026 (10:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)  
+**Core Technologies:** Triple-Task Google Drive Sync Architecture, Headless Retroactive Match Scan Mode Parity, Manual Run JSON Sync Resilience, Final Consistency Sync Loop, Zero-Lag Sharded Index Verification, Test Suite TC-139 to TC-142 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ไฟล์ดัชนีนักเรียน (`student_index.json` และ `student_index_active.json`) บน Google Drive ไม่อัปเดต:**
+   - ผู้ใช้รายงานว่าในโฟลเดอร์ Google Drive `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` ไฟล์ดัชนีนักเรียนยังเป็นของเมื่อวาน (21 ต.ค.) ทำให้ค้นหาภาพของ "จตุรพร พูลสวัสดิ์" (รหัส 23371) ไม่พบ ทั้งที่ในระบบหลังบ้านและฐานข้อมูล SQLite จับคู่พบถึง 14 รูปภาพ
+   - ผู้ใช้ตั้งคำถามว่า Task 2 ไม่ซิงค์หรือไม่ และสั่งการให้ตรวจสอบพฤติกรรมในลักษณะเดียวกันของ Task 1 และ Task 3 ด้วย
+2. **ผลการตรวจสอบเชิงลึกและสาเหตุรากเหง้า (Root Cause Analysis):**
+   - **Task 2 Skipping Students:** ใน `_task_2_sync_new_students_bulk()` เรียก `self.app_gui.process_retroactive_match_headless()` ซึ่งใน `app_gui.py` บรรทัดที่ 4808 มีการ Hardcode `scan_mode="teachers"` ไว้ ส่งผลให้ `upload_students` ใน `gdrive_sync.py:773` กลายเป็น `False` ระบบจึงอัปโหลดเฉพาะไฟล์คุณครู แต่ข้ามการอัปโหลดไฟล์นักเรียนทั้งหมด 100%!
+   - **Task 1 Scheduling Timing:** Task 1 ซิงค์ด้วย `scan_mode="all"` แต่ในกระบวนการอัตโนมัติ `run_scheduled_tasks()` การซิงค์ถูกเรียกทันทีหลังจบ Task 1 ก่อนที่ Task 2 (นักเรียน) และ Task 3 (ครู) จะเริ่มทำงาน และไม่มีการสั่ง Sync ปิดท้ายหลังจาก Task ทั้งหมดทำงานเสร็จ
+   - **Task 3 Manual & Backfill Gap:** ใน Task 3 หากไม่มีครูใหม่ที่ต้องทำ Retroactive Backfill (`unbackfilled = 0`) ระบบจะไม่ทำการซิงค์ JSON ใดๆ ขึ้น Drive เลย และหากมีการซิงค์ ก็ส่ง `scan_mode="teachers"` ซึ่งไม่ครอบคลุมไฟล์นักเรียน
+   - **Fallback Folder ID Mismatch:** ค่าดีฟอลต์ในกรณีที่ดึง `json_folder_id` ไม่ได้ใน `app_gui.py` และ `scheduler_task.py` ตกหล่นเป็น `1YYkDLsalb0jVM0K876lcejLoiggoJ18N` (โฟลเดอร์รูปภาพปี 2568) แทนที่จะเป็น `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` (โฟลเดอร์ JSON Index ที่แท้จริง)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปลดล็อก `scan_mode` ใน `process_retroactive_match_headless` ใน [`app_gui.py`](app_gui.py):**
+   - กำหนด Signature เป็น `def process_retroactive_match_headless(self, matched_faces_to_process, scan_mode="all"):`
+   - แก้ไขการเรียก `update_json_indexes_on_drive` ให้ส่ง `scan_mode=scan_mode` เพื่อให้อัปโหลดไฟล์ดัชนีครบถ้วนทั้งนักเรียนและครู
+   - ปรับปรุง Fallback `json_folder_id` เป็น `"1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"`
+2. **ยกระดับระบบ Scheduler สำหรับทุก Task ใน [`scheduler_task.py`](scheduler_task.py):**
+   - ส่ง `scan_mode="all"` ในการเรียก `process_retroactive_match_headless` ทั้งใน `_task_2_sync_new_students`, `_task_2_sync_new_students_bulk` และ `_task_3_sync_new_teachers_bulk`
+   - ใน `_run_task_2_only()` และ `_run_task_3_only()`: เพิ่มการเรียก `self._sync_all_json_to_drive()` ปิดท้ายเสมอ เพื่อรับประกันความสอดคล้องของข้อมูลแม้ไม่มีการ Backfill
+   - ใน `run_scheduled_tasks()`: ติดตั้ง **Final Consistency Sync Loop** เรียก `self._sync_all_json_to_drive()` ปิดท้ายหลังจาก Task 3 ทำงานเสร็จสิ้น
+   - ปรับปรุง Fallback `json_folder_id` ใน `_sync_all_json_to_drive()` เป็น `"1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"`
+3. **ดำเนินการ Full Drive Sync ทันที:**
+   - สั่งรันอัปโหลดไฟล์ดัชนีทั้งหมดขึ้นโฟลเดอร์ Drive `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` ทันที ตรวจสอบและยืนยันว่า `student_index_active.json` และ `student_index.json` มีข้อมูลของ "จตุรพร พูลสวัสดิ์" (รหัส 23371) ครบทั้ง 14 รูปภาพ
+4. **อัปเดตเวอร์ชันและชุดทดสอบ:**
+   - Window Title และ Sidebar Logo เป็น `v6.46 (Unified Triple-Task Google Drive JSON Sync Suite)`
+   - สร้างชุดทดสอบ `test_triple_task_sync_suite.py` (TC-139 ถึง TC-142) ผ่านการทดสอบ 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py`: ปลดล็อก `scan_mode` และแก้ไข Folder ID Fallback
+
+**ก่อนแก้ไข (Before):**
+```python
+    def process_retroactive_match_headless(self, matched_faces_to_process):
+        ...
+        # ซิงค์ดัชนี JSON ขึ้น Google Drive (v6.35 Optimized for Teachers)
+        json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+        if not json_folder_id:
+            json_folder_id = "1YYkDLsalb0jVM0K876lcejLoiggoJ18N"
+        logger.info("[SCHEDULE] 📤 กำลังซิงค์ดัชนี JSON คุณครูและภาพถ่ายขึ้น Google Drive ปิดท้าย...")
+        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="teachers")
+```
+
+**หลังแก้ไข (After):**
+```python
+    def process_retroactive_match_headless(self, matched_faces_to_process, scan_mode="all"):
+        ...
+        # ซิงค์ดัชนี JSON ขึ้น Google Drive (v6.46 Unified Triple-Task Sync)
+        json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+        if not json_folder_id:
+            json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
+        logger.info(f"[SCHEDULE] 📤 กำลังซิงค์ดัชนี JSON ขึ้น Google Drive ปิดท้าย (mode: {scan_mode})...")
+        self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode=scan_mode)
+```
+
+---
+
+#### 2. `scheduler_task.py`: ปรับปรุง Task 2, Task 3 และ Final Consistency Sync
+
+**ก่อนแก้ไข (Before):**
+```python
+    def _run_task_3_only(self):
+        ...
+        self._ensure_analyzer()
+        self._task_3_sync_new_teachers_bulk()
+        # ขาดการซิงค์ JSON ปิดท้าย
+
+    def run_scheduled_tasks(self):
+        ...
+        self._task_1_scan_new_photos_fast()
+        self._sync_all_json_to_drive()  # ซิงค์เฉพาะหลังจบ Task 1
+        self._task_2_sync_new_students_bulk()
+        self._task_3_sync_new_teachers_bulk()
+        # ขาดการซิงค์ Final Sync หลังจบครบ 3 Tasks
+
+    # ภายใน Task 2 และ Task 3
+    self.app_gui.process_retroactive_match_headless(matched_faces_to_process)  # ไม่ได้ระบุ scan_mode
+```
+
+**หลังแก้ไข (After):**
+```python
+    def _run_task_3_only(self):
+        ...
+        self._ensure_analyzer()
+        self._task_3_sync_new_teachers_bulk()
+        # ปิดท้ายด้วยการซิงค์ไฟล์ JSON ดัชนีทั้งหมดขึ้น Drive เสมอ (v6.46)
+        self._sync_all_json_to_drive()
+
+    def run_scheduled_tasks(self):
+        ...
+        self._task_1_scan_new_photos_fast()
+        self._sync_all_json_to_drive()
+        self._task_2_sync_new_students_bulk()
+        self._task_3_sync_new_teachers_bulk()
+        # Final Consistency Sync across all tasks (v6.46)
+        if not self.stop_requested:
+            logger.info("[SCHEDULE] 📤 กำลังอัปเดตไฟล์ JSON ดัชนีทุกประเภทขึ้น Google Drive (Final Consistency Sync v6.46)...")
+            self._sync_all_json_to_drive()
+
+    # ภายใน Task 2 และ Task 3
+    self.app_gui.process_retroactive_match_headless(matched_faces_to_process, scan_mode="all")
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.45 (Smart Event Date & Academic Year Reconciliation Suite)
 
 ## 📋 Version 6.45 Changelog (Smart Event Date & Academic Year Reconciliation Suite)
