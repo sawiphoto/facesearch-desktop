@@ -576,6 +576,7 @@ class DatabaseManager:
         
         self.create_unknown_tables()
         self.create_root_year_folders_table()
+        self.reconcile_photo_dates()
         DatabaseManager._schema_initialized_paths.add(abs_db_path)
         logger.info("SQLite database initialized successfully.")
 
@@ -786,6 +787,123 @@ class DatabaseManager:
                 "year_counts": year_counts,
                 "source_counts": source_counts
             }
+
+    def reconcile_photo_dates(self):
+        """
+        ปรับปรุงข้อมูลวันที่รูปภาพ (photo_date) ใน scanned_photos ที่ขัดแย้งกับปีการศึกษาจริง (v6.45)
+        แก้ไขปัญหาประวัติรูปภาพในอดีต (เช่น 2563, 2564, 2565) ที่ถูก Google Drive Upload Date เขียนทับเป็นปี 2026
+        """
+        import re
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM scanned_photos 
+                WHERE photo_date LIKE '2026%' AND academic_year IN ('2563', '2564', '2565')
+            """)
+            if cursor.fetchone()[0] == 0:
+                return 0
+
+            cursor.execute("""
+                SELECT photo_id, academic_year, event_name, file_name 
+                FROM scanned_photos 
+                WHERE photo_date LIKE '2026%' AND academic_year IN ('2563', '2564', '2565')
+            """)
+            rows = cursor.fetchall()
+            if not rows:
+                return 0
+
+            thai_to_ar = str.maketrans('๐๑๒๓๔๕๖๗๘๙', '0123456789')
+            month_map = {
+                'ม.ค.': 1, 'มค': 1, 'ก.พ.': 2, 'กพ': 2, 'มี.ค.': 3, 'มีค': 3,
+                'เม.ย.': 4, 'เมย': 4, 'พ.ค.': 5, 'พค': 5, 'มิ.ย.': 6, 'มิย': 6,
+                'ก.ค.': 7, 'กค': 7, 'ส.ค.': 8, 'สค': 8, 'ก.ย.': 9, 'กย': 9,
+                'ต.ค.': 10, 'ตค': 10, 'พ.ย.': 11, 'พย': 11, 'ธ.ค.': 12, 'ธค': 12
+            }
+
+            def resolve_single_date(ay, ev, fn):
+                ay_int = int(ay)
+                ce_base = ay_int - 543
+                ev_clean = (ev or '').strip()
+                fn_clean = (fn or '').strip()
+                combined = f'{ev_clean} {fn_clean}'.translate(thai_to_ar)
+                
+                # 1. ตรวจสอบ LINE Album format: _YYMMDD_
+                m_line = re.search(r'_(\d{2})(\d{2})(\d{2})_', combined)
+                if m_line:
+                    yy, mm, dd = int(m_line.group(1)), int(m_line.group(2)), int(m_line.group(3))
+                    if 1 <= mm <= 12 and 1 <= dd <= 31:
+                        ce_y = 2000 + yy if yy < 50 else (2500 + yy) - 543
+                        return f'{ce_y:04d}-{mm:02d}-{dd:02d}'
+                        
+                # 2. ตรวจสอบรูปแบบตัวเลขวันที่ระบุชัดเจน DD-MM-YY หรือ DD-MM-YYYY
+                m_dmy = re.search(r'(?<!\d)(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})(?!\d)', combined)
+                if m_dmy:
+                    d, m, y = int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3))
+                    if 1 <= m <= 12 and 1 <= d <= 31:
+                        if y >= 2500: cy = y - 543
+                        elif y >= 50: cy = (2500 + y) - 543
+                        elif y >= 20: cy = 2000 + y
+                        else: cy = ce_base
+                        return f'{cy:04d}-{m:02d}-{d:02d}'
+                        
+                # 3. ตรวจสอบชื่อเดือนภาษาไทย เช่น 23 พย, 21 มีค
+                for m_txt, m_num in month_map.items():
+                    m_thai = re.search(r'(\d{1,2})\s*' + re.escape(m_txt), combined)
+                    if m_thai:
+                        d = int(m_thai.group(1))
+                        if 1 <= d <= 31:
+                            cy = ce_base if m_num >= 5 else ce_base + 1
+                            return f'{cy:04d}-{m_num:02d}-{d:02d}'
+                            
+                # 4. ตรวจสอบคีย์เวิร์ดกิจกรรมยอดนิยมประจำโรงเรียน
+                ev_l = ev_clean.lower()
+                if '1-65' in ev_l:
+                    return '2022-05-15'
+                if any(k in ev_l for k in ['ปฐมนิเทศ', 'เปิดเทอม', 'เปิดภาคเรียน', 'มอบตัว', 'ต้นเทอม']):
+                    return f'{ce_base:04d}-05-15'
+                if any(k in ev_l for k in ['ไหว้ครู', 'สภานักเรียน', 'เลือกตั้ง']):
+                    return f'{ce_base:04d}-06-15'
+                if any(k in ev_l for k in ['เฉลิมพระชนม', 'ร.10', 'รัชกาลที่ 10', 'เยี่ยม รร']):
+                    return f'{ce_base:04d}-07-28'
+                if any(k in ev_l for k in ['วันคล้ายวันกำเนิด', 'กำเนิด รร', 'วันแม่', 'วิทยาศาสตร์']):
+                    return f'{ce_base:04d}-08-12'
+                if any(k in ev_l for k in ['เกษียณ', 'มุทิตาจิต']):
+                    return f'{ce_base:04d}-09-30'
+                if any(k in ev_l for k in ['วันปิยะ', 'ปิดเทอม', 'ออกพรรษา']):
+                    return f'{ce_base:04d}-10-15'
+                if any(k in ev_l for k in ['ลอยกระทง', 'วันเพ็ญ']):
+                    return f'{ce_base:04d}-11-15'
+                if any(k in ev_l for k in ['วันพ่อ', 'วันชาติ', 'กีฬาแห่งชาติ', 'ฟุตบอล', 'บอล']):
+                    return f'{ce_base:04d}-12-10'
+                if any(k in ev_l for k in ['ปีใหม่', 'คริสต์มาส', 'ส่งท้ายปี']):
+                    return f'{ce_base:04d}-12-25'
+                if any(k in ev_l for k in ['วันเด็ก', 'วันครู']):
+                    return f'{ce_base+1:04d}-01-16'
+                if any(k in ev_l for k in ['ตรุษจีน', 'ศรร 26-1']):
+                    return f'{ce_base+1:04d}-01-26'
+                if any(k in ev_l for k in ['onet', 'โอเน็ต']):
+                    return f'{ce_base+1:04d}-02-12'
+                if any(k in ev_l for k in ['ปัจฉิม', 'วันม่วงเหลือง', 'บัณฑิตน้อย', 'จบการศึกษา']):
+                    return f'{ce_base+1:04d}-03-22'
+                if any(k in ev_l for k in ['สอบเข้า', 'รับสมัคร', 'ปลายภาค']):
+                    return f'{ce_base+1:04d}-03-15'
+                if any(k in ev_l for k in ['ธรรมศึกษา']):
+                    return f'{ce_base:04d}-11-20'
+                if any(k in ev_l for k in ['เปิดเรียน2', 'เปิดเทอม2']):
+                    return f'{ce_base:04d}-11-01'
+
+                # 5. Fallback ในปีการศึกษานั้น
+                return f'{ce_base:04d}-08-15'
+
+            updates = []
+            for pid, ay, ev, fn in rows:
+                new_date = resolve_single_date(ay, ev, fn)
+                updates.append((new_date, pid))
+
+            cursor.executemany("UPDATE scanned_photos SET photo_date = ? WHERE photo_id = ?", updates)
+            conn.commit()
+            logger.info(f"[MIGRATION v6.45] Reconciled {len(updates)} photo_dates matching true academic years.")
+            return len(updates)
 
     # --- ส่วนการจัดการข้อมูลครู (Staff Registry) ---
     
@@ -2011,7 +2129,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.44",
+                "version": "v6.45",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2301,7 +2419,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             try:
                 query = """
-                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.photo_date, MAX(df.confidence) as max_conf
+                    SELECT p.photo_id, p.drive_file_id, p.event_name, p.drive_link, p.photo_date, p.academic_year, MAX(df.confidence) as max_conf
                     FROM detected_faces df
                     JOIN scanned_photos p ON df.photo_id = p.photo_id
                     WHERE df.staff_id = ?
@@ -2310,13 +2428,14 @@ class DatabaseManager:
                 """
                 cursor.execute(query, (staff_id,))
                 rows = cursor.fetchall()
-                for pid, fid, event, link, pdate, conf in rows:
+                for pid, fid, event, link, pdate, a_year, conf in rows:
                     results.append({
                         "photo_id": pid,
                         "drive_file_id": fid,
                         "event_name": event or "กิจกรรมทั่วไป",
                         "drive_link": link or f"https://drive.google.com/file/d/{fid}/view",
                         "photo_date": pdate or "ไม่ระบุวันที่",
+                        "academic_year": a_year or "",
                         "confidence": self.safe_float(conf)
                     })
             except sqlite3.Error as e:

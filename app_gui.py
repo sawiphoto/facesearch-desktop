@@ -973,7 +973,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.44 (No-Console Windowless Launcher Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.45 (Smart Event Date & Academic Year Reconciliation Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1081,7 +1081,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.44",
+            text="FACE MATCHING\nSYSTEM v6.45",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -8602,9 +8602,11 @@ class FaceSearchApp(ctk.CTk):
 
         threading.Thread(target=load_thread, daemon=True).start()
 
-    def format_month_year_header(self, date_str):
-        """แปลงข้อความวันที่ YYYY-MM-DD เป็นชื่อเดือนภาษาไทย พ.ศ. (เช่น 2026-02 -> กุมภาพันธ์ 2569 / 2026)"""
+    def format_month_year_header(self, date_str, academic_year=""):
+        """แปลงข้อความวันที่ YYYY-MM-DD เป็นชื่อเดือนภาษาไทย พ.ศ. (เช่น 2026-02 -> กุมภาพันธ์ 2569 / 2026) พร้อมป้ายปีการศึกษา (v6.45)"""
         if not date_str or len(date_str) < 7 or "-" not in date_str:
+            if academic_year:
+                return f"📅 รูปภาพกิจกรรม ปีการศึกษา {academic_year}"
             return "📅 รูปภาพกิจกรรมที่ไม่ระบุช่วงเวลา"
         parts = date_str.split("-")
         try:
@@ -8616,7 +8618,8 @@ class FaceSearchApp(ctk.CTk):
             ]
             month_name = months_th[month] if 1 <= month <= 12 else f"เดือน {month}"
             buddhist_year = year + 543
-            return f"📅 เดือน{month_name} พ.ศ. {buddhist_year} ({year})"
+            ay_tag = f" (ปีการศึกษา {academic_year})" if academic_year and str(buddhist_year) != str(academic_year) else ""
+            return f"📅 เดือน{month_name} พ.ศ. {buddhist_year} ({year}){ay_tag}"
         except Exception:
             return f"📅 ช่วงเวลา {date_str[:7]}"
 
@@ -8679,7 +8682,8 @@ class FaceSearchApp(ctk.CTk):
         for month_key in sorted_month_keys:
             items_in_month = grouped_photos[month_key]
             sample_date = items_in_month[0].get("photo_date", "") if items_in_month else ""
-            header_text = self.format_month_year_header(sample_date)
+            sample_ay = items_in_month[0].get("academic_year", "") if items_in_month else ""
+            header_text = self.format_month_year_header(sample_date, academic_year=sample_ay)
 
             header_frame = ctk.CTkFrame(self.scr_matched_gallery, fg_color="#1E2D40", corner_radius=6)
             header_frame.grid(row=row_counter, column=0, columnspan=cols, sticky="ew", padx=5, pady=(15, 8))

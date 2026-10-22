@@ -161,36 +161,49 @@ class GoogleSyncManager:
             logger.info("Created new worksheet 'faces'.")
 
     @staticmethod
-    def parse_smart_photo_date(folder_name="", file_name="", file_meta=None):
+    def parse_smart_photo_date(folder_name="", file_name="", file_meta=None, academic_year=""):
         """
-        สกัดวันที่รูปภาพ (YYYY-MM-DD) อย่างชาญฉลาด (v5.60)
+        สกัดวันที่รูปภาพ (YYYY-MM-DD) อย่างชาญฉลาด (v6.45)
         Priority 1: วันที่ถ่ายจริงจากกล้อง (imageMediaMetadata.time ใน Google Drive)
-        Priority 2: รูปแบบวันที่ระบุชัดเจนในชื่อโฟลเดอร์หรือชื่อไฟล์ (เช่น 14-07-63, 14_07_2563, 2020-07-14)
-        Priority 3: ปี พ.ศ. ในชื่อโฟลเดอร์ (เช่น ปี 2563, 2563) พร้อมจับคู่เดือนตามหมวดหมู่กิจกรรม
-        Priority 4: วันที่อัปโหลด/สร้างไฟล์ (createdTime จาก Google Drive API)
+        Priority 2: วันที่ซ่อนอยู่ในชื่อไฟล์ LINE Album (_YYMMDD_) รองรับทั้งเลขอารบิกและเลขไทย
+        Priority 3: รูปแบบวันที่ระบุชัดเจนในชื่อโฟลเดอร์หรือชื่อไฟล์ (เช่น 14-07-63, 14_07_2563, 2020-07-14, 23 พย, 21 มีค)
+        Priority 4: ปี พ.ศ. ในชื่อโฟลเดอร์ (4 หลัก หรือ 2 หลัก หรือจาก academic_year) พร้อมจับคู่เดือนตามหมวดหมู่กิจกรรม
+        Priority 5: วันที่อัปโหลด/สร้างไฟล์ (createdTime จาก Google Drive API) โดยมี Guard ป้องกันการข้ามปี
         """
         import re
 
         if file_meta is None:
             file_meta = {}
 
-        combined_text = f"{folder_name} {file_name}"
+        # แปลงเลขไทยเป็นเลขอารบิกเพื่อความแม่นยำสูง (Thai Numerals Normalization)
+        thai_to_arabic = str.maketrans('๐๑๒๓๔๕๖๗๘๙', '0123456789')
+        f_norm = (folder_name or "").translate(thai_to_arabic)
+        fn_norm = (file_name or "").translate(thai_to_arabic)
+        combined_text = f"{f_norm} {fn_norm}"
 
         # 1. ตรวจสอบ EXIF Date จาก Google Drive imageMediaMetadata (Priority 1)
         media_meta = file_meta.get("imageMediaMetadata")
         if media_meta and isinstance(media_meta, dict):
             exif_time = media_meta.get("time", "")
             if exif_time:
-                # รูปแบบ "YYYY:MM:DD HH:MM:SS" หรือ "YYYY-MM-DD"
                 m_exif = re.match(r'^(\d{4})[:\-](\d{2})[:\-](\d{2})', exif_time)
                 if m_exif:
                     ey, em, ed = int(m_exif.group(1)), int(m_exif.group(2)), int(m_exif.group(3))
                     if 1990 <= ey <= 2050 and 1 <= em <= 12 and 1 <= ed <= 31:
                         return f"{ey:04d}-{em:02d}-{ed:02d}"
 
-        # 2. ตรวจสอบรูปแบบวันที่เฉพาะเจาะจงในชื่อ (Priority 2)
-        # ตัวอย่าง: "14-07-63", "14_07_2563", "14.07.63", "2020-07-14"
-        # 2.1 รูปแบบ YYYY-MM-DD หรือ YYYY_MM_DD
+        # 2. ตรวจสอบชื่อไฟล์ LINE Album รูปแบบ _YYMMDD_ (Priority 2)
+        # ตัวอย่าง: LINE_ALBUM_วันม่วงเหลือง64_๒๒๐๓๒๒_163.jpg หรือ LINE_ALBUM_วันเพ็ญ64_211119_267.jpg
+        m_line = re.search(r'_(\d{2})(\d{2})(\d{2})_', fn_norm)
+        if m_line:
+            yy, mm, dd = int(m_line.group(1)), int(m_line.group(2)), int(m_line.group(3))
+            if 1 <= mm <= 12 and 1 <= dd <= 31:
+                ce_y = 2000 + yy if yy <= 40 else (2500 + yy) - 543
+                if 1990 <= ce_y <= 2050:
+                    return f"{ce_y:04d}-{mm:02d}-{dd:02d}"
+
+        # 3. ตรวจสอบรูปแบบวันที่เฉพาะเจาะจงในชื่อ (Priority 3)
+        # 3.1 รูปแบบ YYYY-MM-DD หรือ YYYY_MM_DD
         m_ymd = re.search(r'(?<!\d)(19\d{2}|20\d{2}|25\d{2})[-_./](\d{1,2})[-_./](\d{1,2})(?!\d)', combined_text)
         if m_ymd:
             raw_y, raw_m, raw_d = int(m_ymd.group(1)), int(m_ymd.group(2)), int(m_ymd.group(3))
@@ -199,7 +212,7 @@ class GoogleSyncManager:
                 if 1990 <= ce_y <= 2050:
                     return f"{ce_y:04d}-{raw_m:02d}-{raw_d:02d}"
 
-        # 2.2 รูปแบบ DD-MM-YY หรือ DD-MM-YYYY (เช่น 14-07-63, 14-07-2563, 05_12_2563)
+        # 3.2 รูปแบบ DD-MM-YY หรือ DD-MM-YYYY (เช่น 14-07-63, 14-07-2563, 26-1-64)
         m_dmy = re.search(r'(?<!\d)(\d{1,2})[-_./](\d{1,2})[-_./](\d{2,4})(?!\d)', combined_text)
         if m_dmy:
             raw_d, raw_m, raw_y = int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3))
@@ -215,18 +228,56 @@ class GoogleSyncManager:
                 if 1990 <= ce_y <= 2050:
                     return f"{ce_y:04d}-{raw_m:02d}-{raw_d:02d}"
 
-        # 3. ตรวจสอบปี พ.ศ. 4 หลัก (Priority 3: เช่น 2563, ปี 2563, ปีการศึกษา 2563)
-        m_thai_year = re.search(r'(?:ปี(?:การศึกษา)?\s*|พ\.?ศ\.?\s*)?(25[3-7]\d)', folder_name)
+        # 3.3 ตรวจสอบชื่อเดือนภาษาไทย (เช่น "23 พย", "21 มีค", "14 ก.ค.")
+        thai_months = {
+            'ม.ค.': 1, 'มค': 1, 'ก.พ.': 2, 'กพ': 2, 'มี.ค.': 3, 'มีค': 3,
+            'เม.ย.': 4, 'เมย': 4, 'พ.ค.': 5, 'พค': 5, 'มิ.ย.': 6, 'มิย': 6,
+            'ก.ค.': 7, 'กค': 7, 'ส.ค.': 8, 'สค': 8, 'ก.ย.': 9, 'กย': 9,
+            'ต.ค.': 10, 'ตค': 10, 'พ.ย.': 11, 'พย': 11, 'ธ.ค.': 12, 'ธค': 12
+        }
+        for m_txt, m_num in thai_months.items():
+            m_th = re.search(r'(?<!\d)(\d{1,2})\s*' + re.escape(m_txt), combined_text)
+            if m_th:
+                t_day = int(m_th.group(1))
+                if 1 <= t_day <= 31:
+                    # หาปี พ.ศ. จากชื่อโฟลเดอร์/ชื่อไฟล์ หรือจาก academic_year
+                    m_yr = re.search(r'(?<!\d)(25[3-7]\d)(?!\d)', combined_text)
+                    if not m_yr:
+                        m_yr = re.search(r'(?:ปี\s*|พ\.?ศ\.?\s*|[^\d]|^)(6[0-9])(?!\d)', combined_text)
+                    raw_y = None
+                    if m_yr:
+                        raw_y = int(m_yr.group(1))
+                    elif academic_year and str(academic_year).strip().isdigit():
+                        raw_y = int(str(academic_year).strip())
+                    if raw_y:
+                        th_y = raw_y if raw_y >= 2500 else 2500 + raw_y
+                        base_ce = th_y - 543
+                        t_year = base_ce if m_num >= 5 else base_ce + 1
+                        return f"{t_year:04d}-{m_num:02d}-{t_day:02d}"
+
+        # 4. ตรวจสอบปี พ.ศ. 4 หลัก หรือ 2 หลัก หรือ academic_year (Priority 4)
+        m_thai_year = re.search(r'(?:ปี(?:การศึกษา)?\s*|พ\.?ศ\.?\s*)?(25[3-7]\d)', f_norm)
         if not m_thai_year:
             m_thai_year = re.search(r'(?<!\d)(25[3-7]\d)(?!\d)', combined_text)
-
-        if m_thai_year:
+        if not m_thai_year:
+            m_short_yr = re.search(r'(?:ปี|พ\.?ศ\.?|\s|^|[^\d])(6[0-9])(?!\d)', combined_text)
+            if m_short_yr:
+                th_year = 2500 + int(m_short_yr.group(1))
+            elif academic_year and str(academic_year).strip().isdigit():
+                ay_val = int(str(academic_year).strip())
+                th_year = ay_val if ay_val >= 2500 else 2500 + ay_val
+            else:
+                th_year = None
+        else:
             th_year = int(m_thai_year.group(1))
-            ce_year = th_year - 543
 
-            # วิเคราะห์เดือนตามชื่อกิจกรรมยอดนิยมในโรงเรียน
-            f_lower = folder_name.lower()
-            if any(k in f_lower for k in ["ปฐมนิเทศ", "มอบตัว", "เปิดเทอม", "เปิดภาคเรียน", "ต้นเทอม", "รถรับส่ง"]):
+        if th_year:
+            ce_year = th_year - 543
+            f_lower = f_norm.lower()
+
+            if "1-65" in f_lower:
+                return "2022-05-15"
+            elif any(k in f_lower for k in ["ปฐมนิเทศ", "มอบตัว", "เปิดเทอม", "เปิดภาคเรียน", "ต้นเทอม", "รถรับส่ง"]):
                 return f"{ce_year:04d}-05-15"
             elif any(k in f_lower for k in ["ไหว้ครู", "สภานักเรียน", "เลือกตั้ง"]):
                 return f"{ce_year:04d}-06-15"
@@ -238,37 +289,51 @@ class GoogleSyncManager:
                 return f"{ce_year:04d}-09-30"
             elif any(k in f_lower for k in ["วันปิยะ", "ปิดเทอม", "ออกพรรษา"]):
                 return f"{ce_year:04d}-10-15"
-            elif any(k in f_lower for k in ["ลอยกระทง"]):
+            elif any(k in f_lower for k in ["ลอยกระทง", "วันเพ็ญ"]):
                 return f"{ce_year:04d}-11-15"
-            elif any(k in f_lower for k in ["วันพ่อ", "วันชาติ", "ปีใหม่", "คริสต์มาส", "ส่งท้ายปี"]):
+            elif any(k in f_lower for k in ["ธรรมศึกษา"]):
+                return f"{ce_year:04d}-11-20"
+            elif any(k in f_lower for k in ["วันพ่อ", "วันชาติ", "กีฬาแห่งชาติ", "ฟุตบอล", "บอล"]):
+                return f"{ce_year:04d}-12-10"
+            elif any(k in f_lower for k in ["ปีใหม่", "คริสต์มาส", "ส่งท้ายปี"]):
                 return f"{ce_year:04d}-12-25"
             elif any(k in f_lower for k in ["วันเด็ก", "วันครู", "กีฬา"]):
-                return f"{ce_year:04d}-01-16"
-            elif any(k in f_lower for k in ["ปัจฉิม", "บัณฑิตน้อย", "จบการศึกษา", "โอเน็ต", "onet"]):
-                return f"{ce_year:04d}-02-25"
+                return f"{ce_year+1:04d}-01-16"
+            elif any(k in f_lower for k in ["ตรุษจีน", "ศรร 26-1"]):
+                return f"{ce_year+1:04d}-01-26"
+            elif any(k in f_lower for k in ["onet", "โอเน็ต"]):
+                return f"{ce_year+1:04d}-02-12"
+            elif any(k in f_lower for k in ["ปัจฉิม", "วันม่วงเหลือง", "บัณฑิตน้อย", "จบการศึกษา"]):
+                return f"{ce_year+1:04d}-03-22"
             elif any(k in f_lower for k in ["สอบเข้า", "รับสมัคร", "สอบ ม.", "ความสามารถพิเศษ", "ปลายภาค", "จัดสอบ"]):
-                return f"{ce_year:04d}-03-15"
+                return f"{ce_year+1:04d}-03-15"
             elif any(k in f_lower for k in ["สงกรานต์", "ปีใหม่ไทย"]):
-                return f"{ce_year:04d}-04-13"
+                return f"{ce_year+1:04d}-04-13"
+            elif any(k in f_lower for k in ["เปิดเรียน2", "เปิดเทอม2"]):
+                return f"{ce_year:04d}-11-01"
             
-            # หากไม่มีคีย์เวิร์ดเฉพาะ ให้ดึงเดือนจาก createdTime (ถ้ามี) หรือ default เป็น พ.ค.
+            # หากไม่มีคีย์เวิร์ดเฉพาะ ให้ดึงเดือนจาก createdTime (ถ้าปีใน createdTime สอดคล้องกับปีการศึกษา)
             created_time = file_meta.get("createdTime", "")
             if created_time and len(created_time) >= 10:
                 try:
-                    c_month = int(created_time[5:7])
-                    c_day = int(created_time[8:10])
-                    if 1 <= c_month <= 12 and 1 <= c_day <= 31:
-                        return f"{ce_year:04d}-{c_month:02d}-{c_day:02d}"
+                    c_year = int(created_time[:4])
+                    # ป้องกันการเอา createdTime ปีปัจจุบันมาเขียนทับโฟลเดอร์ในอดีต (Google Drive Upload Pollution Guard)
+                    if c_year in (ce_year, ce_year + 1):
+                        c_month = int(created_time[5:7])
+                        c_day = int(created_time[8:10])
+                        if 1 <= c_month <= 12 and 1 <= c_day <= 31:
+                            return f"{c_year:04d}-{c_month:02d}-{c_day:02d}"
                 except Exception:
                     pass
-            return f"{ce_year:04d}-05-01"
+            return f"{ce_year:04d}-08-15"
 
-        # 4. Fallback: ใช้วันที่ createdTime จาก Google Drive (Priority 4)
+        # 5. Fallback: ใช้วันที่ createdTime จาก Google Drive (Priority 5)
         created_time = file_meta.get("createdTime", "")
         if created_time and len(created_time) >= 10:
             return created_time[:10]
 
         return ""
+
 
     def fetch_drive_folder_images_recursive(self, folder_id):
         """
@@ -300,8 +365,13 @@ class GoogleSyncManager:
         except Exception as e:
             logger.debug(f"Could not load dynamic root folders in gdrive_sync: {e}")
         
-        # ฟังก์ชันค้นหาไฟล์ในโฟลเดอร์ recursively
-        def walk_folder(curr_folder_id, curr_event_name):
+        # สกัดปี พ.ศ. เริ่มต้นจากชื่อโฟลเดอร์หลัก (v6.45)
+        import re
+        m_root_yr = re.search(r'25[3-7]\d', root_folder_name)
+        initial_year = m_root_yr.group(0) if m_root_yr else ""
+
+        # ฟังก์ชันค้นหาไฟล์ในโฟลเดอร์ recursively พร้อมสืบทอดปีการศึกษา (v6.45)
+        def walk_folder(curr_folder_id, curr_event_name, parent_year=initial_year):
             logger.info(f"Listing contents of Google Drive folder: {curr_event_name} (ID: {curr_folder_id})")
             
             # 1. ค้นหาโฟลเดอร์ย่อยทั้งหมด (เพิ่ม pagination เผื่อกรณีโฟลเดอร์เยอะมาก)
@@ -337,9 +407,17 @@ class GoogleSyncManager:
             
             logger.info(f"Found {len(subdirs)} subfolders and {len(files)} supported images in folder '{curr_event_name}'")
 
-            # เก็บไฟล์รูปภาพพร้อมวันที่อัจฉริยะ (Smart Photo Date v5.60)
+            # ตรวจสอบปี พ.ศ. ของโฟลเดอร์ปัจจุบันเพื่อสืบทอดไปยังการสกัดวันที่ (v6.45)
+            m_curr_yr = re.search(r'25[3-7]\d', curr_event_name)
+            if not m_curr_yr:
+                m_short_f = re.search(r'(?:ปี|พ\.?ศ\.?|\s|^|[^\d])(6[0-9])(?!\d)', curr_event_name)
+                effective_year = ("25" + m_short_f.group(1)) if m_short_f else parent_year
+            else:
+                effective_year = m_curr_yr.group(0)
+
+            # เก็บไฟล์รูปภาพพร้อมวันที่อัจฉริยะ (Smart Photo Date v6.45)
             for file in files:
-                date_str = self.parse_smart_photo_date(folder_name=curr_event_name, file_name=file.get("name", ""), file_meta=file)
+                date_str = self.parse_smart_photo_date(folder_name=curr_event_name, file_name=file.get("name", ""), file_meta=file, academic_year=effective_year)
                 all_images.append({
                     "file_name": file.get("name"),
                     "file_id": file.get("id"),
@@ -371,9 +449,9 @@ class GoogleSyncManager:
                 if is_generic_folder_name(next_event_name) and not is_root_or_year:
                     next_event_name = curr_event_name
 
-                walk_folder(subdir_id, next_event_name)
+                walk_folder(subdir_id, next_event_name, parent_year=effective_year)
 
-        walk_folder(folder_id, root_folder_name)
+        walk_folder(folder_id, root_folder_name, parent_year=initial_year)
         logger.info(f"Recursive scan completed. Total images found: {len(all_images)}")
         return all_images
 
