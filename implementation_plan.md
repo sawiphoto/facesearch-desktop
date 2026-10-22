@@ -1,3 +1,65 @@
+# แผนงานการเปิดโปรแกรมแบบไร้รอยต่อทันทีหลังหน้าโหลดเสร็จ (Zero-Gap Instant Seamless Window Launch Suite v6.52)
+
+## 📌 1. ปัญหาและสาเหตุที่พบ (Root Cause Analysis)
+1. **สาเหตุของช่วงหน่วง 4 วินาทีหลัง Splash Screen หายไป:**
+   - ใน `main.py` คำสั่ง `splash.close()` ถูกเรียกสั่งปิดหน้าต่าง Splash Screen **ก่อน** ที่จะเรียก `app = FaceSearchApp(...)`
+   - ในขั้นตอนการสร้าง `FaceSearchApp(...)` นั้น Python ต้องสร้างส่วนติดต่อผู้ใช้ (CustomTkinter UI Components) ขนาดใหญ่ ได้แก่ แถบ Sidebar, หน้าแท็บทั้งหมด (Task 1, Task 2, Database, Gallery, Analytics, Settings), ตารางข้อมูล, ฟอนต์ และจัดเตรียม Data Model
+   - ขั้นตอนสร้าง UI ทั้งหมดนี้ใช้เวลา **ประมาณ 4 วินาที**
+   - ส่งผลให้เมื่อ Splash Screen ปิดตัวลง หน้าจอจะกลายเป็นความว่างเปล่าอยู่ 4 วินาที ก่อนที่หน้าต่างโปรแกรมจริงจะปรากฏขึ้นมา ทำให้ผู้ใช้รู้สึกว่า "หน้าโหลดหายไปแล้ว แต่ยังต้องรออีก 4 วินาที"
+2. **ความต้องการของผู้ใช้:**
+   - "พอหน้าดาวน์โหลดเสร็จหายไป ต้องรออีก 4 วินาที กว่า โปรแกรมจะมาครับ คือแบบว่าเสร็จก็คือเสร็จมาทันทีเลยได้มั้ย"
+
+---
+
+## 💡 2. สถาปัตยกรรมและโซลูชันที่ออกแบบ (Architecture & Solution Design)
+
+1. **สถาปัตยกรรมเปิดสลับหน้าต่างแบบไร้รอยต่อ (Zero-Gap Seamless Transition Architecture):**
+   - **คงหน้าต่าง Splash Screen ไว้บนหน้าจอต่อเนื่องจนกว่า `FaceSearchApp` จะสร้างเสร็จ 100%:**
+     - ไม่ปิด Splash Screen ล่วงหน้า
+     - ในขณะที่ `FaceSearchApp` กำลังสร้าง Widget หน้าต่างหลักจะยังคงถูกซ่อนไว้ในพื้นหลังด้วย `self.withdraw()` เพื่อไม่ให้เห็นภาพกะพริบ
+     - Splash Screen จะแสดงความคืบหน้าระหว่างสร้าง UI ต่อเนื่องอย่างเป็นธรรมชาติ:
+       - `80%`: กำลังโหลดโมดูลหน้าจอ (CustomTkinter UI Engine)
+       - `88%`: กำลังจัดเตรียมโครงสร้างเลย์เอาต์ (Layout & Navigation Tabs)
+       - `96%`: กำลังสร้างตารางข้อมูลและระบบแกลเลอรี (Tables & Gallery)
+       - `100%`: เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!
+   - **การสลับหน้าต่างพร้อมกันในระดับมิลลิวินาที (Atomic Instant Swap):**
+     - เมื่อ `FaceSearchApp` สร้างเสร็จสมบูรณ์ 100%:
+       - สั่ง `self.deiconify()`, `self.lift()`, `self.focus_force()` ให้หน้าต่างโปรแกรมหลักเด้งขึ้นมาแทนที่ทันที
+       - ในจังหวะเดียวกันนั้นเอง สั่ง `splash.close()` ปิดหน้าต่าง Splash Screen
+     - ผลลัพธ์: **เวลาหน่วงว่างเปล่าลดลงเหลือ 0.000 วินาที!** พอแถบ 100% เสร็จสิ้น หน้าต่างโปรแกรมหลักก็ปรากฏตรงหน้าทันทีแบบ Smooth & Seamless ที่สุด
+
+---
+
+## 🏗️ 3. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ปรับปรุง [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- ปรับคอนสตรักเตอร์ `FaceSearchApp.__init__(self, analyzer=None, splash=None)`:
+  - สั่ง `self.withdraw()` ตั้งแต่เริ่มต้นสร้าง เพื่อซ่อนหน้าต่างไว้ในพื้นหลัง
+  - หากได้รับออบเจกต์ `splash` ให้รายงานความคืบหน้าเป็นระยะ (85% -> 95%) ระหว่างที่กำลังสร้างวิดเจ็ต
+  - เมื่อสร้างวิดเจ็ตทั้งหมดใน `__init__` เสร็จสิ้น:
+    - อัปเดต `splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")`
+    - สั่ง `self.deiconify()` แสดงหน้าต่างหลัก
+    - สั่ง `self.lift()` และ `self.focus_force()`
+    - สั่ง `splash.close()`
+- อัปเดต Title Bar และ Sidebar Logo เป็น `v6.52`
+
+### ขั้นตอนที่ 2: ปรับปรุง [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py)
+- ปรับปรุง Flow ให้ส่ง `splash` เข้าไปใน `FaceSearchApp(analyzer=..., splash=splash)`
+- ตัดคำสั่ง `splash.close()` ก่อนเริ่ม `FaceSearchApp` ออก เพื่อให้ Splash Screen อยู่บนหน้าจอตลอดจนกระทั่งโปรแกรมหลักพร้อมแสดงผล 100%
+
+### ขั้นตอนที่ 3: อัปเดต [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py)
+- ปรับ Manifest Version ใน `get_sync_data_sharded()` และ `get_archive_crowdsource_data()` เป็น `v6.52`
+
+### ขั้นตอนที่ 4: ปรับปรุงและรันชุดทดสอบ [tests/test_splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_splash_screen.py)
+- เพิ่ม Test Case ทดสอบ Seamless Transition ระหว่าง Splash Screen และ `FaceSearchApp`
+- รันชุดทดสอบทั้งหมดเพื่อยืนยันว่าการทำงานราบรื่น 100%
+
+### ขั้นตอนที่ 5: อัปเดต [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) และ Git Workflow
+- Prepend Changelog v6.52 ลงบนสุดของ `README.md`
+- Git commit และ Git push
+
+---
+
 # แผนงานระบบ Splash Screen 0-100% & เชื่อมต่อ Google Drive อัตโนมัติเมื่อกดซิงค์ภาพอดีต (v6.51)
 
 ## 📌 1. ปัญหาและสาเหตุที่พบ (Root Cause Analysis)

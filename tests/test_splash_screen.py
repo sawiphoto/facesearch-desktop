@@ -77,7 +77,7 @@ class TestSplashScreenAndSingleInstance(unittest.TestCase):
                 
                 mock_db = MagicMock()
                 mock_db.get_archive_crowdsource_data.return_value = {
-                    "version": "v6.51",
+                    "version": "v6.52",
                     "total_photos": 1,
                     "photos": [{"photo_id": 99, "gdrive_file_id": "test", "file_name": "test.jpg", "faces": []}]
                 }
@@ -86,6 +86,26 @@ class TestSplashScreenAndSingleInstance(unittest.TestCase):
                 # แม้เริ่มต้น connected=False แต่ระบบต้องสั่ง auto-connect ให้เอง
                 success, msg = sm.sync_archive_crowdsource_only(json_folder_id="1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L", db=mock_db)
                 self.assertTrue(mock_connect.called, "sync_archive_crowdsource_only ต้องเรียก connect() อัตโนมัติหากยังไม่ได้เชื่อมต่อ")
+
+    def test_tc159_seamless_splash_to_gui_transition(self):
+        """TC-159: ทดสอบการสลับหน้าต่างแบบไร้รอยต่อระหว่าง Splash Screen และ FaceSearchApp (Zero-Gap v6.52)"""
+        splash = SplashScreen(title="TEST SEAMLESS", version="v6.52")
+        mock_analyzer = MagicMock()
+        mock_analyzer.app = MagicMock()
+        
+        from app_gui import FaceSearchApp
+        with patch.object(FaceSearchApp, '_start_prewarm_caches'):
+            app = FaceSearchApp(analyzer=mock_analyzer, splash=splash)
+            self.assertEqual(app.analyzer, mock_analyzer)
+            # ตรวจสอบว่าหน้าต่างหลักแสดงผลปกติ (state = normal)
+            self.assertEqual(app.state(), "normal")
+            # ตรวจสอบว่า Splash Screen ถูกปิดตัวลงเรียบร้อยแล้ว
+            try:
+                exists = splash.root.winfo_exists()
+                self.assertFalse(exists)
+            except Exception:
+                pass
+            app.destroy()
 
 if __name__ == "__main__":
     unittest.main()

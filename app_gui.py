@@ -965,15 +965,16 @@ class StudentLifecycleDialog(ctk.CTkToplevel):
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเลื่อนชั้นได้: {e}", parent=self)
 
 class FaceSearchApp(ctk.CTk):
-    def __init__(self, analyzer=None):
+    def __init__(self, analyzer=None, splash=None):
         super().__init__()
+        self.withdraw()  # v6.52: ซ่อนหน้าต่างหลักไว้ก่อน เพื่อให้ Splash Screen แสดงสถานะ 0-100% ต่อเนื่องแบบไร้รอยต่อ
 
         # --- การตั้งค่าธีมและหน้าต่างโปรแกรม (Navy Blue Theme) ---
         ctk.set_appearance_mode("dark")
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.51 (Instant Splash Screen & Single-Instance Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.52 (Zero-Gap Instant Seamless Launch Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1058,8 +1059,14 @@ class FaceSearchApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)  # แบ่งครึ่ง 1:1 เพื่อขยายโซนด้านล่างเป็นครึ่งจอหลัก!
         self.grid_rowconfigure(1, weight=1)
 
+        if splash:
+            splash.update_progress(82, "กำลังจัดเตรียมโครงสร้างเลย์เอาต์ (Layout & Navigation)...")
         self.create_sidebar()
+        if splash:
+            splash.update_progress(88, "กำลังจัดเตรียมหน้าจอเนื้อหา (Dashboard, Scan, Gallery)...")
         self.create_content_areas()
+        if splash:
+            splash.update_progress(95, "กำลังเชื่อมต่อส่วนควบคุมและคอนโซลระบบ...")
         self.create_global_console()
 
         # แสดงหน้า Dashboard เป็นหน้าแรก
@@ -1074,6 +1081,16 @@ class FaceSearchApp(ctk.CTk):
         # เริ่มต้นกระบวนการ Pre-Warming ข้อมูลและสร้างแคชรูป Avatar ใน Background Daemon Thread (Zero-Lag v6.43)
         self.after(200, self._start_prewarm_caches)
 
+        # v6.52: สลับหน้าต่างทันทีแบบไร้รอยต่อ (Zero-Gap Seamless Transition: เสร็จปุ๊บมาปั๊บ 100%)
+        if splash:
+            splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
+        self.update_idletasks()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        if splash:
+            splash.close()
+
     # --- ส่วนเมนูด้านซ้าย (Sidebar) ---
     def create_sidebar(self):
         # พื้นหลัง Sidebar สี Navy ครามเข้ม (Span 2 แถวเพื่อครอบคลุมไปถึง Console ด้านล่าง)
@@ -1084,7 +1101,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.51",
+            text="FACE MATCHING\nSYSTEM v6.52",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )

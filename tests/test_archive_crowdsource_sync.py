@@ -86,7 +86,7 @@ class TestArchiveCrowdsourceSync(unittest.TestCase):
         manifest = sharded_data.get("manifest", {})
         self.assertIn("available_years", manifest)
         self.assertIn("year_file_map", manifest)
-        self.assertEqual(manifest.get("version"), "v6.51")
+        self.assertEqual(manifest.get("version"), "v6.52")
 
     def test_tc154_task1_and_sync_archive_method_exists(self):
         """TC-154: ตรวจสอบว่า GoogleSyncManager มีเมธอด sync_archive_crowdsource_only พร้อมใช้งาน"""

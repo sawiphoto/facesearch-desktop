@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) พร้อม Progress Bar 0-100%
     from splash_screen import SplashScreen
-    splash = SplashScreen(version="v6.51")
+    splash = SplashScreen(version="v6.52")
     splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
@@ -99,14 +99,12 @@ if __name__ == "__main__":
         release_mutex(app_mutex)
         sys.exit(1)
 
-    splash.update_progress(100, "พร้อมเปิดใช้งานโปรแกรม!")
-    time.sleep(0.25)
-    splash.close()
-
-    # 4. เรียกใช้โปรแกรม GUI หลัก พร้อมส่ง Analyzer ที่โหลดเสร็จแล้ว
+    # 4. เรียกใช้โปรแกรม GUI หลัก พร้อมส่ง Analyzer และ Splash Screen เข้าไป
+    # FaceSearchApp จะสร้างวิดเจ็ตในพื้นหลัง (Hidden) พร้อมอัปเดต Splash จนถึง 100%
+    # แล้วสลับแสดงหน้าต่างหลักและปิด Splash Screen พร้อมกันทันทีในระดับมิลลิวินาที (Zero-Gap Seamless Transition v6.52)
     try:
         from app_gui import FaceSearchApp
-        app = FaceSearchApp(analyzer=worker_state["analyzer"])
+        app = FaceSearchApp(analyzer=worker_state["analyzer"], splash=splash)
         app.mainloop()
     except Exception as e:
         logging.error(f"Failed to start GUI application: {e}", exc_info=True)
