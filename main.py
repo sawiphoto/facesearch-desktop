@@ -14,11 +14,19 @@ def setup_directories():
     os.makedirs(os.path.join(project_root, "models"), exist_ok=True)
 
 if __name__ == "__main__":
-    # ตั้งค่า logging ระดับคอนโซลพื้นฐานตอนเริ่มต้น
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    # ตั้งค่า handlers ให้รองรับทั้ง python.exe (Console) และ pythonw.exe (Windowless - sys.stdout is None)
+    handlers = []
+    if sys.stdout is not None:
+        handlers.append(logging.StreamHandler(sys.stdout))
+    log_file = os.path.join(project_root, "app_execution.log")
+    handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
+
     logging.basicConfig(
         level=logging.INFO,
         format='[%(asctime)s] %(levelname)s: %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
+        handlers=handlers
     )
     
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
@@ -31,4 +39,18 @@ if __name__ == "__main__":
         app.mainloop()
     except Exception as e:
         logging.error(f"Failed to start GUI application: {e}", exc_info=True)
-        input("\nPress Enter to exit...")
+        if sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+            try:
+                input("\nPress Enter to exit...")
+            except Exception:
+                pass
+        else:
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("เกิดข้อผิดพลาดในการเริ่มโปรแกรม", f"ไม่สามารถเปิดโปรแกรมได้:\n{e}\n\nกรุณาตรวจสอบ app_execution.log")
+                root.destroy()
+            except Exception:
+                pass

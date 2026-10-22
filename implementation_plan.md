@@ -3030,6 +3030,60 @@ flowchart TD
 
 > **สถานะการดำเนินการ (Execution Status):** ดำเนินการและทดสอบเสร็จสมบูรณ์ 100% (Completed All Steps & Test Suite TC-126 ถึง TC-130 Passed 100%)
 
+---
+
+## 🖥️ 32. แผนงานการเปิดโปรแกรมแบบไร้หน้าต่างดำ Command Line (No-Console Windowless Launcher Suite v6.44)
+
+### 32.1 ที่มาและสาเหตุ (Background & Rationale)
+ผู้ใช้สอบถาม:
+> *"ตอนที่เปิดโปรแกรมไม่อยากให้มี command line เปิดคู่กันทำยังไงดีครับ"*
+
+**สาเหตุที่เกิดหน้าต่างดำ (Command Line Window):**
+1. ในไฟล์ `run_app.bat` ปัจจุบัน มีการสั่ง:
+   ```cmd
+   python main.py
+   pause
+   ```
+   ซึ่ง `python.exe` เป็นตัวประมวลผลประเภท **Console Subsystem (`SUBSYSTEM:CONSOLE`)** บนระบบปฏิบัติการ Windows ทำให้ระบบสั่งเปิดหน้าต่าง Command Prompt (จอดำ) ควบคู่กับโปรแกรม GUI เสมอ
+2. ประกอบกับไฟล์ `.bat` ถูกรันผ่าน `cmd.exe` ทำให้หน้าต่าง Command Prompt ต้องเปิดค้างไว้ตลอดอายุการทำงานของโปรแกรม
+3. ในความเป็นจริง หน้าโปรแกรมหลัก [`app_gui.py`](app_gui.py) มีแถบ **Console Debug Log ภายในหน้าต่างโปรแกรมเองอยู่แล้ว (In-App Console Panel)** จึงไม่มีความจำเป็นต้องเปิดหน้าต่าง Command Prompt ดำภายนอกอีกต่อไป
+
+---
+
+### 32.2 แนวทางการแก้ไขและสถาปัตยกรรม (Solution Architecture)
+
+เราจะจัดเตรียมวิธีเปิดโปรแกรมแบบ **Windowless (ไร้หน้าต่างดำ 100%)** ให้ผู้ใช้ใช้งานได้สะดวกที่สุด 3 ช่องทาง:
+
+1. **สร้างตัวเปิดแบบคลิกเดียว `start_app.vbs` (Recommended - Zero-Console Launcher):**
+   - ใช้ Windows Script Host (`WScript.Shell`) รันคำสั่งเปิด `venv\Scripts\pythonw.exe main.py` ด้วย Window Style = `0` (Hidden)
+   - ผลลัพธ์: ดับเบิลคลิก `start_app.vbs` แล้วเปิดหน้าจอโปรแกรม GUI ขึ้นมาทันที ไร้หน้าต่างดำแม้แต่เสี้ยววินาทีเดียว!
+2. **สร้างสคริปต์ PowerShell สำหรับสร้าง Desktop Shortcut อัตโนมัติ (`create_desktop_shortcut.ps1`):**
+   - ช่วยสร้างไอคอนทางลัดไว้บนหน้าจอเดสก์ท็อปของผู้ใช้ (Desktop) ชี้ตรงไปยัง `pythonw.exe main.py`
+   - สามารถดับเบิลคลิกจากหน้า Desktop ได้ทันทีเหมือนโปรแกรม Windows ทั่วไป
+3. **ปรับปรุง `run_app.bat` ให้ปิดหน้าต่างคอนโซลทันทีหลังเปิดโปรแกรม:**
+   - ใช้คำสั่ง `start "" "venv\Scripts\pythonw.exe" main.py` แทน `python main.py` เพื่อให้หน้าต่าง cmd ปิดตัวเองทันที ไม่ต้องเปิดค้างไว้คู่กัน
+
+---
+
+### 32.3 แผนการทดสอบอย่างละเอียด (Comprehensive Test Cases: TC-131 ถึง TC-133)
+
+| รหัส (ID) | ชื่อกรณีทดสอบ (Test Case Title) | โมดูลเป้าหมาย | ขั้นตอนการทดสอบ (Test Steps) | ผลลัพธ์ที่คาดหวัง (Expected Result) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC-131** | **VBS Windowless Launcher Execution** | `start_app.vbs` | ตรวจสอบโครงสร้างคำสั่งใน `start_app.vbs` และทดสอบรันเรียก `pythonw.exe` | สามารถสั่งรันโปรเซส GUI ได้โดยไม่มีคอนโซลหน้าต่างดำโผล่ขึ้นมา |
+| **TC-132** | **Desktop Shortcut Creator Script** | `create_desktop_shortcut.ps1` | ตรวจสอบคำสั่งสร้าง Shortcut `.lnk` ที่ชี้ไปยัง `pythonw.exe` และกำหนด Working Directory ถูกต้อง | สคริปต์สร้างไฟล์ Shortcut ได้สมบูรณ์และพารามิเตอร์ถูกต้อง 100% |
+| **TC-133** | **Version Parity v6.44 & Compilation Check** | ทุกไฟล์ | ตรวจสอบ `py_compile` และตรวจความสอดคล้องของเลขเวอร์ชัน `v6.44` | ทุกไฟล์คอมไพล์ผ่าน 0 ข้อผิดพลาด และแสดงเลขเวอร์ชัน `v6.44` ตรงกัน 100% |
+
+---
+
+### 32.4 แผนการปรับปรุงเวอร์ชันและบันทึกประวัติ (Version Bump & Changelog)
+- **เลขเวอร์ชันเป้าหมาย:** `v6.44 (No-Console Windowless Launcher Suite)`
+- **จุดที่ต้องอัปเดตเวอร์ชัน:**
+  - Window Title และ Sidebar Logo Header ใน [`app_gui.py`](app_gui.py)
+  - `README.md`: บันทึกประวัติการเปลี่ยนแปลงลงบนสุดตามกฎ Rule 3 พร้อม Code Before/After
+  - Git Commit & Push ไปยัง Remote Master
+
+> **สถานะการดำเนินการ (Execution Status):** ดำเนินการและทดสอบเสร็จสมบูรณ์ 100% (Completed All Steps & Test Suite TC-131 ถึง TC-133 Passed 100%)
+
 
 
 

@@ -211,8 +211,8 @@ class TestStaffDriveSyncAndAvatarSuite(unittest.TestCase):
         with open(os.path.join(PROJECT_ROOT, "app_gui.py"), "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertTrue("v6.41" in content or "v6.42" in content or "v6.43" in content, "Window Title must reflect v6.41, v6.42 or v6.43")
-        self.assertTrue("SYSTEM v6.41" in content or "SYSTEM v6.42" in content or "SYSTEM v6.43" in content, "Sidebar Logo must reflect v6.41, v6.42 or v6.43")
+        self.assertTrue(any(v in content for v in ["v6.41", "v6.42", "v6.43", "v6.44"]), "Window Title must reflect version")
+        self.assertTrue(any(f"SYSTEM {v}" in content for v in ["v6.41", "v6.42", "v6.43", "v6.44"]), "Sidebar Logo must reflect version")
 
 if __name__ == '__main__':
     unittest.main()

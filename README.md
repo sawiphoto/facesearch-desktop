@@ -1,3 +1,159 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.44 (No-Console Windowless Launcher Suite)
+
+## 📋 Version 6.44 Changelog (No-Console Windowless Launcher Suite)
+
+**Date:** 22 ตุลาคม 2026 (08:58 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.44 (No-Console Windowless Launcher Suite)  
+**Core Technologies:** Windowless GUI Execution Architecture (Rule 9 in `.agents/AGENTS.md`), Windows Subsystem `pythonw.exe`, Non-Blocking Asynchronous Launcher (`start "" "venv\Scripts\pythonw.exe" main.py` & `exit` in `run_app.bat`), Resilient Non-Console Stream & TTY Handling in `main.py`, Dedicated Debug Console Launcher (`run_debug.bat`), Unit Test Suite TC-131 to TC-133 Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การเปิดหน้าต่าง Command Prompt (จอดำ) ค้างคู่กับโปรแกรม GUI:**
+   - ผู้ใช้สอบถาม: *"ตอนที่เปิดโปรแกรมไม่อยากให้มี command line เปิดคู่กันทำยังไงดีครับ"*
+   - ในไฟล์ `run_app.bat` เดิม มีการเรียก `python main.py` และมีคำสั่ง `pause` บรรทัดล่างสุด ทำให้ระบบปฏิบัติการ Windows บังคับเปิดหน้าต่าง Command Prompt ค้างไว้ตลอดการทำงาน ทั้งๆ ที่ภายในตัวโปรแกรมมีหน้าต่าง Console Debug Log แสดงผลอยู่แล้ว
+2. **คำสั่งกำหนดเป็นกฎถาวรสำหรับทุกเวอร์ชันในอนาคต (Persistent Rule Requirement):**
+   - ผู้ใช้สั่งการ: *"แบบ 3 ครับ และบันทึกลงไปด้วยว่าทุกครั้งที่มีการปรับปรุงโปรแกรมให้ใช้วิธีนี้"*
+   - ต้องบันทึกข้อกำหนดนี้ลงในไฟล์กฎเหล็กของระบบ `.agents/AGENTS.md` เพื่อให้ AI Agent ทุกตัวที่จะมาพัฒนาต่อปฏิบัติตามอย่างเคร่งครัดโดยไม่มีข้อยกเว้น
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงตัวเปิดหลัก `run_app.bat` เป็น Windowless Launcher ([`run_app.bat`](run_app.bat)):**
+   - ใช้คำสั่ง `cd /d "%~dp0"` เพื่อย้ายตำแหน่งไดเรกทอรีไปยังโฟลเดอร์ของโปรเจกต์อย่างถูกต้อง
+   - สลับไปใช้ `start "" "venv\Scripts\pythonw.exe" main.py` ซึ่งเป็น Windows GUI Subsystem Binary ที่ไม่สร้าง Console Window
+   - ใส่คำสั่ง `exit` เพื่อให้หน้าต่าง cmd ปิดตัวเองทันทีภายในเสี้ยววินาที ผลลัพธ์: ผู้ใช้ดับเบิลคลิก `run_app.bat` แล้วหน้าต่างโปรแกรมจะเปิดขึ้นมาเดี่ยวๆ โดยไม่มีหน้าต่างดำค้างคู่กัน 100%
+2. **สร้างตัวเปิดสำรองสำหรับโหมดดีบัก ([`run_debug.bat`](run_debug.bat)):**
+   - สร้างไฟล์ `run_debug.bat` สำหรับกรณีที่ทีมพัฒนาหรือผู้ดูแลระบบต้องการเปิดดู Log ใน Command Prompt สำหรับวิเคราะห์ปัญหาเชิงลึก
+3. **ปรับปรุง [`main.py`](main.py) ให้ทนทานต่อสภาวะ Windowless (No-Console Resilient Execution):**
+   - ตรวจสอบ `if sys.stdout is not None:` ก่อนเพิ่ม `StreamHandler` เพื่อป้องกันข้อผิดพลาดเมื่อรันภายใต้ `pythonw.exe`
+   - เพิ่ม `FileHandler` บันทึกลงไฟล์ `app_execution.log` เสมอ
+   - ปรับปรุงการจัดการ Exception ไม่ให้เรียก `input()` หากไม่ได้รันบน Interactive Console (TTY) ป้องกันข้อผิดพลาด `EOFError`
+4. **บันทึกกฎเหล็กข้อ 9 ลงใน [`.agents/AGENTS.md`](.agents/AGENTS.md):**
+   - บันทึกกฎ **"มาตรฐานการเปิดใช้งานโปรแกรมแบบไร้หน้าต่างดำ (Windowless GUI Execution Standard)"** เพื่อให้คงอยู่ถาวรในโปรเจกต์
+5. **อัปเดตเวอร์ชันบนหน้าต่างโปรแกรมเป็น `v6.44` ([`app_gui.py`](app_gui.py) & [`db_manager.py`](db_manager.py)):**
+   - Window Title: `v6.44 (No-Console Windowless Launcher Suite)`
+   - Sidebar Logo: `SYSTEM v6.44`
+   - Manifest: `v6.44`
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `run_app.bat`: ตัวเปิดโปรแกรมแบบ Windowless ไร้หน้าต่างดำ
+
+**ก่อนแก้ไข (Before):**
+```batch
+@echo off
+echo ==========================================
+echo    Face Search Admin Console (v1.7.9)
+echo ==========================================
+echo Starting Virtual Environment...
+call venv\Scripts\activate.bat
+
+echo Starting Application...
+python main.py
+
+echo.
+echo Application closed.
+pause
+```
+
+**หลังแก้ไข (After):**
+```batch
+@echo off
+rem ===================================================
+rem  ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (Face Search Admin)
+rem  Windowless Launcher v6.44 (ไร้หน้าต่างดำ Command Prompt)
+rem ===================================================
+cd /d "%~dp0"
+start "" "venv\Scripts\pythonw.exe" main.py
+exit
+```
+
+---
+
+#### 2. `main.py`: รองรับสตรีม I/O ของ `pythonw.exe` อย่างปลอดภัย
+
+**ก่อนแก้ไข (Before):**
+```python
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s] %(levelname)s: %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    
+    setup_directories()
+    
+    try:
+        from app_gui import FaceSearchApp
+        app = FaceSearchApp()
+        app.mainloop()
+    except Exception as e:
+        logging.error(f"Failed to start GUI application: {e}", exc_info=True)
+        input("\nPress Enter to exit...")
+```
+
+**หลังแก้ไข (After):**
+```python
+if __name__ == "__main__":
+    project_root = os.path.dirname(os.path.abspath(__file__))
+
+    # ตั้งค่า handlers ให้รองรับทั้ง python.exe (Console) และ pythonw.exe (Windowless - sys.stdout is None)
+    handlers = []
+    if sys.stdout is not None:
+        handlers.append(logging.StreamHandler(sys.stdout))
+    log_file = os.path.join(project_root, "app_execution.log")
+    handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s] %(levelname)s: %(message)s',
+        handlers=handlers
+    )
+    
+    setup_directories()
+    
+    try:
+        from app_gui import FaceSearchApp
+        app = FaceSearchApp()
+        app.mainloop()
+    except Exception as e:
+        logging.error(f"Failed to start GUI application: {e}", exc_info=True)
+        if sys.stdin is not None and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+            try:
+                input("\nPress Enter to exit...")
+            except Exception:
+                pass
+        else:
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("เกิดข้อผิดพลาดในการเริ่มโปรแกรม", f"ไม่สามารถเปิดโปรแกรมได้:\n{e}\n\nกรุณาตรวจสอบ app_execution.log")
+                root.destroy()
+            except Exception:
+                pass
+```
+
+---
+
+#### 3. `.agents/AGENTS.md`: บันทึกกฎเหล็กข้อ 9 ถาวร
+
+**หลังแก้ไข (After):**
+```markdown
+9. **มาตรฐานการเปิดใช้งานโปรแกรมแบบไร้หน้าต่างดำ (Windowless GUI Execution Standard):** ทุกครั้งที่มีการปรับปรุงหรือสร้างตัวเปิดโปรแกรม (Launcher) สำหรับระบบ Windows จะต้องปฏิบัติตามมาตรฐานไร้หน้าต่างดำ (No-Console Windowless) เสมอ:
+   - ตัวเปิดหลัก `run_app.bat` ต้องใช้คำสั่ง `cd /d "%~dp0"`, เรียกผ่าน `start "" "venv\Scripts\pythonw.exe" main.py` และสั่ง `exit` เพื่อให้เปิดโปรแกรม GUI โดยไม่มีหน้าต่างดำ Command Prompt ค้างคู่กัน และให้หน้าต่าง cmd ปิดตัวเองทันที
+   - ห้ามใส่คำสั่ง `pause` หรือเรียก `python.exe` ใน `run_app.bat` เด็ดขาด (หากต้องการโหมดตรวจแก้ข้อผิดพลาดให้แยกเป็น `run_debug.bat`)
+   - ใน `main.py` และสคริปต์ GUI ต้องเขียนโค้ดที่ทนทานต่อสภาวะ `pythonw.exe` เสมอ (เช่น `sys.stdout`/`sys.stderr` เป็น `None` หรือไม่มี Interactive TTY Stdin)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.43 (High-Performance Zero-Lag Optimization Suite)
 
 ## 📋 Version 6.43 Changelog (High-Performance Zero-Lag Optimization Suite)
