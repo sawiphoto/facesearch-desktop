@@ -965,8 +965,9 @@ class StudentLifecycleDialog(ctk.CTkToplevel):
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเลื่อนชั้นได้: {e}", parent=self)
 
 class FaceSearchApp(ctk.CTk):
-    def __init__(self, analyzer=None, splash=None):
+    def __init__(self, analyzer=None, splash=None, app_mutex=None):
         super().__init__()
+        self.app_mutex = app_mutex
         self.withdraw()  # v6.52: ซ่อนหน้าต่างหลักไว้ก่อน เพื่อให้ Splash Screen แสดงสถานะ 0-100% ต่อเนื่องแบบไร้รอยต่อ
 
         # --- การตั้งค่าธีมและหน้าต่างโปรแกรม (Navy Blue Theme) ---
@@ -974,9 +975,12 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.53 (Ultra-Minimal Archive Crowdsource Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.54 (Self-Healing Process and Zero-Zombie Architecture)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
+
+        # ผูกอีเวนต์ปิดหน้าต่าง [X] เพื่อทำ Clean Teardown 100% ไร้ซอมบี้ (v6.54)
+        self.protocol("WM_DELETE_WINDOW", self.on_app_close)
 
         # --- ส่วนประกอบฐานข้อมูลและหลังบ้าน ---
         self.db = DatabaseManager()
@@ -1101,7 +1105,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.53",
+            text="FACE MATCHING\nSYSTEM v6.54",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -9217,6 +9221,57 @@ class FaceSearchApp(ctk.CTk):
             logger.info(f"[SCAN_INFO] ทุกโฟลเดอร์ที่เลือกยังไม่เคยทำการสแกนจับคู่ใบหน้ามาก่อน")
             return False
 
+    def on_app_close(self):
+        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.54)"""
+        try:
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.54)...")
+            # 1. หยุดการทำงานของ Scheduler Task
+            if hasattr(self, 'scheduler') and self.scheduler:
+                try:
+                    self.scheduler.request_stop()
+                except Exception:
+                    pass
+
+            # 2. ยกเลิกงานค้างและ Shutdown ThreadPoolExecutor
+            if hasattr(self, 'thumb_executor') and self.thumb_executor:
+                try:
+                    self.thumb_executor.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+
+            # 3. ปิด Session การเชื่อมต่อเครือข่าย
+            if hasattr(self, 'http_session') and self.http_session:
+                try:
+                    self.http_session.close()
+                except Exception:
+                    pass
+
+            # 4. บันทึก Settings
+            try:
+                self.save_settings()
+                logger.info("[SYSTEM] Automatically saved configurations on application destroy.")
+            except Exception as e:
+                logger.error(f"Error saving settings on destroy: {e}")
+
+            # 5. ปิดหน้าต่าง GUI
+            try:
+                self.destroy()
+            except Exception:
+                pass
+        finally:
+            # 6. ลบไฟล์ PID และปล่อย Mutex
+            try:
+                from single_instance import release_mutex, cleanup_pid_file
+                cleanup_pid_file()
+                if hasattr(self, 'app_mutex') and self.app_mutex:
+                    release_mutex(self.app_mutex)
+            except Exception:
+                pass
+
+            # 7. บังคับปิดโปรเซสด้วย os._exit(0) ทันที ป้องกัน unmanaged C/CUDA/ONNX Runtime threads ค้าง
+            import os
+            os._exit(0)
+
     def destroy(self):
         """บันทึกการตั้งค่าทับลงสถานะเมื่อแอดมินปิดโปรแกรม"""
         try:
@@ -9224,6 +9279,11 @@ class FaceSearchApp(ctk.CTk):
             logger.info("[SYSTEM] Automatically saved configurations on application destroy.")
         except Exception as e:
             logger.error(f"Error saving settings on destroy: {e}")
+        try:
+            if hasattr(self, 'thumb_executor') and self.thumb_executor:
+                self.thumb_executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
         super().destroy()
 
     def select_thumbnail(self, path, frame_widget):

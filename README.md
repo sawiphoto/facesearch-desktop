@@ -1,3 +1,168 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.54 (Self-Healing Process & Zero-Zombie Architecture)
+
+## 📋 Version 6.54 Changelog (Self-Healing Process & Zero-Zombie Architecture)
+
+**Date:** 23 ตุลาคม 2026 (11:20 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.54 (Self-Healing Process & Zero-Zombie Architecture)  
+**Core Technologies:** Native Win32 Process Enumeration (`Toolhelp32Snapshot`), Native Process Termination (`kernel32.TerminateProcess`), Self-Healing Named Mutex Recovery, Clean Application Teardown (`WM_DELETE_WINDOW` Protocol with `os._exit(0)`), ThreadPoolExecutor Immediate Cancellation, Unit Test Suite TC-165 to TC-169 (19/19 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ปัญหาดับเบิลคลิกเปิดโปรแกรมแล้วไม่ขึ้น เกิดอาการ Process ค้างในระบบ:**
+   - ผู้ใช้รายงานว่าเปิดโปรแกรมแล้วหน้าต่างไม่แสดงผลขึ้นมา และเมื่อกดเปิดซ้ำๆ หลายครั้งก็ไม่ขึ้นอีกเลย
+   - **ผลการวิเคราะห์เชิงลึก (Deep Diagnostics):** ตรวจพบโปรเซส `pythonw.exe` ตกค้างในระบบ Windows (PID 40404 และ PID 27268)
+   - **สาเหตุที่โปรเซสตกค้าง (Zombie Process):** เมื่อผู้ใช้ปิดหน้าต่างโปรแกรมในรอบก่อนหน้า แม้หน้าต่าง GUI จะถูกปิดลง แต่เธรดภายใน (`ThreadPoolExecutor`, `SchedulerTask`, และ unmanaged thread ของ ONNX Runtime / CUDA) ยังคงทำงานค้างอยู่ และไม่มีการดักอีเวนต์ `WM_DELETE_WINDOW` เพื่อสั่งปิดโปรเซสอย่างสมบูรณ์ (`os._exit(0)`) ทำให้ Python กลายเป็นโปรเซสซอมบี้ (Headless Zombie) ค้างอยู่ในหน่วยความจำ
+   - **สาเหตุที่เปิดโปรแกรมใหม่ไม่ได้ (Deadlock Lock):** โปรเซสซอมบี้ยังคงถือครอง Handle ของ Windows Named Mutex (`Local\FaceSearchApp_SingleInstance_Mutex_2026`) เมื่อผู้ใช้ดับเบิลคลิกเปิดโปรแกรมใหม่ ฟังก์ชัน `acquire_mutex()` พบว่ามี Mutex อยู่แล้ว แต่เมื่อพยายามสลับหน้าต่างกลับไม่พบหน้าต่างใดๆ (`MainWindowHandle = 0`) จึงสั่งปิดตัวเองทันที (`sys.exit(0)`) ส่งผลให้ผู้ใช้ถูกล็อกตาย ไม่สามารถเปิดโปรแกรมได้อีกเลย
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาระบบ Self-Healing Single Instance ใน [single_instance.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/single_instance.py):**
+   - พัฒนาระบบตรวจสอบอัจฉริยะใน `acquire_mutex(auto_heal=True)`: หากตรวจพบว่ามี Mutex อยู่แล้ว จะทำการตรวจสอบว่า **"มีหน้าต่างโปรแกรม GUI กำลังเปิดใช้งานและตอบสนองอยู่จริงหรือไม่"** (`find_active_gui_windows()`)
+   - หากมีหน้าต่างโปรแกรมอยู่จริง: จะนำหน้าต่างเดิมขึ้นมาแสดงข้างหน้าสุด (Bring to Foreground) แล้วปิดโปรเซสตัวซ้ำตามปกติ
+   - หากไม่มีหน้าต่างโปรแกรมใดๆ (ตรวจพบ Stale/Zombie Lock): ระบบจะทำการยุติโปรเซสซอมบี้ `pythonw.exe` ของโปรเจกต์เดิมโดยอัตโนมัติด้วย Win32 Native API (`kernel32.TerminateProcess`) พร้อมล้างไฟล์ `data/app.pid` และกู้คืนจอง Mutex ใหม่ทันที ทำให้ผู้ใช้เปิดโปรแกรมขึ้นมาใช้งานได้ทันทีโดยไม่ต้องไปยุ่งกับ Task Manager อีกต่อไป
+2. **พัฒนาระบบ Clean Teardown Protocol 100% ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ผูกอีเวนต์ปิดหน้าต่างหลัก `self.protocol("WM_DELETE_WINDOW", self.on_app_close)`
+   - ในเมธอด `on_app_close()`:
+     1. สั่ง Shutdown และยกเลิกงานที่ค้างในคิวทั้งหมดของ `ThreadPoolExecutor` ทันที (`shutdown(wait=False, cancel_futures=True)`)
+     2. สั่งหยุดการทำงานของ `SchedulerTask` (`scheduler.request_stop()`)
+     3. ปิด Session เครือข่าย (`http_session.close()`)
+     4. บันทึกการตั้งค่าลง SQLite (`save_settings()`)
+     5. ปิดหน้าต่าง GUI (`self.destroy()`)
+     6. ลบไฟล์ PID และปลดปล่อย Mutex
+     7. บังคับปิดโปรเซสอย่างเด็ดขาดด้วย `os._exit(0)` เพื่อตัดการทำงานของ Background Threads, CUDA Driver และ ONNX Runtime ป้องกันการเกิดโปรเซสซอมบี้ค้างในระบบ 100%
+3. **ปรับปรุง [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py):**
+   - เปิดใช้งาน `acquire_mutex(auto_heal=True)` ตั้งแต่เริ่มต้น
+   - ส่ง `app_mutex` เข้าไปใน `FaceSearchApp` เพื่อให้ปิดการทำงานพร้อมกัน
+   - เพิ่มบล็อก `finally` พร้อม `os._exit(0)` ป้องกันการค้างหลัง `app.mainloop()`
+4. **ชุดทดสอบและผลการตรวจสอบความถูกต้อง (Verification):**
+   - สร้างชุดทดสอบใหม่ [tests/test_single_instance_self_heal.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_single_instance_self_heal.py) ครอบคลุม TC-165 ถึง TC-169
+   - รันชุดทดสอบทั้งหมดรวม 19 การทดสอบ: **ผ่านสมบูรณ์ 100% (19/19 OK)**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `single_instance.py` - ระบบจอง Mutex และฟื้นฟูอัตโนมัติเมื่อพบ Stale Lock
+**ก่อนแก้ไข (Before):**
+```python
+def acquire_mutex(mutex_name="Local\\FaceSearchApp_SingleInstance_Mutex_2026"):
+    try:
+        kernel32 = ctypes.windll.kernel32
+        mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        last_error = kernel32.GetLastError()
+        if last_error == ERROR_ALREADY_EXISTS:
+            if mutex:
+                kernel32.CloseHandle(mutex)
+            return None  # คืนค่า None ทันทีเมื่อมี Mutex โดยไม่สนว่ามีหน้าต่าง GUI อยู่จริงหรือไม่
+        return mutex
+    except Exception:
+        return True
+```
+
+**หลังแก้ไข (After):**
+```python
+def acquire_mutex(mutex_name=DEFAULT_MUTEX_NAME, auto_heal=True):
+    try:
+        kernel32 = ctypes.windll.kernel32
+        mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        last_error = kernel32.GetLastError()
+        
+        if last_error == ERROR_ALREADY_EXISTS:
+            if mutex:
+                kernel32.CloseHandle(mutex)
+                mutex = None
+
+            # ตรวจสอบว่ามีหน้าต่างโปรแกรมที่ตอบสนองอยู่จริงหรือไม่
+            active_windows = find_active_gui_windows()
+            if active_windows:
+                logger.info("[SINGLE_INSTANCE] พบหน้าต่างโปรแกรมเดิมกำลังเปิดใช้งานอยู่จริง นำขึ้นมาแสดงข้างหน้า")
+                bring_existing_window_to_front()
+                return None
+
+            # ถ้าไม่มีหน้าต่างโปรแกรมเลย แต่ Mutex ยังติดอยู่ = STALE / ZOMBIE LOCK!
+            if auto_heal:
+                logger.warning("[SINGLE_INSTANCE] 🚨 ตรวจพบ Stale Mutex โดยไม่มีหน้าต่าง GUI ตอบสนอง! เริ่มระบบ Self-Healing กู้คืนอัตโนมัติ...")
+                kill_stale_project_processes()
+                time.sleep(0.15)  # รอ Windows kernel ปลดปล่อย Mutex handle
+                cleanup_pid_file()
+
+                # ลองจองใหม่อีกครั้ง
+                new_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+                new_error = kernel32.GetLastError()
+                if new_error == 0:
+                    logger.info("[SINGLE_INSTANCE] ✅ กู้คืน Stale Mutex สำเร็จ! อนุญาตให้โปรแกรมเปิดใช้งานได้ทันที")
+                    write_pid_file()
+                    return new_mutex
+                else:
+                    if new_mutex:
+                        kernel32.CloseHandle(new_mutex)
+                    return None
+            return None
+
+        write_pid_file()
+        return mutex
+    except Exception as err:
+        logger.error(f"[SINGLE_INSTANCE] acquire_mutex error: {err}")
+        return True
+```
+
+#### 2. `app_gui.py` - ผูกอีเวนต์ปิดหน้าต่างและ Clean Teardown Protocol
+**ก่อนแก้ไข (Before):**
+```python
+class FaceSearchApp(ctk.CTk):
+    def __init__(self, analyzer=None, splash=None):
+        super().__init__()
+        ...
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.53 (Ultra-Minimal Archive Crowdsource Suite)")
+        # ไม่มีการผูก WM_DELETE_WINDOW
+
+    def destroy(self):
+        try:
+            self.save_settings()
+            logger.info("[SYSTEM] Automatically saved configurations on application destroy.")
+        except Exception as e:
+            logger.error(f"Error saving settings on destroy: {e}")
+        super().destroy()
+        # ไม่มีการ Shutdown ThreadPoolExecutor และไม่มี os._exit(0) ทำให้ Thread ค้าง
+```
+
+**หลังแก้ไข (After):**
+```python
+class FaceSearchApp(ctk.CTk):
+    def __init__(self, analyzer=None, splash=None, app_mutex=None):
+        super().__init__()
+        self.app_mutex = app_mutex
+        ...
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.54 (Self-Healing Process and Zero-Zombie Architecture)")
+        self.protocol("WM_DELETE_WINDOW", self.on_app_close)
+
+    def on_app_close(self):
+        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.54)"""
+        try:
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.54)...")
+            if hasattr(self, 'scheduler') and self.scheduler:
+                self.scheduler.request_stop()
+            if hasattr(self, 'thumb_executor') and self.thumb_executor:
+                self.thumb_executor.shutdown(wait=False, cancel_futures=True)
+            if hasattr(self, 'http_session') and self.http_session:
+                self.http_session.close()
+            self.save_settings()
+            self.destroy()
+        finally:
+            from single_instance import release_mutex, cleanup_pid_file
+            cleanup_pid_file()
+            if hasattr(self, 'app_mutex') and self.app_mutex:
+                release_mutex(self.app_mutex)
+            import os
+            os._exit(0)  # บังคับปิดโปรเซสทันที 100% ไร้ซอมบี้
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.53 (Ultra-Minimal Archive Crowdsource JSON Suite)
 
 ## 📋 Version 6.53 Changelog (Ultra-Minimal Archive Crowdsource JSON Suite)

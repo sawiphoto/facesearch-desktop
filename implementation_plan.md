@@ -1,3 +1,61 @@
+# แผนงานแก้ไขปัญหาเปิดโปรแกรมไม่ขึ้นจาก Process ค้าง และระบบกู้คืนอัตโนมัติ (Self-Healing Process & Zero-Zombie Architecture v6.54)
+
+## 📌 1. ผลการวินิจฉัยสาเหตุอย่างละเอียด (Root Cause Analysis)
+จากการตรวจสอบสถานะโปรเซสในระบบ Windows (`Get-Process`) และไฟล์บันทึก `app_execution.log` พบสาเหตุที่แท้จริง 3 ประการ:
+1. **โปรเซสซอมบี้ตกค้าง (Orphaned Zombie Process):**
+   - มีโปรเซส `pythonw.exe` ค้างอยู่ในระบบ (PID 40404 และ PID 27268) ตั้งแต่ช่วงเวลา 04:35 น.
+   - สาเหตุที่โปรเซสไม่ยอมปิดตัวลงแม้ผู้ใช้จะกดกากบาท (X) ปิดหน้าต่าง GUI ไปแล้ว: เกิดจาก `ThreadPoolExecutor` (คิวโหลด Thumbnail), เธรดของ `SchedulerTask` และ unmanaged thread ของ ONNX Runtime / CUDA ไม่ได้ถูกสั่งยกเลิกงานอย่างสมบูรณ์ และไม่มีการผูกอีเวนต์ `WM_DELETE_WINDOW` เพื่อสั่ง `os._exit(0)` ทำให้ Python runtime ติดค้างในขั้นตอน atexit shutdown และกลายเป็นโปรเซสซอมบี้ (Headless Zombie) ไร้หน้าต่างแต่ยังจองทรัพยากรอยู่
+2. **ระบบ Single-Instance Mutex ทำงานแบบล็อกตาย (Deadlock on Zombie Lock):**
+   - เมื่อโปรเซสซอมบี้ยังค้างอยู่ Handle ของ Windows Named Mutex (`Local\FaceSearchApp_SingleInstance_Mutex_2026`) จะยังคงถูกถือครองอยู่ตลอดเวลา
+   - เมื่อผู้ใช้ดับเบิลคลิกเปิดโปรแกรมใหม่ ตัวตรวจจับ `acquire_mutex()` พบว่ามี Mutex อยู่แล้ว จึงพยายามสลับหน้าต่าง (`bring_existing_window_to_front`) แต่เนื่องจากโปรเซสซอมบี้ไม่มีหน้าต่างหลงเหลืออยู่ (`MainWindowHandle = 0`) ระบบจึงหาหน้าต่างไม่พบ และสั่ง `sys.exit(0)` ทันที
+   - ผลลัพธ์: ผู้ใช้กดเปิดโปรแกรมกี่ครั้ง หน้าต่างก็จะไม่ยอมแสดงขึ้นมาอีกเลยจนกว่าจะไปสั่ง Kill Task ใน Task Manager
+3. **การชนกันของสภาพแวดล้อม Python (Miniconda vs Venv):**
+   - ตรวจพบว่ามีการรันโปรเซสจากทั้ง `miniconda3\pythonw.exe` และ `venv\Scripts\pythonw.exe` พร้อมกันในระบบ
+
+---
+
+## 🏗️ 2. แนวทางการแก้ไขอย่างยั่งยืน (Self-Healing & Zero-Zombie Architecture)
+
+### 1) พัฒนาระบบปลดล็อกอัตโนมัติเมื่อพบโปรเซสค้าง (Self-Healing Single Instance in [single_instance.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/single_instance.py))
+- ปรับปรุงฟังก์ชัน `acquire_mutex()` ให้ฉลาดและฟื้นฟูตัวเองได้ (Self-Healing):
+  - หาก Mutex มีอยู่แล้ว ให้ทำการตรวจสอบก่อนว่า **"มีหน้าต่างโปรแกรมที่ผู้ใช้มองเห็นได้และตอบสนองอยู่จริงหรือไม่"** (`find_active_gui_window()`)
+  - **กรณีที่ 1 (โปรแกรมกำลังเปิดใช้งานอยู่จริง):** นำหน้าต่างเดิมขึ้นมาแสดงข้างหน้าสุดตามปกติ (Bring to Foreground) แล้วปิดตัวเปิดซ้ำ
+  - **กรณีที่ 2 (พบ Mutex แต่ไม่มีหน้าต่างโปรแกรมใดๆ ตอบสนอง = โปรเซสค้าง/ซอมบี้):**
+    - ตรวจหาและยุติโปรเซสซอมบี้ `pythonw.exe` ของโปรเจกต์เดิมที่ค้างอยู่โดยอัตโนมัติ
+    - ปลดปล่อย Stale Mutex และจอง Mutex ใหม่ทันที
+    - **เปิดโปรแกรมให้ผู้ใช้ได้ทันทีอย่างไร้รอยต่อ โดยผู้ใช้ไม่ต้องเข้าไปยุ่งกับ Task Manager อีกต่อไป!**
+
+### 2) ออกแบบระบบปิดโปรแกรมที่สะอาดหมดจด 100% ไร้ซอมบี้ (Clean Teardown Protocol in [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py))
+- ผูกอีเวนต์ปิดหน้าต่างหลัก `self.protocol("WM_DELETE_WINDOW", self.on_app_close)`
+- ในเมธอด `on_app_close()`:
+  1. สั่ง Shutdown และยกเลิกงานในคิวทั้งหมดของ `ThreadPoolExecutor` ทันที (`shutdown(wait=False, cancel_futures=True)`)
+  2. สั่งหยุดการทำงานของ `SchedulerTask` (`scheduler.request_stop()`)
+  3. บันทึกการตั้งค่าลง SQLite (`save_settings()`)
+  4. ปลดปล่อย Mutex อย่างชัดเจน (`release_mutex()`)
+  5. ปิดหน้าต่าง GUI (`self.destroy()`)
+  6. เรียก `os._exit(0)` เพื่อตัดการทำงานของ Background Threads, CUDA Driver, และ ONNX Runtime ให้โปรเซสดับสนิท 100% ป้องกันการเกิดโปรเซสค้างในอนาคต
+
+### 3) สคริปต์ทำความสะอาดฉุกเฉินและตัวเปิดโปรแกรม ([run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat) & [run_app.vbs](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.vbs))
+- จัดการ Kill โปรเซสค้างเดิม (PID 40404, PID 27268) ที่กำลังขวางการเปิดโปรแกรมอยู่ในขณะนี้
+- อัปเดต `run_app.bat` และ `run_app.vbs` ให้เรียกใช้ `venv\Scripts\pythonw.exe` อย่างถูกต้องและเป็นมาตรฐานเดียว
+
+### 4) อัปเดตเวอร์ชันและตรวจสอบความสอดคล้องทั้งระบบ (Zero-Omission Version Audit)
+- ปรับเลขเวอร์ชันเป็น `v6.54 (Self-Healing Process & Zero-Zombie Architecture)`
+- อัปเดต Title Bar, Sidebar Header, [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- บันทึกประวัติการแก้ไขลงบนสุดของ [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) ตามกฎเหล็ก
+
+---
+
+## 🧪 3. แผนการทดสอบความถูกต้อง (Verification Plan)
+1. **Automated Unit Testing:**
+   - ทดสอบ Self-Healing Mutex เมื่อมี Stale Mutex / Zombie process ว่าสามารถกู้คืนและจอง Mutex ใหม่ได้สำเร็จ 100%
+   - ทดสอบ Clean Shutdown ว่าไม่มี Thread ใดค้างอยู่หลังเรียก `on_app_close`
+2. **Runtime Verification:**
+   - ทดสอบจำลองเปิดโปรแกรมขณะมีโปรเซสหลอกค้างอยู่ และยืนยันว่าโปรแกรมใหม่สามารถเปิดหน้าต่าง GUI ขึ้นมาได้จริง
+   - ทดสอบการกดปิดโปรแกรม และตรวจสอบ `Get-Process` ยืนยันว่าไม่มี `pythonw.exe` ซอมบี้ค้างอยู่ใน Task Manager
+
+---
+
 # แผนงานโครงสร้าง JSON ภาพเก่าแบบ Ultra-Minimal ฉบับรวบรัด (Ultra-Minimal Archive Crowdsource JSON Suite v6.53)
 
 ## 📌 1. โครงสร้างข้อมูลใหม่ (Ultra-Minimal Schema Architecture)

@@ -31,9 +31,9 @@ if __name__ == "__main__":
         handlers=handlers
     )
 
-    # 1. ป้องกันการเปิดโปรแกรมซ้ำซ้อน (Single-Instance Protection v6.51)
-    from single_instance import acquire_mutex, release_mutex, bring_existing_window_to_front
-    app_mutex = acquire_mutex()
+    # 1. ป้องกันการเปิดโปรแกรมซ้ำซ้อน และระบบกู้คืนโปรเซสซอมบี้อัตโนมัติ (Self-Healing Single Instance v6.54)
+    from single_instance import acquire_mutex, release_mutex, bring_existing_window_to_front, cleanup_pid_file
+    app_mutex = acquire_mutex(auto_heal=True)
     if app_mutex is None:
         logging.warning("⚠️ มีโปรแกรม FaceSearchApp กำลังทำงานอยู่แล้ว ทำการสลับไปหน้าต่างเดิมและปิดตัวจำลองซ้ำ")
         bring_existing_window_to_front()
@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) พร้อม Progress Bar 0-100%
     from splash_screen import SplashScreen
-    splash = SplashScreen(version="v6.53")
+    splash = SplashScreen(version="v6.54")
     splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     # แล้วสลับแสดงหน้าต่างหลักและปิด Splash Screen พร้อมกันทันทีในระดับมิลลิวินาที (Zero-Gap Seamless Transition v6.52)
     try:
         from app_gui import FaceSearchApp
-        app = FaceSearchApp(analyzer=worker_state["analyzer"], splash=splash)
+        app = FaceSearchApp(analyzer=worker_state["analyzer"], splash=splash, app_mutex=app_mutex)
         app.mainloop()
     except Exception as e:
         logging.error(f"Failed to start GUI application: {e}", exc_info=True)
@@ -124,4 +124,8 @@ if __name__ == "__main__":
             except Exception:
                 pass
     finally:
+        from single_instance import release_mutex, cleanup_pid_file
+        cleanup_pid_file()
         release_mutex(app_mutex)
+        import os
+        os._exit(0)
