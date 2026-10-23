@@ -1,3 +1,54 @@
+# แผนงานแก้ไขปัญหาหน้าต่าง GUI ไม่แสดงหลังโหลด Splash Screen เสร็จ (CustomTkinter Mainloop Window Reveal Fix v6.55)
+
+## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Root Cause Analysis)
+จากการวิเคราะห์โค้ดภายในของไลบรารี `customtkinter` (คลาส `ctk.CTk`) และการจำลองสถานะของ Windows Runtime:
+1. **พฤติกรรมภายในของ CustomTkinter บน Windows (`_windows_set_titlebar_color`):**
+   - เมื่อเริ่มต้นโปรแกรมใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) บรรทัดที่ 971 มีการเรียกคำสั่ง `self.withdraw()` เพื่อซ่อนหน้าต่างหลักไม่ให้กระพริบระหว่างที่ Splash Screen กำลังโหลด
+   - การเรียก `self.withdraw()` ก่อนที่หน้าต่างจะถูกเปิดขึ้นมา จะทำให้ CustomTkinter เซ็ตตัวแปรภายในชื่อ `self._withdraw_called_before_window_exists = True`
+2. **การถูกบังคับซ่อนซ้ำใน `app.mainloop()` (The Hidden Window Trap):**
+   - เมื่อประกอบวิดเจ็ตเสร็จสิ้นและเรียก `self.deiconify()` จากนั้นโปรแกรมเข้าสู่ `app.mainloop()`
+   - โค้ดของ CustomTkinter บน Windows ในเมธอด `mainloop()` จะเรียกฟังก์ชันตกแต่ง Title Bar สีดำ (`_windows_set_titlebar_color()`) ซึ่งภายในมีคำสั่ง `super().withdraw()` ซ่อนหน้าต่างซ้ำอีกครั้ง!
+   - จากนั้น CustomTkinter ตรวจสอบเงื่อนไข:
+     ```python
+     if not self._withdraw_called_before_window_exists:
+         self.deiconify()
+     ```
+   - เนื่องจากตัวแปร `_withdraw_called_before_window_exists` ถูกตั้งเป็น `True` ไปตั้งแต่แรก **CustomTkinter จึงข้ามคำสั่ง `self.deiconify()` ไปอย่างถาวร!**
+   - **ผลลัพธ์:** โปรแกรมโหลด Splash Screen จนครบ 100% และปิดตัวเองลงตามปกติ ส่วนโปรแกรมหลักรัน `mainloop()` อยู่ในแรม (PID 44364) แต่หน้าต่างอยู่ในสถานะ "Withdrawn" (ซ่อนตัวอยู่) ทำให้ผู้ใช้มองไม่เห็นหน้าต่างโปรแกรมเลยแม้แต่นิดเดียว!
+
+---
+
+## 🏗️ 2. แนวทางการแก้ไขอย่างยั่งยืน (Solution Architecture v6.55)
+
+### 1) ปลดล็อกตัวแปรสถานะของ CustomTkinter (`_withdraw_called_before_window_exists`)
+- ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) เมื่อเตรียมเปิดหน้าต่างหลัก:
+  - สั่งรีเซ็ต `self._withdraw_called_before_window_exists = False`
+  - สั่งตั้งค่า `self._window_exists = True`
+  - ทำการ `self.deiconify()` อย่างชัดเจน
+
+### 2) เพิ่มฟังก์ชันรับประกันการแสดงผลหน้าต่าง 100% (`_ensure_window_visible`)
+- เพิ่มเมธอด `_ensure_window_visible()` ที่เรียกผ่าน `self.after(100, self._ensure_window_visible)`:
+  - บังคับสั่ง `self.deiconify()` และ `self.lift()` หลังเข้าสู่ Event Loop ของ `mainloop()`
+  - ดึงหน้าต่างขึ้นมาด้านหน้าสุด (`-topmost, True`) เป็นเวลา 50ms แล้วปลดออก เพื่อให้หน้าต่างโปรแกรมปรากฏขึ้นบนหน้าจอของผู้ใช้ทันทีและได้รับ Focus อย่างแน่นอน 100%
+
+### 3) ทำความสะอาดโปรเซสที่ค้างอยู่ในแรม (PID 44364, 15092)
+- สั่งปิดโปรเซส `pythonw.exe` ที่ค้างอยู่ในสถานะซ่อนตัวจากรอบการรันเมื่อสักครู่
+
+### 4) อัปเดตเวอร์ชันและตรวจสอบความสอดคล้องทั้งระบบ (Zero-Omission Version Audit)
+- ปรับเลขเวอร์ชันเป็น `v6.55 (Window Reveal & CustomTkinter State Fix)`
+- อัปเดต Title Bar, Sidebar Header, [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+
+---
+
+## 🧪 3. แผนการทดสอบความถูกต้อง (Verification Plan)
+1. **Automated Unit Testing:**
+   - ทดสอบว่า `FaceSearchApp` และ `ctk.CTk` มีสถานะ `normal` (ไม่เป็น `withdrawn`) หลังเข้าสู่ `mainloop()`
+   - รันชุดทดสอบทั้งหมด 19 รายการ ยืนยันว่าผ่านสมบูรณ์ 100%
+2. **Runtime Verification:**
+   - ทดสอบจำลองเปิดโปรแกรมและตรวจสอบผ่าน Win32 API ว่าหน้าต่าง `FaceSearchApp` มีสถานะ `IsWindowVisible = True` และมี HWND ปรากฏบน Desktop จริง
+
+---
+
 # แผนงานแก้ไขปัญหาเปิดโปรแกรมไม่ขึ้นจาก Process ค้าง และระบบกู้คืนอัตโนมัติ (Self-Healing Process & Zero-Zombie Architecture v6.54)
 
 ## 📌 1. ผลการวินิจฉัยสาเหตุอย่างละเอียด (Root Cause Analysis)

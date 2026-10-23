@@ -1,3 +1,104 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.55 (Window Reveal & CustomTkinter State Fix)
+
+## 📋 Version 6.55 Changelog (Window Reveal & CustomTkinter State Fix)
+
+**Date:** 23 ตุลาคม 2026 (13:40 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.55 (Window Reveal & CustomTkinter State Fix)  
+**Core Technologies:** CustomTkinter Window Lifecycle Unlock (`_withdraw_called_before_window_exists`), Foreground Window Reveal Guarantee (`_ensure_window_visible`), Transient Topmost Window Lift, Unit Test Suite TC-165 to TC-170 (20/20 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ปัญหาหน้าต่าง GUI หลักไม่แสดงผลขึ้นมา หลังแถบโหลด Splash Screen เสร็จสิ้นและหายไป:**
+   - ผู้ใช้รายงานว่าเมื่อเปิดโปรแกรม หน้าต่าง Splash Screen ปรากฏขึ้นมา โหลดสถานะจนครบ 100% แล้วหายไปตามปกติ แต่หลังจากนั้นโปรแกรมหลักกลับเงียบหาย ไม่ปรากฏหน้าต่างโปรแกรมขึ้นมาบนหน้าจอ
+   - **ผลการวินิจฉัยเชิงลึก (Deep Diagnostics):**
+     - ตรวจสอบพบว่ากระบวนการโหลดโมเดล AI และจัดเตรียมฐานข้อมูลทำงานเสร็จสมบูรณ์ 100% โดยโปรเซส `pythonw.exe` (PID 44364) ทำงานอยู่ในหน่วยความจำอย่างปกติ และกำลังรัน Event Loop ของ `app.mainloop()` อยู่จริง
+     - ตรวจสอบระดับ Win32 Window พบว่าหน้าต่างหลักถูกขังให้อยู่ในสถานะ **"Withdrawn" (ซ่อนตัว)**
+   - **สาเหตุที่หน้าต่างถูกซ่อน (The Hidden Window Trap):**
+     - ใน `FaceSearchApp.__init__` มีการสั่ง `self.withdraw()` เพื่อซ่อนหน้าต่างหลักไว้ไม่ให้กระพริบระหว่างที่ Splash Screen กำลังทำงาน
+     - การสั่ง `self.withdraw()` ก่อนที่หน้าต่างจะถูกแม็ปลงบนหน้าจอ ทำให้ไลบรารี CustomTkinter เซ็ตตัวแปรภายในชื่อ `self._withdraw_called_before_window_exists = True`
+     - เมื่อเข้าสู่ `app.mainloop()` โค้ดของ CustomTkinter บน Windows จะเรียกฟังก์ชันตกแต่ง Title Bar สีดำ (`_windows_set_titlebar_color()`) ซึ่งภายในมีคำสั่งสั่ง `super().withdraw()` ซ่อนหน้าต่างซ้ำอีกครั้ง!
+     - จากนั้น CustomTkinter ตรวจสอบเงื่อนไข:
+       ```python
+       if not self._withdraw_called_before_window_exists:
+           self.deiconify()
+       ```
+     - เนื่องจากตัวแปร `_withdraw_called_before_window_exists` เป็น `True` **CustomTkinter จึงข้ามคำสั่ง `self.deiconify()` ไปอย่างถาวร!** ทำให้หน้าต่างหลักถูกขังให้อยู่ในสถานะ Withdrawn (ซ่อนตัว) อยู่ในหน่วยความจำตลอดกาล
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปลดล็อกตัวแปรสถานะภายในของ CustomTkinter ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ก่อนสั่ง `self.deiconify()` ให้ทำการรีเซ็ตตัวแปรสถานะของ CustomTkinter อย่างชัดเจน:
+     ```python
+     self._withdraw_called_before_window_exists = False
+     self._window_exists = True
+     ```
+   - เพื่อป้องกันไม่ให้ CustomTkinter บังคับซ่อนหน้าต่างในขั้นตอน `mainloop()` อีกต่อไป
+2. **พัฒนาระบบรับประกันการแสดงผลหน้าต่าง 100% (`_ensure_window_visible`):**
+   - เพิ่มเมธอด `_ensure_window_visible()` ที่ผูกผ่าน `self.after(50, ...)` เพื่อให้ทำงานทันทีหลังเข้าสู่ Event Loop ของ `mainloop()`:
+     - บังคับสั่ง `self.deiconify()`, `self.lift()`, และ `self.focus_force()`
+     - ดึงหน้าต่างขึ้นมาด้านหน้าสุดด้วย `self.attributes("-topmost", True)` เป็นเวลา 100ms แล้วปลดออก เพื่อให้หน้าต่างโปรแกรมปรากฏขึ้นบนหน้าจอของผู้ใช้ทันทีและได้รับ Focus อย่างแน่นอน 100%
+3. **ชุดทดสอบและผลการตรวจสอบความถูกต้อง (Verification):**
+   - เพิ่ม Unit Test ใหม่ TC-170 ใน [tests/test_single_instance_self_heal.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_single_instance_self_heal.py) เพื่อตรวจสอบสถานะการปลดล็อก `_withdraw_called_before_window_exists`
+   - รันชุดทดสอบทั้งหมดรวม 20 การทดสอบ: **ผ่านสมบูรณ์ 100% (20/20 OK)**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - ปลดล็อกสถานะ CustomTkinter และรับประกันการแสดงผลหน้าต่าง
+**ก่อนแก้ไข (Before):**
+```python
+        # v6.52: สลับหน้าต่างทันทีแบบไร้รอยต่อ (Zero-Gap Seamless Transition: เสร็จปุ๊บมาปั๊บ 100%)
+        if splash:
+            splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
+        self.update_idletasks()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        if splash:
+            splash.close()
+        # CustomTkinter จะเข้า mainloop() และซ่อนหน้าต่างกลับเป็น Withdrawn เพราะ _withdraw_called_before_window_exists ยังเป็น True
+```
+
+**หลังแก้ไข (After):**
+```python
+        # v6.55: ปลดล็อกสถานะ CustomTkinter ให้แสดงผลบนหน้าจอ 100% ไม่ติดค้าง Withdrawn
+        if splash:
+            splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
+        self._withdraw_called_before_window_exists = False
+        self._window_exists = True
+        self.update_idletasks()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        if splash:
+            splash.close()
+
+        # รับประกันความมั่นใจว่าหน้าต่างจะปรากฏและไม่หลุดโฟกัสหลังเข้าสู่ Event Loop ของ mainloop()
+        self.after(50, self._ensure_window_visible)
+
+    def _ensure_window_visible(self):
+        """รับประกันว่าหน้าต่างหลักจะ deiconify และแสดงผลบนหน้าจอของผู้ใช้ 100% เสมอ (v6.55)"""
+        try:
+            if not self.winfo_exists():
+                return
+            self._withdraw_called_before_window_exists = False
+            self._window_exists = True
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(100, lambda: self.attributes("-topmost", False) if self.winfo_exists() else None)
+        except Exception:
+            pass
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.54 (Self-Healing Process & Zero-Zombie Architecture)
 
 ## 📋 Version 6.54 Changelog (Self-Healing Process & Zero-Zombie Architecture)

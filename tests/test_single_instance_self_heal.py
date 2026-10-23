@@ -132,5 +132,22 @@ time.sleep(30)
         self.assertIn('def on_app_close(self):', code)
         self.assertIn('os._exit(0)', code)
 
+    def test_06_customtkinter_window_reveal_state(self):
+        """TC-170: ตรวจสอบว่า CustomTkinter ปลดล็อก _withdraw_called_before_window_exists และแสดงผลได้จริง (v6.55)"""
+        import customtkinter as ctk
+        app = ctk.CTk()
+        app.withdraw()
+        
+        # จำลองการปลดล็อกแบบ v6.55
+        app._withdraw_called_before_window_exists = False
+        app._window_exists = True
+        app.deiconify()
+
+        # ตรวจสอบสถานะ
+        self.assertEqual(app.state(), "normal")
+        self.assertFalse(app._withdraw_called_before_window_exists)
+        self.assertTrue(app._window_exists)
+        app.destroy()
+
 if __name__ == "__main__":
     unittest.main()

@@ -975,11 +975,11 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.54 (Self-Healing Process and Zero-Zombie Architecture)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.55 (Window Reveal and CustomTkinter State Fix)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
-        # ผูกอีเวนต์ปิดหน้าต่าง [X] เพื่อทำ Clean Teardown 100% ไร้ซอมบี้ (v6.54)
+        # ผูกอีเวนต์ปิดหน้าต่าง [X] เพื่อทำ Clean Teardown 100% ไร้ซอมบี้ (v6.55)
         self.protocol("WM_DELETE_WINDOW", self.on_app_close)
 
         # --- ส่วนประกอบฐานข้อมูลและหลังบ้าน ---
@@ -1085,15 +1085,35 @@ class FaceSearchApp(ctk.CTk):
         # เริ่มต้นกระบวนการ Pre-Warming ข้อมูลและสร้างแคชรูป Avatar ใน Background Daemon Thread (Zero-Lag v6.43)
         self.after(200, self._start_prewarm_caches)
 
-        # v6.52: สลับหน้าต่างทันทีแบบไร้รอยต่อ (Zero-Gap Seamless Transition: เสร็จปุ๊บมาปั๊บ 100%)
+        # v6.55: ปลดล็อกสถานะ CustomTkinter ให้แสดงผลบนหน้าจอ 100% ไม่ติดค้าง Withdrawn
         if splash:
             splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
+        self._withdraw_called_before_window_exists = False
+        self._window_exists = True
         self.update_idletasks()
         self.deiconify()
         self.lift()
         self.focus_force()
         if splash:
             splash.close()
+
+        # รับประกันความมั่นใจว่าหน้าต่างจะปรากฏและไม่หลุดโฟกัสหลังเข้าสู่ Event Loop ของ mainloop()
+        self.after(50, self._ensure_window_visible)
+
+    def _ensure_window_visible(self):
+        """รับประกันว่าหน้าต่างหลักจะ deiconify และแสดงผลบนหน้าจอของผู้ใช้ 100% เสมอ (v6.55)"""
+        try:
+            if not self.winfo_exists():
+                return
+            self._withdraw_called_before_window_exists = False
+            self._window_exists = True
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(100, lambda: self.attributes("-topmost", False) if self.winfo_exists() else None)
+        except Exception:
+            pass
 
     # --- ส่วนเมนูด้านซ้าย (Sidebar) ---
     def create_sidebar(self):
@@ -1105,7 +1125,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.54",
+            text="FACE MATCHING\nSYSTEM v6.55",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -9222,9 +9242,9 @@ class FaceSearchApp(ctk.CTk):
             return False
 
     def on_app_close(self):
-        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.54)"""
+        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.55)"""
         try:
-            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.54)...")
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.55)...")
             # 1. หยุดการทำงานของ Scheduler Task
             if hasattr(self, 'scheduler') and self.scheduler:
                 try:

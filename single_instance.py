@@ -179,7 +179,7 @@ def kill_stale_project_processes():
 
 def acquire_mutex(mutex_name=DEFAULT_MUTEX_NAME, auto_heal=True):
     """
-    จอง Named Mutex สำหรับ Windows OS พร้อมระบบ Self-Healing (v6.54)
+    จอง Named Mutex สำหรับ Windows OS พร้อมระบบ Self-Healing (v6.55)
     - หากมีโปรแกรม instance อื่นเปิดและมีหน้าต่างใช้งานอยู่จริง: คืนค่า None
     - หากพบ Mutex แต่ไม่มีหน้าต่างโปรแกรมใดๆ (Stale/Zombie Lock): ทำการเคลียร์โปรเซสซอมบี้และกู้คืน Mutex ให้ทันที
     """
