@@ -1,3 +1,138 @@
+# แผนงานแก้ไขและส่งออกดัชนีภาพเก่า Crowdsource ครบถ้วน 845 ภาพ (Complete Archive Crowdsource 845 Photos Full Sync v6.57)
+
+## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Deep Root Cause Analysis)
+
+จากการตรวจสอบฐานข้อมูล SQLite ท้องถิ่น (`data/faces_db.db`) และการวิเคราะห์รหัสโปรแกรมอย่างละเอียด:
+
+### 1) การตรวจสอบข้อมูลในฐานข้อมูล SQLite (`data/faces_db.db`):
+- ในตาราง `scanned_photos` มีข้อมูลรูปภาพในโฟลเดอร์ `ภาพกิจกรรม 2562- 25xx ในอดีต` (`academic_year = '25xx'`) อยู่ครบถ้วน **845 ภาพ** จริง 100%!
+- ข้อมูลการตรวจพบใบหน้าในตาราง `scanned_photo_faces`:
+  - **ภาพที่มีใบหน้าตรวจพบ:** จำนวน **802 ภาพ** รวมใบหน้าทั้งหมด **8,307 จุดใบหน้า**
+  - **ภาพที่ไม่มีใบหน้าตรวจพบ (`faces: []`):** จำนวน **43 ภาพ** (เช่น ภาพป้ายโรงเรียน โบว์ชัวร์ เอกสาร หรือภาพมุมกว้างที่ไม่พบหน้าคน)
+  - **รวมภาพทั้งหมดที่พร้อมส่งออก:** **845 ภาพ (ครบ 100% ของคลังภาพอดีต)**
+- ขนาดไฟล์ Compact JSON สำหรับ 845 ภาพ และ 8,307 ใบหน้า อยู่ที่เพียง **821.56 KB (ประมาณ 0.80 MB)** ซึ่งต่ำกว่าขีดจำกัดของระบบเว็บและ Google Drive อย่างมาก (< 4 MB)
+
+---
+
+### 2) ต้นตอของปัญหา: ทำไม `archive_crowdsource_index.json` บน Google Drive ถึงค้างอยู่ที่ 202 ภาพ (The Silent Skip Bug):
+1. **การปรับลด Schema ในเวอร์ชัน v6.53 (Ultra-Minimal):**
+   - ในเวอร์ชัน v6.53 มีการปรับฟอร์แมต JSON ให้กะทัดรัดเหลือเพียง `{"schema_version": 1, "photos": {...}}` โดย **ตัดฟิลด์ `total_photos` และ `total_faces` ออกจาก Root Level**
+2. **เงื่อนไขค้างตกหล่นใน `update_json_indexes_on_drive()` ([gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py#L810)):**
+   - ในฟังก์ชัน `update_json_indexes_on_drive()` ซึ่งเป็นระบบ Auto-Sync ที่ทำงานอัตโนมัติทุกครั้งเมื่อสแกนรูปภาพเสร็จสิ้น มีโค้ดตรวจสอบเงื่อนไขที่บรรทัด 810 ว่า:
+     ```python
+     archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
+     if archive_crowdsource_data and archive_crowdsource_data.get("total_photos", 0) > 0:
+     ```
+   - เนื่องจากใน v6.53 คีย์ `"total_photos"` ถูกตัดออกจาก `archive_crowdsource_data` แล้ว ทำให้ `archive_crowdsource_data.get("total_photos", 0)` กลายเป็นค่า **`0`** เสมอ!
+   - ผลลัพธ์คือ: **`0 > 0` เป็น `False`!**
+3. **การหลุดข้ามการอัปโหลดไฟล์อัตโนมัติ (Silent Skip):**
+   - เมื่อเวลา 17:43 น. วันที่ 23 ต.ค. เมื่อกระบวนการสแกนภาพอดีนครบทั้ง 845 ภาพเสร็จสิ้นลง ระบบได้ทำการอัปเดตไฟล์ Shard ทั่วไป (`photo_manifest.json`, `photo_index_archive.json`) เป็น 845 ภาพได้สำเร็จ
+   - แต่ในส่วนของ `archive_crowdsource_index.json` ถูกเงื่อนไข `0 > 0` บล็อกไว้ ทำให้ **ข้ามการสร้างและอัปโหลดไฟล์ `archive_crowdsource_index.json` ไปโดยไม่มี Error แจ้งเตือน!**
+   - ส่งผลให้ไฟล์ `archive_crowdsource_index.json` บน Google Drive ยังคงค้างเป็นไฟล์เก่าที่สร้างไว้ตอน 15:16 น. (ซึ่งในเวลานั้นเพิ่งสแกนภาพไปได้เพียง 202 ภาพเท่านั้น)
+   - เมื่อระบบเว็บดาวน์โหลด `archive_crowdsource_index.json` ไปประมวลผล จึงพบรายการเพียง 202 ภาพ และอีก 643 ภาพที่เหลือไม่มีรายการอยู่ในไฟล์นี้เลยอย่างที่ผู้ใช้ตรวจพบอย่างถูกต้อง
+
+---
+
+## 🏗️ 2. แผนการแก้ไขและกู้คืนความสมบูรณ์ (Solution Architecture v6.57)
+
+### 1) แก้ไขเงื่อนไขการตรวจสอบใน [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py)
+- ปรับปรุงการตรวจสอบใน `update_json_indexes_on_drive()` ให้อ่านจำนวนรูปภาพและใบหน้าโดยตรงจากคีย์ `"photos"`:
+  ```python
+  photos_map = archive_crowdsource_data.get("photos", {}) if archive_crowdsource_data else {}
+  total_photos = len(photos_map)
+  total_faces = sum(len(p.get("faces", [])) for p in (photos_map.values() if isinstance(photos_map, dict) else photos_map))
+  if archive_crowdsource_data and total_photos > 0:
+      sync_results["archive_crowdsource_index.json"] = upload_overwrite_json(
+          "archive_crowdsource_index.json", archive_crowdsource_data, use_compact=True
+      )
+      manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
+      manifest["archive_crowdsource_photos"] = total_photos
+      manifest["archive_crowdsource_faces"] = total_faces
+  ```
+- ช่วยให้ระบบ Auto-Sync ในอนาคตจะอัปโหลด `archive_crowdsource_index.json` ควบคู่ไปกับไฟล์ Shard อื่นๆ เสมอ 100%
+
+### 2) รันการส่งออกและอัปโหลดไฟล์ 845 ภาพขึ้น Google Drive ทันที
+- รันกระบวนการ Sync เพื่ออัปโหลด `archive_crowdsource_index.json` ที่มีข้อมูลภาพครบถ้วนทั้ง **845 ภาพ** (802 ภาพมีใบหน้ารวม 8,307 พิกัด + 43 ภาพมี `faces: []`)
+- อัปเดต `photo_manifest.json` บน Drive ให้ระบุ `archive_crowdsource_photos = 845` และ `archive_crowdsource_faces = 8307`
+
+### 3) ปรับปรุงชุดทดสอบเพื่อป้องกันข้อผิดพลาดในอนาคต (Automated Test Verification)
+- ปรับปรุงเกณฑ์ขนาดไฟล์ใน [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py) (TC-164) ให้รองรับข้อมูล 845 ภาพ (< 2000 KB)
+- เพิ่ม Unit Test TC-172 ใน [tests/test_archive_crowdsource_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_sync.py) เพื่อยืนยันว่า:
+  - ข้อมูลที่ดึงได้ครอบคลุมครบ 845 ภาพ
+  - มีทั้งกลุ่มภาพที่มีใบหน้า (802 ภาพ) และกลุ่มภาพที่เป็น `faces: []` (43 ภาพ)
+  - ฟังก์ชัน `update_json_indexes_on_drive` คำนวณ `total_photos` และ `total_faces` ได้อย่างแม่นยำ ไม่หลุดข้ามอีกต่อไป
+
+### 4) อัปเดตเลขเวอร์ชันเป็น `v6.57` และบันทึกประวัติ
+- อัปเดต Title Bar, Sidebar Logo, SplashScreen, README.md, และ Database Manifest เป็น `v6.57`
+- แทรกประวัติการเปลี่ยนแปลง (Changelog) ไว้ที่บรรทัดบนสุดของ `README.md`
+- ส่งขึ้น Git repository (`git add .`, `git commit`, `git push`)
+
+---
+
+## 🧪 3. ลำดับขั้นตอนการดำเนินงาน (Step-by-Step Action Items)
+
+| ข้อที่ | รายละเอียดงาน | ไฟล์ที่เกี่ยวข้อง |
+| :---: | :--- | :--- |
+| **1** | แก้ไขเงื่อนไข `total_photos` ใน `update_json_indexes_on_drive` ให้ดึงจาก `len(photos_map)` | [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py) |
+| **2** | ดำเนินการซิงค์ `archive_crowdsource_index.json` (845 รูป) ขึ้น Google Drive โฟลเดอร์ `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` ทันที | `Google Drive API` |
+| **3** | ปรับปรุงชุดทดสอบ TC-164 และเพิ่ม TC-172 ตรวจสอบความครบถ้วน 845 ภาพ | [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py)<br>[tests/test_archive_crowdsource_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_sync.py) |
+| **4** | รันชุดทดสอบทั้งหมดรวม 22 รายการ (TC-151 ถึง TC-172) ให้ผ่าน 100% | Python Unittest |
+| **5** | ปรับเลขเวอร์ชันเป็น `v6.57` ทั่วทั้งระบบ และบันทึกลงบนสุดของ `README.md` | [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)<br>[README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md) |
+| **6** | นำส่งขึ้น Git Repository (`git commit` และ `git push origin master`) | Git Workflow |
+
+---
+
+# แผนงานพัฒนาโปรแกรมแยกรูปถ่ายอัตโนมัติจากภาพสแกนแผ่นใหญ่ (Auto Photo Scan Splitter & Deskew Tool)
+
+## 📌 1. ความต้องการและปัญหาที่พบ (User Requirement & Pain Point)
+- **ปัญหา**: ผู้ใช้ต้องการสแกนรูปถ่ายอัลบั้มเก่า (ภาพจากกล้องฟิล์ม) ด้วยเครื่องสแกนเนอร์ HP โดยใช้แอป **HP Smart** ซึ่งตัวแอปไม่มีฟังก์ชัน Multi-Photo Auto Crop เหมือนของ Epson ที่สามารถตรวจจับและแยกรูป 4–6 ใบที่วางพร้อมกันบนหน้ากระจกได้อัตโนมัติ ทำให้ผู้ใช้ต้องเสียเวลาอย่างมากหากต้องสแกนทีละใบ
+- **เป้าหมาย**: พัฒนาเครื่องมืออรรถประโยชน์ภาษา Python (OpenCV) ที่ช่วยให้ผู้ใช้สามารถ:
+  1. วางรูปหลายใบ (เช่น 4–6 รูป) ลงบนกระจกสแกนเนอร์ แล้วกดสแกนทั้งแผ่นขนาด A4 ผ่าน HP Smart เซฟรวมไว้ในโฟลเดอร์เดียว
+  2. รันโปรแกรมเพื่อตรวจจับรูปถ่ายทั้งหมดในแต่ละหน้าสแกนโดยอัตโนมัติ
+  3. หมุนปรับองศาให้ตรง (Auto-Deskew & Perspective Transform) และครอปตัดแยกเป็นภาพเดี่ยวบันทึกลงโฟลเดอร์ให้อัตโนมัติรวดเดียวทั้งอัลบั้ม
+
+---
+
+## 🏗️ 2. สถาปัตยกรรมและการทำงานของโปรแกรม (System Architecture)
+
+### 1) โครงสร้างไฟล์
+- `tools/photo_scan_splitter.py`: สคริปต์หลักที่ประกอบด้วยอัลกอริทึมประมวลผลภาพ (OpenCV Engine) และหน้าต่างกราฟิก (GUI)
+- `run_photo_splitter.bat`: ตัวเปิดโปรแกรมแบบดับเบิลคลิกใช้งานได้ทันทีบน Windows (ทำงานผ่าน `venv\Scripts\pythonw.exe` ไร้หน้าต่างดำ ตามมาตรฐานระบบ)
+
+### 2) กระบวนการประมวลผลภาพ (Core Image Processing Pipeline)
+1. **การโหลดและรองรับภาพหลากหลายฟอร์แมต (Multi-Format Support)**:
+   - อ่านภาพสแกนความละเอียดสูง (300/600 DPI) ผ่าน `cv2.imdecode` ร่วมกับ Fallback ด้วย `Pillow` เพื่อรองรับทั้ง `.JPG`, `.PNG`, `.TIFF`, `.HEIC`
+2. **การตรวจจับขอบเขตและแยกพื้นหลัง (Background & Edge Segmentation)**:
+   - วิเคราะห์พื้นหลังของกระจกสแกนเนอร์ (ค่าเริ่มต้นคือฝาสแกนสีขาว White Lid Background)
+   - ปรับลดสัญญาณรบกวนด้วย Gaussian Blur เพื่อลบเม็ดสกรีน Halftone จากการพิมพ์
+   - ใช้อัลกอริทึม Adaptive/Otsu Thresholding และ Morphological Operations (Close/Dilate) เพื่อรวมเม็ดสีในรูปให้เป็นวัตถุเดียวกัน
+3. **การคัดกรองรูปภาพและการจัดเรียง (Contour Filtering & Sorting)**:
+   - คัดเลือกเฉพาะกรอบรูปที่มีขนาดสมเหตุสมผล (กรองฝุ่น ผง และรอยเปื้อนขนาดเล็กออก และกรองกรอบนอกสุดทิ้ง)
+   - จัดเรียงลำดับรูปถ่ายจากบนลงล่าง และจากซ้ายไปขวา เพื่อให้ลำดับเลขไฟล์ผลลัพธ์ (`photo_01`, `photo_02`, ...) เรียงอย่างเป็นระเบียบ
+4. **การหมุนปรับตรงและการตัดขอบแบบแม่นยำ (Deskew & Perspective Transform)**:
+   - หาจุดมุมทั้ง 4 ด้วย `cv2.minAreaRect` เพื่อคำนวณองศาความเอียง
+   - ใช้ Perspective Transform ปรับภาพให้ตั้งตรง 90 องศา คมชัด ไร้ขอบดำรอบข้าง
+   - มีระบบ Safe Inward Margin (ตัดขอบเข้าด้านใน 2-3 พิกเซล) เพื่อป้องกันไม่ให้มีขอบขาวของฝาสแกนเนอร์ติดมากับรูป
+5. **การแสดงผลและการใช้งาน (User-Friendly GUI)**:
+   - หน้าต่างโปรแกรมใช้งานง่าย:
+     - ช่องเลือกโฟลเดอร์ภาพสแกน (Input Folder)
+     - ช่องเลือกโฟลเดอร์สำหรับเซฟรูปผลลัพธ์ (Output Folder)
+     - ตัวเลือกประเภทพื้นหลัง: ฝาสแกนสีขาว (White Background) หรือ พื้นหลังมืด (Dark)
+     - แถบความคืบหน้า (Progress Bar) และกรอบ Preview แสดงรูปที่ตรวจจับได้แบบเรียลไทม์
+     - ปุ่ม "เริ่มประมวลผลและแยกรูป (Start Splitting)"
+
+---
+
+## 🧪 3. แผนการทดสอบความถูกต้อง (Verification Plan)
+1. **การทดสอบอัลกอริทึมตรวจจับ (Algorithm Verification)**:
+   - สร้างสคริปต์สังเคราะห์ภาพสแกนทดสอบ (Mock Scan A4) ที่มีรูปถ่ายขนาดต่างๆ วางเอียงมุมต่างๆ บนพื้นหลังสีขาว
+   - ตรวจสอบว่าโปรแกรมตรวจจับได้ครบทุกรูป หมุนองศาตรง และตัดขอบได้รูปทรงถูกต้อง
+2. **การทดสอบรัน GUI และ Batch Process**:
+   - ทดสอบรันหน้าต่าง GUI ผ่าน `run_photo_splitter.bat`
+   - ทดสอบการประมวลผลภาพต่อเนื่องหลายไฟล์ และตรวจสอบไฟล์รูปภาพผลลัพธ์ในโฟลเดอร์ปลายทาง
+
+---
+
 # แผนงานแก้ไขปัญหารายการโฟลเดอร์หลักและภาพ Avatar ไม่แสดงผล (Tkinter Default Root Restoration Fix v6.56)
 
 ## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Root Cause Analysis)

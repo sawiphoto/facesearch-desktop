@@ -804,19 +804,30 @@ class GoogleSyncManager:
                 # Legacy Photo Index (Dual-Write)
                 sync_results["photo_index.json"] = upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
 
-                # 4. ดัชนีภาพกิจกรรมในอดีต (2562-25xx) สำหรับ Crowdsourcing Tagging (v6.49)
+                # 4. ดัชนีภาพกิจกรรมในอดีต (2562-25xx) สำหรับ Crowdsourcing Tagging (v6.49 / v6.57)
                 try:
                     archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
-                    if archive_crowdsource_data and archive_crowdsource_data.get("total_photos", 0) > 0:
+                    arc_photos = archive_crowdsource_data.get("photos", {}) if archive_crowdsource_data else {}
+                    if isinstance(arc_photos, dict):
+                        arc_total_photos = len(arc_photos)
+                        arc_total_faces = sum(len(p.get("faces", [])) for p in arc_photos.values())
+                    elif isinstance(arc_photos, list):
+                        arc_total_photos = len(arc_photos)
+                        arc_total_faces = sum(len(p.get("faces", [])) for p in arc_photos)
+                    else:
+                        arc_total_photos = 0
+                        arc_total_faces = 0
+
+                    if archive_crowdsource_data and arc_total_photos > 0:
                         sync_results["archive_crowdsource_index.json"] = upload_overwrite_json(
                             "archive_crowdsource_index.json", archive_crowdsource_data, use_compact=True
                         )
                         manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
-                        manifest["archive_crowdsource_photos"] = archive_crowdsource_data.get("total_photos", 0)
-                        manifest["archive_crowdsource_faces"] = archive_crowdsource_data.get("total_faces", 0)
+                        manifest["archive_crowdsource_photos"] = arc_total_photos
+                        manifest["archive_crowdsource_faces"] = arc_total_faces
                         # อัปเดต photo_manifest.json ให้มีคีย์ของไฟล์ภาพในอดีตนี้ด้วย
                         sync_results["photo_manifest.json"] = upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
-                        logger.info(f"[GDRIVE JSON] Synced archive_crowdsource_index.json ({archive_crowdsource_data.get('total_photos')} photos).")
+                        logger.info(f"[GDRIVE JSON] Synced archive_crowdsource_index.json ({arc_total_photos} photos, {arc_total_faces} faces).")
                 except Exception as arc_err:
                     logger.warning(f"[GDRIVE JSON] Could not sync archive_crowdsource_index.json: {arc_err}")
 

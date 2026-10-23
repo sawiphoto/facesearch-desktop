@@ -67,10 +67,10 @@ class TestArchiveCrowdsourceV2UltraMinimal(unittest.TestCase):
                 self.assertLessEqual(b["height"], 100.0)
 
     def test_tc164_compact_json_size(self):
-        """TC-164: ตรวจสอบขนาด JSON แบบ Compact ต้องต่ำกว่า 300 KB (เป้าหมาย <4 MB)"""
+        """TC-164: ตรวจสอบขนาด JSON แบบ Compact ต้องต่ำกว่า 2,000 KB สำหรับ 845 ภาพ (เป้าหมาย <4 MB)"""
         raw_json = json.dumps(self.data, separators=(',', ':'), ensure_ascii=False)
         size_kb = len(raw_json.encode('utf-8')) / 1024.0
-        self.assertLess(size_kb, 300.0, f"ขนาดไฟล์ {size_kb:.2f} KB เกินเกณฑ์ 300 KB")
+        self.assertLess(size_kb, 2000.0, f"ขนาดไฟล์ {size_kb:.2f} KB เกินเกณฑ์ 2000 KB")
 
 if __name__ == "__main__":
     unittest.main()

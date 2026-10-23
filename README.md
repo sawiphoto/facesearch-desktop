@@ -1,3 +1,104 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.57 (Complete Archive Crowdsource 845 Photos Full Sync)
+
+## 📋 Version 6.57 Changelog (Complete Archive Crowdsource 845 Photos Full Sync)
+
+**Date:** 23 ตุลาคม 2026 (22:50 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.57 (Complete Archive Crowdsource 845 Photos Full Sync)  
+**Core Technologies:** Full Archive Coverage (845 Photos: 802 with 8,307 Detected Faces, 43 with faces: []), Auto-Sync Schema Resilience in `update_json_indexes_on_drive`, Live Google Drive Centralized Sync (`1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`), Unit Test Suite TC-151 to TC-172 (22/22 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความไม่สอดคล้องกันของจำนวนภาพระหว่างคลังบนเว็บกับไฟล์ดัชนีใบหน้า:**
+   - ผู้ใช้ตรวจพบว่าในคลังภาพ Google Drive และหน้าเว็บมีภาพกิจกรรมในอดีต (2562-25xx) รวม **845 ภาพ**
+   - แต่ในไฟล์ `archive_crowdsource_index.json` กลับมีรายการภาพเพียง **202 ภาพ** (193 ภาพมีพิกัด 1,654 จุด, 9 ภาพเป็น `faces: []`)
+   - ส่งผลให้มีภาพในอดีตอีกถึง **643 ภาพ** ที่ไม่มีรายการอยู่ในไฟล์ดัชนีใบหน้าเลย
+   - หลักฐานเวลาแสดงว่าไฟล์ใบหน้าแก้ไขล่าสุดตอน 15:16 น. ส่วนดัชนีภาพรวมอัปเดตเป็น 845 ภาพตอน 17:43 น. วันที่ 23 ต.ค. ทำให้ข้อมูลบนเว็บไม่ครอบคลุมคลังจริง
+2. **ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Deep Root Cause Analysis):**
+   - **ฐานข้อมูล SQLite ในเครื่อง (`data/faces_db.db`):** มีข้อมูลรูปภาพในอดีต (`academic_year = '25xx'`) ครบถ้วน **845 ภาพ** จริง 100% โดยสแกนพบใบหน้า 802 ภาพ (8,307 จุดใบหน้า) และเป็นภาพที่ไม่มีใบหน้า 43 ภาพ (`faces: []`)
+   - **สาเหตุที่ `archive_crowdsource_index.json` บน Drive ไม่ถูกอัปเดต (The Silent Skip Bug):**
+     - ในเวอร์ชัน v6.53 ได้มีการปรับโครงสร้าง JSON ให้เป็นแบบ Ultra-Minimal (`{"schema_version": 1, "photos": {...}}`) โดยตัดฟิลด์ `"total_photos"` ออกจาก Root Level
+     - แต่ใน [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py) บรรทัดที่ 810 ฟังก์ชัน Auto-Sync (`update_json_indexes_on_drive`) ยังมีเงื่อนไขตรวจสอบเดิมว่า:
+       `if archive_crowdsource_data and archive_crowdsource_data.get("total_photos", 0) > 0:`
+     - เมื่อคีย์ `"total_photos"` ไม่มีอยู่ ค่าที่ได้จึงเป็น `0` เสมอ ทำให้เงื่อนไข `0 > 0` เป็น `False`!
+     - ส่งผลให้เมื่อสแกนภาพครบ 845 ภาพเสร็จตอน 17:43 น. ระบบอัปเดตไฟล์ Shard ทั่วไปสำเร็จ แต่ **ข้ามการอัปโหลดไฟล์ `archive_crowdsource_index.json` ไปโดยไม่มี Error แจ้งเตือน!** ไฟล์บน Drive จึงค้างเป็นไฟล์เก่ารอบ 15:16 น. (202 ภาพ)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ปรับปรุงฟังก์ชัน Auto-Sync ใน [gdrive_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/gdrive_sync.py) (`update_json_indexes_on_drive`):**
+   - เปลี่ยนการนับจำนวนภาพและใบหน้าให้อ่านโดยตรงจากพจนานุกรม `"photos"`:
+     ```python
+     arc_photos = archive_crowdsource_data.get("photos", {}) if archive_crowdsource_data else {}
+     arc_total_photos = len(arc_photos)
+     arc_total_faces = sum(len(p.get("faces", [])) for p in arc_photos.values())
+     ```
+   - เมื่อ `arc_total_photos > 0` ให้ทำการอัปโหลดเขียนทับ `archive_crowdsource_index.json` และอัปเดตสถิติใน `photo_manifest.json` เสมอ
+2. **ส่งออกและอัปโหลดไฟล์ภาพอดีตครบ 845 ภาพขึ้น Google Drive ทันที:**
+   - อัปโหลด `archive_crowdsource_index.json` ขึ้นโฟลเดอร์รวมศูนย์ `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` สำเร็จสมบูรณ์:
+     - รวมภาพทั้งหมด: **845 ภาพ**
+     - ภาพที่มีพิกัดใบหน้า: **802 ภาพ (รวม 8,307 จุดใบหน้า)**
+     - ภาพที่ไม่มีใบหน้า: **43 ภาพ (`faces: []`)**
+     - ขนาดไฟล์ Compact: **821.56 KB (0.80 MB)** ต่ำกว่าเกณฑ์ 4 MB อย่างมาก
+   - อัปเดต `photo_manifest.json` บน Google Drive:
+     - `"archive_crowdsource_file": "archive_crowdsource_index.json"`
+     - `"archive_crowdsource_photos": 845`
+     - `"archive_crowdsource_faces": 8307`
+3. **ชุดทดสอบและการตรวจสอบความถูกต้อง (Verification):**
+   - ปรับปรุง [tests/test_archive_crowdsource_v2.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_v2.py) (TC-164) ให้รองรับขนาดไฟล์ 845 ภาพ (< 2000 KB)
+   - เพิ่ม Unit Test ใหม่ TC-172 ใน [tests/test_archive_crowdsource_sync.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_archive_crowdsource_sync.py) ยืนยันความครอบคลุม 845 ภาพ (802 ภาพมีหน้า, 43 ภาพ `faces: []`, 8,307 จุดใบหน้า)
+   - รันชุดทดสอบทั้งหมดรวม 22 รายการ: **ผ่านสมบูรณ์ 100% (22/22 OK)**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `gdrive_sync.py` - แก้ไขเงื่อนไขการตรวจสอบ `total_photos` ใน `update_json_indexes_on_drive`
+**ก่อนแก้ไข (Before):**
+```python
+                try:
+                    archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
+                    if archive_crowdsource_data and archive_crowdsource_data.get("total_photos", 0) > 0:
+                        sync_results["archive_crowdsource_index.json"] = upload_overwrite_json(
+                            "archive_crowdsource_index.json", archive_crowdsource_data, use_compact=True
+                        )
+                        manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
+                        manifest["archive_crowdsource_photos"] = archive_crowdsource_data.get("total_photos", 0)
+                        manifest["archive_crowdsource_faces"] = archive_crowdsource_data.get("total_faces", 0)
+                        # ใน v6.53 คีย์ total_photos ถูกตัดออก ทำให้ archive_crowdsource_data.get("total_photos", 0) ได้ 0 เสมอ
+                        # ผลลัพธ์: เงื่อนไข 0 > 0 เป็น False และข้ามการอัปโหลดไฟล์ไปอย่างเงียบๆ
+```
+
+**หลังแก้ไข (After):**
+```python
+                try:
+                    archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
+                    arc_photos = archive_crowdsource_data.get("photos", {}) if archive_crowdsource_data else {}
+                    if isinstance(arc_photos, dict):
+                        arc_total_photos = len(arc_photos)
+                        arc_total_faces = sum(len(p.get("faces", [])) for p in arc_photos.values())
+                    elif isinstance(arc_photos, list):
+                        arc_total_photos = len(arc_photos)
+                        arc_total_faces = sum(len(p.get("faces", [])) for p in arc_photos)
+                    else:
+                        arc_total_photos = 0
+                        arc_total_faces = 0
+
+                    if archive_crowdsource_data and arc_total_photos > 0:
+                        sync_results["archive_crowdsource_index.json"] = upload_overwrite_json(
+                            "archive_crowdsource_index.json", archive_crowdsource_data, use_compact=True
+                        )
+                        manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
+                        manifest["archive_crowdsource_photos"] = arc_total_photos
+                        manifest["archive_crowdsource_faces"] = arc_total_faces
+                        sync_results["photo_manifest.json"] = upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)
+                        logger.info(f"[GDRIVE JSON] Synced archive_crowdsource_index.json ({arc_total_photos} photos, {arc_total_faces} faces).")
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.56 (Root Window Restoration, Folder List & Avatar Fix)
 
 ## 📋 Version 6.56 Changelog (Root Window Restoration, Folder List & Avatar Fix)

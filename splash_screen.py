@@ -7,9 +7,9 @@ class SplashScreen:
     """
     หน้าต่าง Splash Screen น้ำหนักเบาพิเศษ (Pure Tkinter)
     เปิดได้ทันทีใน <0.15 วินาที พร้อมแถบ Progress Bar (0% - 100%)
-    และป้ายข้อความแสดงสถานะการโหลดแบบเรียลไทม์ (v6.56)
+    และป้ายข้อความแสดงสถานะการโหลดแบบเรียลไทม์ (v6.57)
     """
-    def __init__(self, title="FACE MATCHING SYSTEM", version="v6.56"):
+    def __init__(self, title="FACE MATCHING SYSTEM", version="v6.57"):
         self.root = tk.Tk()
         self.root.title(title)
         self.root.overrideredirect(True)  # ไร้กรอบขอบหน้าต่างแบบโมเดิร์น

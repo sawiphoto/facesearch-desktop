@@ -71,7 +71,7 @@ class TestArchiveCrowdsourceSync(unittest.TestCase):
         manifest = sharded_data.get("manifest", {})
         self.assertIn("available_years", manifest)
         self.assertIn("year_file_map", manifest)
-        self.assertEqual(manifest.get("version"), "v6.56")
+        self.assertEqual(manifest.get("version"), "v6.57")
 
     def test_tc154_task1_and_sync_archive_method_exists(self):
         """TC-154: ตรวจสอบว่า GoogleSyncManager มีเมธอด sync_archive_crowdsource_only พร้อมใช้งาน"""
@@ -79,9 +79,24 @@ class TestArchiveCrowdsourceSync(unittest.TestCase):
         self.assertTrue(callable(getattr(self.sync, "sync_archive_crowdsource_only")))
 
     def test_tc155_gui_integration_and_version(self):
-        """TC-155: ตรวจสอบเลขเวอร์ชัน v6.49 และเมธอด GUI สำหรับปุ่ม Manual Sync"""
+        """TC-155: ตรวจสอบเลขเวอร์ชันและการมีอยู่ของเมธอด GUI สำหรับปุ่ม Manual Sync"""
         import app_gui
         self.assertTrue(hasattr(app_gui.FaceSearchApp, "sync_archive_crowdsource_json_manual"))
+
+    def test_tc172_complete_archive_coverage_845_photos(self):
+        """TC-172: ตรวจสอบความครอบคลุมคลังภาพในอดีตครบถ้วน 845 ภาพ (802 ภาพมีใบหน้า, 43 ภาพ faces: []) (v6.57)"""
+        data = self.db.get_archive_crowdsource_data("25xx")
+        self.assertEqual(data.get("schema_version"), 1)
+        photos = data.get("photos", {})
+        self.assertEqual(len(photos), 845, f"ต้องมีรูปภาพครบถ้วน 845 ภาพ แต่พบ {len(photos)}")
+        
+        with_faces = sum(1 for p in photos.values() if len(p.get("faces", [])) > 0)
+        empty_faces = sum(1 for p in photos.values() if len(p.get("faces", [])) == 0)
+        total_faces = sum(len(p.get("faces", [])) for p in photos.values())
+        
+        self.assertEqual(with_faces, 802, "ภาพที่มีใบหน้าต้องมี 802 ภาพ")
+        self.assertEqual(empty_faces, 43, "ภาพที่ไม่มีใบหน้า (faces: []) ต้องมี 43 ภาพ")
+        self.assertEqual(total_faces, 8307, "จุดใบหน้าทั้งหมดต้องมี 8,307 จุด")
 
 
 if __name__ == "__main__":
