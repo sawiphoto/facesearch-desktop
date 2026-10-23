@@ -967,6 +967,8 @@ class StudentLifecycleDialog(ctk.CTkToplevel):
 class FaceSearchApp(ctk.CTk):
     def __init__(self, analyzer=None, splash=None, app_mutex=None):
         super().__init__()
+        import tkinter as tk
+        tk._default_root = self  # v6.56: ผูก _default_root เข้ากับหน้าต่างหลักของโปรแกรมทันที
         self.app_mutex = app_mutex
         self.withdraw()  # v6.52: ซ่อนหน้าต่างหลักไว้ก่อน เพื่อให้ Splash Screen แสดงสถานะ 0-100% ต่อเนื่องแบบไร้รอยต่อ
 
@@ -975,7 +977,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.55 (Window Reveal and CustomTkinter State Fix)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.56 (Root Window Restoration, Folder List & Avatar Fix)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1096,15 +1098,19 @@ class FaceSearchApp(ctk.CTk):
         self.focus_force()
         if splash:
             splash.close()
+        import tkinter as tk
+        tk._default_root = self  # v6.56: กู้คืน _default_root ให้ชี้ที่หน้าต่างหลักอย่างถาวรหลังทำลาย splash
 
         # รับประกันความมั่นใจว่าหน้าต่างจะปรากฏและไม่หลุดโฟกัสหลังเข้าสู่ Event Loop ของ mainloop()
         self.after(50, self._ensure_window_visible)
 
     def _ensure_window_visible(self):
-        """รับประกันว่าหน้าต่างหลักจะ deiconify และแสดงผลบนหน้าจอของผู้ใช้ 100% เสมอ (v6.55)"""
+        """รับประกันว่าหน้าต่างหลักจะ deiconify และแสดงผลบนหน้าจอของผู้ใช้ 100% เสมอ (v6.56)"""
         try:
             if not self.winfo_exists():
                 return
+            import tkinter as tk
+            tk._default_root = self
             self._withdraw_called_before_window_exists = False
             self._window_exists = True
             self.deiconify()
@@ -1125,7 +1131,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.55",
+            text="FACE MATCHING\nSYSTEM v6.56",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -4025,7 +4031,7 @@ class FaceSearchApp(ctk.CTk):
         
         ctk.CTkLabel(self.match_target_box, text="เป้าหมายการค้นหาและจับคู่ใบหน้า:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6CA6CD").grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(8, 4))
         
-        self.match_mode = ctk.StringVar(value="all")
+        self.match_mode = ctk.StringVar(master=self, value="all")
         
         # คอลัมน์ 0: ครู + นักเรียน ทั้งหมด
         self.rad_all = ctk.CTkRadioButton(self.match_target_box, text="ครู + นักเรียน ทั้งหมด", font=ctk.CTkFont(size=14), variable=self.match_mode, value="all", command=self.update_match_mode_ui, text_color="#A2B5CD")
@@ -4143,7 +4149,7 @@ class FaceSearchApp(ctk.CTk):
         for t in teachers:
             s_id = t["id"]
             s_name = t["name"]
-            var = ctk.BooleanVar(value=(s_id in self.selected_teacher_ids))
+            var = ctk.BooleanVar(master=popup, value=(s_id in self.selected_teacher_ids))
             checkbox_vars[s_id] = var
             
             cb = ctk.CTkCheckBox(scr_popup, text=f"{s_name} (ID: {s_id})", variable=var)
@@ -4177,7 +4183,7 @@ class FaceSearchApp(ctk.CTk):
             s_name = s["name"]
             s_sid = s.get("student_id", "")
             disp_text = f"{s_name} (ID: {s_sid})" if s_sid else f"{s_name}"
-            var = ctk.BooleanVar(value=(s_id in self.selected_student_ids))
+            var = ctk.BooleanVar(master=popup, value=(s_id in self.selected_student_ids))
             checkbox_vars[s_id] = var
             
             cb = ctk.CTkCheckBox(scr_popup, text=disp_text, variable=var)
@@ -5863,109 +5869,112 @@ class FaceSearchApp(ctk.CTk):
             return
 
         for idx, item in enumerate(folders):
-            f_id = item["id"]
-            f_name = item["name"]
-            f_year = item["academic_year"] or "-"
-            is_active = bool(item.get("is_active", 1))
-            p_count = item.get("photo_count", 0)
+            try:
+                f_id = item["id"]
+                f_name = item["name"]
+                f_year = item["academic_year"] or "-"
+                is_active = bool(item.get("is_active", 1))
+                p_count = item.get("photo_count", 0)
 
-            row_bg = "#162438" if is_active else "#111A26"
-            row_card = ctk.CTkFrame(self.scr_root_folders, fg_color=row_bg, corner_radius=8)
-            row_card.pack(fill="x", padx=4, pady=3)
+                row_bg = "#162438" if is_active else "#111A26"
+                row_card = ctk.CTkFrame(self.scr_root_folders, fg_color=row_bg, corner_radius=8)
+                row_card.pack(fill="x", padx=4, pady=3)
 
-            # 1. สวิตช์เปิด/ปิดการสแกน
-            sw_var = ctk.BooleanVar(value=is_active)
-            sw = ctk.CTkSwitch(
-                row_card,
-                text="เปิดสแกน" if is_active else "พักสแกน",
-                variable=sw_var,
-                width=95,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#2ECC71" if is_active else "#7F8C8D",
-                progress_color="#27AE60",
-                command=lambda fid=f_id, v=sw_var: self.on_toggle_root_folder_active(fid, v)
-            )
-            sw.pack(side="left", padx=(12, 8), pady=8)
-
-            # 2. ป้ายปีการศึกษา (Badge)
-            badge_color = "#8E44AD" if is_active else "#34495E"
-            lbl_year = ctk.CTkLabel(
-                row_card,
-                text=f"ปี {f_year}",
-                width=80,
-                height=28,
-                corner_radius=6,
-                fg_color=badge_color,
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color="white"
-            )
-            lbl_year.pack(side="left", padx=6, pady=8)
-
-            # 3. ชื่อโฟลเดอร์
-            lbl_name = ctk.CTkLabel(
-                row_card,
-                text=f_name,
-                width=200,
-                anchor="w",
-                font=ctk.CTkFont(size=14, weight="bold"),
-                text_color="white" if is_active else "#7F8C8D"
-            )
-            lbl_name.pack(side="left", padx=8, pady=8)
-
-            # 4. ปุ่มจัดการฝั่งขวา (Pack ฝั่งขวาก่อนเพื่อให้ได้พื้นที่ครบถ้วน ไม่โดน expand บีบ)
-            btn_del = ctk.CTkButton(
-                row_card, text="🗑️ ลบ", width=65, height=28,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                fg_color="#C0392B", hover_color="#962D22",
-                command=lambda it=item: self.on_delete_root_folder_click(it)
-            )
-            btn_del.pack(side="right", padx=(4, 10), pady=8)
-
-            btn_edit = ctk.CTkButton(
-                row_card, text="✏️ แก้ไข", width=75, height=28,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                fg_color="#F39C12", hover_color="#D68910", text_color="black",
-                command=lambda it=item: self.populate_root_folder_form_for_edit(it)
-            )
-            btn_edit.pack(side="right", padx=4, pady=8)
-
-            btn_open = ctk.CTkButton(
-                row_card, text="🌐 เปิด Drive", width=95, height=28,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                fg_color="#1F3A60", hover_color="#20334F",
-                command=lambda fid=f_id: self.open_root_folder_in_browser(fid)
-            )
-            btn_open.pack(side="right", padx=4, pady=8)
-
-            if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
-                btn_sync_archive = ctk.CTkButton(
-                    row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
+                # 1. สวิตช์เปิด/ปิดการสแกน
+                sw_var = ctk.BooleanVar(master=row_card, value=is_active)
+                sw = ctk.CTkSwitch(
+                    row_card,
+                    text="เปิดสแกน" if is_active else "พักสแกน",
+                    variable=sw_var,
+                    width=95,
                     font=ctk.CTkFont(size=12, weight="bold"),
-                    fg_color="#D35400", hover_color="#BA4A00",
-                    command=self.sync_archive_crowdsource_json_manual
+                    text_color="#2ECC71" if is_active else "#7F8C8D",
+                    progress_color="#27AE60",
+                    command=lambda fid=f_id, v=sw_var: self.on_toggle_root_folder_active(fid, v)
                 )
-                btn_sync_archive.pack(side="right", padx=4, pady=8)
+                sw.pack(side="left", padx=(12, 8), pady=8)
 
-            # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
-            lbl_cnt = ctk.CTkLabel(
-                row_card,
-                text=f"📸 {p_count:,} รูป",
-                width=115,
-                anchor="e",
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color="#2ECC71" if p_count > 0 else "#95A5A6"
-            )
-            lbl_cnt.pack(side="right", padx=(6, 12), pady=8)
+                # 2. ป้ายปีการศึกษา (Badge)
+                badge_color = "#8E44AD" if is_active else "#34495E"
+                lbl_year = ctk.CTkLabel(
+                    row_card,
+                    text=f"ปี {f_year}",
+                    width=80,
+                    height=28,
+                    corner_radius=6,
+                    fg_color=badge_color,
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    text_color="white"
+                )
+                lbl_year.pack(side="left", padx=6, pady=8)
 
-            # 6. Folder ID (Pack ซ้ายตัวสุดท้ายพร้อม fill=x และ expand=True เพื่อยืดหยุ่นในพื้นที่ที่เหลือ)
-            lbl_id = ctk.CTkLabel(
-                row_card,
-                text=f"ID: {f_id}",
-                anchor="w",
-                font=ctk.CTkFont(family="Consolas", size=12),
-                text_color="#A2B5CD"
-            )
-            lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
+                # 3. ชื่อโฟลเดอร์
+                lbl_name = ctk.CTkLabel(
+                    row_card,
+                    text=f_name,
+                    width=200,
+                    anchor="w",
+                    font=ctk.CTkFont(size=14, weight="bold"),
+                    text_color="white" if is_active else "#7F8C8D"
+                )
+                lbl_name.pack(side="left", padx=8, pady=8)
+
+                # 4. ปุ่มจัดการฝั่งขวา (Pack ฝั่งขวาก่อนเพื่อให้ได้พื้นที่ครบถ้วน ไม่โดน expand บีบ)
+                btn_del = ctk.CTkButton(
+                    row_card, text="🗑️ ลบ", width=65, height=28,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    fg_color="#C0392B", hover_color="#962D22",
+                    command=lambda it=item: self.on_delete_root_folder_click(it)
+                )
+                btn_del.pack(side="right", padx=(4, 10), pady=8)
+
+                btn_edit = ctk.CTkButton(
+                    row_card, text="✏️ แก้ไข", width=75, height=28,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    fg_color="#F39C12", hover_color="#D68910", text_color="black",
+                    command=lambda it=item: self.populate_root_folder_form_for_edit(it)
+                )
+                btn_edit.pack(side="right", padx=4, pady=8)
+
+                btn_open = ctk.CTkButton(
+                    row_card, text="🌐 เปิด Drive", width=95, height=28,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    fg_color="#1F3A60", hover_color="#20334F",
+                    command=lambda fid=f_id: self.open_root_folder_in_browser(fid)
+                )
+                btn_open.pack(side="right", padx=4, pady=8)
+
+                if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
+                    btn_sync_archive = ctk.CTkButton(
+                        row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
+                        font=ctk.CTkFont(size=12, weight="bold"),
+                        fg_color="#D35400", hover_color="#BA4A00",
+                        command=self.sync_archive_crowdsource_json_manual
+                    )
+                    btn_sync_archive.pack(side="right", padx=4, pady=8)
+
+                # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
+                lbl_cnt = ctk.CTkLabel(
+                    row_card,
+                    text=f"📸 {p_count:,} รูป",
+                    width=115,
+                    anchor="e",
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    text_color="#2ECC71" if p_count > 0 else "#95A5A6"
+                )
+                lbl_cnt.pack(side="right", padx=(6, 12), pady=8)
+
+                # 6. Folder ID (Pack ซ้ายตัวสุดท้ายพร้อม fill=x และ expand=True เพื่อยืดหยุ่นในพื้นที่ที่เหลือ)
+                lbl_id = ctk.CTkLabel(
+                    row_card,
+                    text=f"ID: {f_id}",
+                    anchor="w",
+                    font=ctk.CTkFont(family="Consolas", size=12),
+                    text_color="#A2B5CD"
+                )
+                lbl_id.pack(side="left", padx=8, pady=8, fill="x", expand=True)
+            except Exception as row_err:
+                logger.error(f"[ROOT_FOLDERS] Error rendering root folder row {idx} ({item.get('name')}): {row_err}", exc_info=True)
 
     def sync_archive_crowdsource_json_manual(self):
         """ซิงค์เฉพาะไฟล์ archive_crowdsource_index.json สำหรับภาพในอดีตขึ้น Google Drive ใน Background Daemon Thread (v6.51)"""
@@ -10082,7 +10091,7 @@ class FaceSearchApp(ctk.CTk):
         if self.parsed_requests_list:
             all_checked = all(self.delete_req_selections.get(f"{r['drive_file_id']}_{r['staff_id']}", False) for r in self.parsed_requests_list)
             
-        self.select_all_var = ctk.BooleanVar(value=all_checked)
+        self.select_all_var = ctk.BooleanVar(master=self, value=all_checked)
         
         def toggle_select_all():
             new_val = self.select_all_var.get()
@@ -10145,7 +10154,7 @@ class FaceSearchApp(ctk.CTk):
             # --- คอลัมน์ 1: Checkbox ---
             req_key = f"{req['drive_file_id']}_{req['staff_id']}"
             is_selected = self.delete_req_selections.get(req_key, True)
-            var = ctk.BooleanVar(value=is_selected)
+            var = ctk.BooleanVar(master=row_frame, value=is_selected)
             self.delete_req_vars[req_key] = (var, req)
             
             def on_check(v=var, k=req_key):

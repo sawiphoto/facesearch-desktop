@@ -2142,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.55",
+                "version": "v6.56",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2254,7 +2254,7 @@ class DatabaseManager:
                     faces_by_photo[pid] = []
                 faces_by_photo[pid].append((f_idx, float(x1), float(y1), float(x2), float(y2)))
 
-            # 4. ประกอบข้อมูลในแต่ละรูปภาพ (Ultra-Minimal Schema v6.55)
+            # 4. ประกอบข้อมูลในแต่ละรูปภาพ (Ultra-Minimal Schema v6.56)
             photo_dict = {}
 
             for p in photos:

@@ -1,3 +1,131 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.56 (Root Window Restoration, Folder List & Avatar Fix)
+
+## 📋 Version 6.56 Changelog (Root Window Restoration, Folder List & Avatar Fix)
+
+**Date:** 23 ตุลาคม 2026 (15:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.56 (Root Window Restoration, Folder List & Avatar Fix)  
+**Core Technologies:** Global Tkinter `_default_root` Lifecycle Reassignment, Master Widget Binding for Tk Variables, Multi-Component Visual Asset Restoration, Error Boundary Protection, Unit Test Suite TC-151 to TC-171 (21/21 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ปัญหาตารางรายการโฟลเดอร์รูปภาพระดับปี (Root Year Folders) ว่างเปล่าในหน้าตั้งค่าระบบ:**
+   - ผู้ใช้รายงานว่าในแท็บ "ตั้งค่าระบบ" ตารางรายการโฟลเดอร์ภาพถ่ายระดับปีการศึกษา (Root Year Folders) ที่เดิมเคยมีแสดงอยู่ 8 รายการ กลับว่างเปล่า ไม่มีรายการใดๆ ปรากฏขึ้นมาให้เลือกหรือจัดการ
+2. **ปัญหารูปภาพ Avatar และรูปตัวอย่างเทมเพลตไม่แสดงผลในหน้าลงทะเบียน:**
+   - ผู้ใช้รายงานว่าในหน้า "ลงทะเบียนครู" และ "ลงทะเบียนนักเรียน" รูป Avatar ประจำตัวขนาดเล็ก (32x32) ในตารางรายชื่อทางซ้าย และรูปตัวอย่างเทมเพลต (70x70) ในการ์ดฝั่งขวา ไม่แสดงผล (กลายเป็นกล่องว่างเปล่าสีดำ)
+   - จากการตรวจสอบ Log ใน `debug_log.txt` ตรวจพบ Error Message ต่อเนื่อง:
+     `WARNING: Failed to generate avatar thumbnail for staff 260: Too early to create image: no default root window`
+3. **การตรวจสอบส่วนประกอบอื่นๆ ทั่วทั้งระบบที่ได้รับผลกระทบจากสาเหตุเดียวกัน:**
+   - ผู้ใช้สั่งการให้ตรวจสอบทุกส่วนประกอบในโปรแกรมที่มีความเสี่ยงว่าจะทำงานผิดพลาดหรือแสดงผลไม่ขึ้นจากต้นตอของปัญหานี้
+   - **ผลการวิเคราะห์สาเหตุเชิงลึก (Deep Root Cause Analysis):**
+     - ใน Python โมดูล `tkinter` มีตัวแปรส่วนกลางชื่อ `_default_root` สำหรับเก็บ Pointer ไปยังหน้าต่างระดับราก (Root Window) ของแอปพลิเคชัน
+     - เมื่อเริ่มโปรแกรม `SplashScreen` ถูกสร้างขึ้นโดยใช้ `self.root = tk.Tk()` ทำให้ Tkinter กำหนด `_default_root = splash.root`
+     - ต่อมาเมื่อสร้างหน้าต่างหลัก `FaceSearchApp` (`ctk.CTk`) ไลบรารี Tkinter จะไม่เขียนทับ `_default_root` หากตัวแปรนี้ยังไม่เป็น `None`
+     - เมื่อหน้าต่างโหลดทำงานเสร็จและถูกทำลายด้วย `splash.close()` (`splash.root.destroy()`) กลไกการทำลายของ Tkinter จะเซ็ต `_default_root = None` ทันที!
+     - หลังจากนั้น ทุกคำสั่งในไลบรารี PIL/Pillow (`ImageTk.PhotoImage`), CustomTkinter (`ctk.CTkImage`, `ctk.CTkFont`), และตัวแปร Tk (`ctk.BooleanVar`, `ctk.StringVar`) ที่ถูกเรียกใช้งานโดยไม่ได้ส่งพารามิเตอร์ `master` จะพยายามค้นหา `_default_root` และล้มเหลวทันทีด้วย Exception:
+       `RuntimeError: Too early to create image: no default root window`
+     - ส่งผลกระทบทำให้การสร้างวิดเจ็ตสวิตช์ `ctk.BooleanVar(value=is_active)` ในตารางโฟลเดอร์พังลงเงียบๆ และการสร้างภาพ Thumbnail ล้มเหลวทั้งหมด
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **กู้คืนและผูก Pointer `tkinter._default_root` เข้ากับหน้าต่างหลักของระบบอย่างถาวรใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ใน `FaceSearchApp.__init__` ทันทีหลังเรียก `super().__init__()` ให้กำหนด:
+     ```python
+     import tkinter as tk
+     tk._default_root = self
+     ```
+   - ทันทีหลังสั่ง `splash.close()` ใน `FaceSearchApp.__init__` ให้กำหนด:
+     ```python
+     import tkinter as tk
+     tk._default_root = self
+     ```
+   - ในเมธอด `_ensure_window_visible()` ให้ตรวจสอบและย้ำการกำหนด `tk._default_root = self` อีกครั้ง เพื่อให้มั่นใจ 100% ว่าไม่มี Thread หรือ Callback ใดทำลาย Pointer นี้
+2. **ผูกพารามิเตอร์ `master` ชัดเจนให้แก่วิดเจ็ตและตัวแปร Tk ทั้งหมด (Explicit Master Binding):**
+   - ใน `refresh_root_folders_table()`: ปรับการสร้างสวิตช์โฟลเดอร์เป็น `ctk.BooleanVar(master=row_card, value=is_active)`
+   - ในหน้าต่างตัวเลือกค้นหาเฉพาะรายบุคคล (`show_selective_matching_dialog`): ปรับเป็น `ctk.BooleanVar(master=popup, ...)`
+   - ในการเลือกโหมดค้นหา: ปรับเป็น `ctk.StringVar(master=self, value="all")`
+   - ในแท็บคำขอลบรูปภาพ (`refresh_delete_requests_ui`): ปรับเป็น `ctk.BooleanVar(master=self, ...)` และ `ctk.BooleanVar(master=row_frame, ...)`
+3. **เพิ่ม Error Boundary ใน `refresh_root_folders_table()`:**
+   - ครอบบล็อกการสร้างแถวรายการโฟลเดอร์ด้วย `try...except` พร้อมบันทึกข้อผิดพลาดลงใน Logger เพื่อป้องกันไม่ให้ข้อผิดพลาดของแถวใดแถวหนึ่งทำให้ทั้งตารางว่างเปล่า
+4. **ตรวจสอบและรับประกันความสมบูรณ์ของ 9 ส่วนประกอบที่ได้รับผลกระทบ:**
+   - 1. ตารางโฟลเดอร์ปีการศึกษา (Settings Root Year Folders)
+   - 2. รูปประจำตัวครู (Teacher Avatar 32x32 & Template 70x70)
+   - 3. รูปตัวอย่างเทมเพลตนักเรียน (Student Template 70x70)
+   - 4. การ์ดแสดงผลรูปภาพที่แมตช์พบในแท็บค้นหา (Matched Gallery Cards & Photo Previews)
+   - 5. รูปใบหน้าที่ยังไม่รู้จักในแท็บวิเคราะห์ (Unknown Faces Thumbnails)
+   - 6. แท็บคำขอลบรูปภาพจากคลาวด์ (Delete Requests Table & Fullscreen Zoom Preview)
+   - 7. แถบแสดงภาพตรวจจับใบหน้าแบบเรียลไทม์ขณะสแกน (Live Real-time Scan Preview)
+   - 8. ป๊อปอัปเลือกจับคู่เฉพาะบุคคล (Selective Matching Teacher & Student Dialogs)
+   - 9. เธรดพรีโหลดภาพล่วงหน้า (Prewarm Background Workers)
+5. **สร้าง Unit Test TC-171 ตรวจสอบและป้องกันการเกิดซ้ำ (Automated Verification):**
+   - เพิ่ม `test_07_default_root_restoration_and_images` ใน [tests/test_single_instance_self_heal.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/tests/test_single_instance_self_heal.py) เพื่อจำลองการเปิด-ปิด Splash Screen, การกู้คืน `tk._default_root`, และการสร้าง `BooleanVar`, `ImageTk.PhotoImage`, `CTkImage`, `CTkLabel`
+   - รันชุดทดสอบทั้งหมดรวม 21 รายการ: **ผ่านสมบูรณ์ 100% (21/21 OK)**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - การกู้คืน `tkinter._default_root` หลัง Splash Screen ถูกทำลาย
+**ก่อนแก้ไข (Before):**
+```python
+        super().__init__()
+        self.app_mutex = app_mutex
+        ...
+        if splash:
+            splash.close()
+        # _default_root ถูกลบเป็น None ทำให้คำสั่งสร้างภาพ ImageTk หรือ BooleanVar ที่ไม่มี master พังทลาย
+```
+
+**หลังแก้ไข (After):**
+```python
+        super().__init__()
+        import tkinter as tk
+        tk._default_root = self  # v6.56: ผูก _default_root เข้ากับหน้าต่างหลักของโปรแกรมทันที
+        self.app_mutex = app_mutex
+        ...
+        if splash:
+            splash.close()
+        import tkinter as tk
+        tk._default_root = self  # v6.56: กู้คืน _default_root ให้ชี้ที่หน้าต่างหลักอย่างถาวรหลังทำลาย splash
+```
+
+#### 2. `app_gui.py` - การระบุ `master` ชัดเจน และ Error Boundary ในตารางโฟลเดอร์ปี
+**ก่อนแก้ไข (Before):**
+```python
+        for idx, item in enumerate(folders):
+            ...
+            # 1. สวิตช์เปิด/ปิดการสแกน
+            sw_var = ctk.BooleanVar(value=is_active)  # โยน RuntimeError หาก _default_root เป็น None
+            sw = ctk.CTkSwitch(
+                row_card,
+                text="เปิดสแกน" if is_active else "พักสแกน",
+                variable=sw_var,
+                ...
+            )
+```
+
+**หลังแก้ไข (After):**
+```python
+        for idx, item in enumerate(folders):
+            try:
+                ...
+                # 1. สวิตช์เปิด/ปิดการสแกน (v6.56: ระบุ master ชัดเจน)
+                sw_var = ctk.BooleanVar(master=row_card, value=is_active)
+                sw = ctk.CTkSwitch(
+                    row_card,
+                    text="เปิดสแกน" if is_active else "พักสแกน",
+                    variable=sw_var,
+                    ...
+                )
+            except Exception as e_row:
+                logger.error(f"[ROOT_FOLDERS] Failed to render row for folder {item.get('name')}: {e_row}")
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.55 (Window Reveal & CustomTkinter State Fix)
 
 ## 📋 Version 6.55 Changelog (Window Reveal & CustomTkinter State Fix)

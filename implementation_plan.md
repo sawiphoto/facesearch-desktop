@@ -1,3 +1,61 @@
+# แผนงานแก้ไขปัญหารายการโฟลเดอร์หลักและภาพ Avatar ไม่แสดงผล (Tkinter Default Root Restoration Fix v6.56)
+
+## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Root Cause Analysis)
+จากการวิเคราะห์โค้ดและไฟล์บันทึกข้อผิดพลาด `app_execution.log` อย่างละเอียด:
+1. **ข้อมูลในฐานข้อมูล SQLite ยังอยู่ครบถ้วน 100%:**
+   - ฐานข้อมูล `root_year_folders` ยังคงมีโฟลเดอร์ครบทั้ง 8 ปีการศึกษา (2562-25xx ถึง 2569) และจำนวนภาพรวม 125,016 รูป ซึ่งตรงกับที่ปรากฏบนหัวตารางในภาพถ่ายหน้าจอของผู้ใช้ (`ทั้งหมด 8 โฟลเดอร์ | เปิดสแกน 8 โฟลเดอร์ | รวมภาพในระบบ 125,016 รูป`) ข้อมูลไม่ได้สูญหายใดๆ ทั้งสิ้น
+2. **สาเหตุทางเทคนิคที่รายการโฟลเดอร์ไม่แสดงผล (The `_default_root` Invalidation Bug):**
+   - เมื่อเริ่มต้นโปรแกรม คลาส `SplashScreen` ได้สร้างอินสแตนซ์ `tk.Tk()` ขึ้นมาก่อน ซึ่งส่งผลให้ตัวแปรส่วนกลางของภาษา Python ชื่อ `tkinter._default_root` ถูกผูกเข้ากับหน้าต่าง Splash Screen
+   - เมื่อ Splash Screen โหลดเสร็จและปิดตัวเองลง (`splash.root.destroy()`) กลไกภายในของ Tkinter จะทำการเซ็ต `tkinter._default_root = None`
+   - เมื่อผู้ใช้คลิกเข้าไปที่แท็บ "ตั้งค่าระบบ" ระบบจะเรียกฟังก์ชัน `refresh_root_folders_table()` ซึ่งในบรรทัดแรกมีการสั่งล้างวิดเจ็ตเก่าทิ้ง (`w.destroy()`) จากนั้นเมื่อเริ่มสร้างการ์ดโฟลเดอร์แถวแรก มีการเรียกคำสั่ง:
+     ```python
+     sw_var = ctk.BooleanVar(value=is_active)
+     ```
+   - เนื่องจากไม่ได้ส่งพารามิเตอร์ `master` ให้กับ `BooleanVar` ทำให้ Tkinter พยายามค้นหา `_default_root` ที่กลายเป็น `None` ไปแล้ว ส่งผลให้เกิดข้อผิดพลาดรุนแรงทันที:
+     ```
+     RuntimeError: Too early to create variable: no default root window
+     ```
+   - นอกจากนี้ ยังส่งผลกระทบต่อเนื่องไปยัง `ctk.CTkFont` และการเรนเดอร์ภาพรูปครูในส่วนอื่นๆ อีกด้วย (`Too early to use font: no default root window`)
+   - **ผลลัพธ์:** ฟังก์ชัน `refresh_root_folders_table()` หยุดทำงานกลางคันก่อนที่จะสร้างแถวรายการโฟลเดอร์เสร็จ ทำให้กรอบรายการแสดงผลเป็นพื้นที่ว่างเปล่าสีดำสนิทตามที่ปรากฏในภาพ
+
+---
+
+## 🏗️ 2. แนวทางการแก้ไขอย่างยั่งยืน (Solution Architecture v6.56)
+
+### 1) กู้คืนและผูก `tkinter._default_root` เข้ากับหน้าต่างหลักของโปรแกรมอย่างถาวร
+- ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):
+  - ทันทีที่สร้างอินสแตนซ์ `FaceSearchApp` และทุกครั้งหลัง `splash.close()` ให้สั่งรีเซ็ต:
+    ```python
+    import tkinter as tk
+    tk._default_root = self
+    ```
+  - เพื่อให้ `_default_root` ชี้ไปยังหน้าต่างหลักของโปรแกรมเสมอ แม้หน้าต่าง Splash Screen จะถูก destroy ไปแล้วก็ตาม
+
+### 2) กำหนด `master` ให้กับตัวแปร Tkinter Variables ทุกตัวอย่างชัดเจน
+- ปรับปรุงการประกาศ `BooleanVar`, `StringVar`, `IntVar` ทั่วทั้งโปรเจกต์ให้ส่ง `master=row_card` หรือ `master=self` เสมอ เพื่อไม่ให้พึ่งพาตัวแปรส่วนกลาง `_default_root`
+  ```python
+  sw_var = ctk.BooleanVar(master=row_card, value=is_active)
+  ```
+
+### 3) เสริมเกราะป้องกันข้อผิดพลาดใน `refresh_root_folders_table()` (Error Boundary & Resilience)
+- ครอบบล็อก `try...except` ภายในลูปสร้างแถวโฟลเดอร์ เพื่อให้สามารถแสดงผลโฟลเดอร์อื่นต่อไปได้แม้มีข้อผิดพลาดเฉพาะจุด พร้อมบันทึกข้อความ Error เชิงลึกลงใน Log
+
+### 4) อัปเดตเวอร์ชันและตรวจสอบความสอดคล้องทั้งระบบ (Zero-Omission Version Audit)
+- ปรับเลขเวอร์ชันเป็น `v6.56 (Root Window Restoration & Folder List Fix)`
+- อัปเดต Title Bar, Sidebar Header, [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+
+---
+
+## 🧪 3. แผนการทดสอบความถูกต้อง (Verification Plan)
+1. **Automated Unit Testing:**
+   - ทดสอบสร้าง `BooleanVar`, `StringVar`, และ `CTkFont` หลังทำลาย `SplashScreen` เพื่อยืนยันว่าไม่มี Error `no default root window` เกิดขึ้นอีก
+   - ทดสอบฟังก์ชัน `refresh_root_folders_table()` ในสภาพแวดล้อมจริงว่าสามารถสร้างแถวรายการโฟลเดอร์ครบทั้ง 8 รายการลงใน `scr_root_folders`
+   - รันชุดทดสอบทั้งหมดรวม 21 รายการ ยืนยันว่าผ่านสมบูรณ์ 100%
+2. **Runtime Verification:**
+   - ทดสอบจำลองเปิดโปรแกรม สลับไปยังแท็บตั้งค่าระบบ และตรวจสอบว่ามีวิดเจ็ตการ์ดโฟลเดอร์แสดงผลครบทั้ง 8 โฟลเดอร์
+
+---
+
 # แผนงานแก้ไขปัญหาหน้าต่าง GUI ไม่แสดงหลังโหลด Splash Screen เสร็จ (CustomTkinter Mainloop Window Reveal Fix v6.55)
 
 ## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Root Cause Analysis)

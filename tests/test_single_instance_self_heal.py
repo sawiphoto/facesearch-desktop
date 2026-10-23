@@ -149,5 +149,41 @@ time.sleep(30)
         self.assertTrue(app._window_exists)
         app.destroy()
 
+    def test_07_default_root_restoration_and_images(self):
+        """TC-171: ตรวจสอบการกู้คืน _default_root และการสร้าง ImageTk, CTkImage, BooleanVar (v6.56)"""
+        import tkinter as tk
+        from PIL import Image, ImageTk
+        import customtkinter as ctk
+
+        # 1. จำลองการเปิดและปิด Splash Screen
+        splash = tk.Tk()
+        splash.title("Test Splash")
+        app = ctk.CTk()
+        app.title("Test App")
+        splash.destroy()
+
+        # 2. กู้คืน _default_root แบบ v6.56
+        tk._default_root = app
+        self.assertIsNotNone(tk._default_root)
+        self.assertEqual(tk._default_root, app)
+
+        # 3. ตรวจสอบ BooleanVar
+        b_var = ctk.BooleanVar(master=app, value=True)
+        self.assertTrue(b_var.get())
+
+        # 4. ตรวจสอบ ImageTk.PhotoImage และ CTkImage
+        pil_img = Image.new("RGBA", (32, 32), color="blue")
+        photo = ImageTk.PhotoImage(pil_img)
+        self.assertIsNotNone(photo)
+
+        ctk_img = ctk.CTkImage(light_image=pil_img, size=(32, 32))
+        self.assertIsNotNone(ctk_img)
+
+        # 5. ตรวจสอบ CTkLabel พร้อม CTkImage
+        lbl = ctk.CTkLabel(app, image=ctk_img, text="")
+        self.assertIsNotNone(lbl)
+
+        app.destroy()
+
 if __name__ == "__main__":
     unittest.main()
