@@ -16,9 +16,11 @@ import py_compile
 from unittest.mock import MagicMock, patch
 
 # Ensure project root is in sys.path
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+CURRENT_VERSION = "v6.59"
 
 from db_manager import DatabaseManager
 from gdrive_sync import GoogleSyncManager
@@ -50,7 +52,7 @@ class TestStaffAndFormerStaffIndexSuite(unittest.TestCase):
         self.assertIn("staff_counts", manifest)
         self.assertEqual(manifest["staff_counts"]["active"], len(active_staff))
         self.assertEqual(manifest["staff_counts"]["former"], len(former_staff))
-        self.assertEqual(manifest["version"], "v6.38")
+        self.assertEqual(manifest["version"], CURRENT_VERSION)
 
         # Check that active_staff and former_staff have no intersecting keys
         intersection = set(active_staff.keys()) & set(former_staff.keys())
@@ -205,9 +207,9 @@ class TestStaffAndFormerStaffIndexSuite(unittest.TestCase):
         # Check version string in app_gui.py and db_manager.py
         with open(os.path.join(PROJECT_ROOT, "app_gui.py"), "r", encoding="utf-8") as f:
             content = f.read()
-            self.assertIn("v6.38", content)
+            self.assertIn(CURRENT_VERSION, content)
 
-        self.assertEqual(self.sync_data["manifest"]["version"], "v6.38")
+        self.assertEqual(self.sync_data["manifest"]["version"], CURRENT_VERSION)
 
 
 if __name__ == "__main__":

@@ -140,8 +140,6 @@ class GoogleDrivePicker(ctk.CTkToplevel):
         
         if mode == "folder":
             self.title("เลือกโฟลเดอร์ Google Drive")
-        elif mode == "delete_req_json":
-            self.title("เลือกไฟล์ JSON คำขอลบรูปภาพ")
         else:
             self.title("เลือกไฟล์ Google Sheets")
             
@@ -251,9 +249,6 @@ class GoogleDrivePicker(ctk.CTkToplevel):
             if self.mode == "folder":
                 # โหมดโฟลเดอร์: ดึงเฉพาะโฟลเดอร์ย่อย
                 query = f"{parent_condition} and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            elif self.mode == "delete_req_json":
-                # โหมดคำขอลบ: ดึงทั้งโฟลเดอร์ย่อย และไฟล์ JSON (.json หรือ mimeType json)
-                query = f"{parent_condition} and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'application/json' or name contains '.json') and trashed = false"
             else:
                 # โหมดชีท: ดึงทั้งโฟลเดอร์ย่อย (เผื่อกดเข้าต่อ) และไฟล์ Google Sheets
                 query = f"{parent_condition} and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'application/vnd.google-apps.spreadsheet') and trashed = false"
@@ -393,14 +388,9 @@ class GoogleDrivePicker(ctk.CTkToplevel):
                     self.callback("folder", ids_str, names_str)
                 self.destroy()
             else:
-                # โหมดไฟล์อื่น (Sheet หรือ JSON) ซึ่งเลือกได้เพียง 1 ไฟล์
+                # โหมดไฟล์ชีท ซึ่งเลือกได้เพียง 1 ไฟล์
                 picked_item = self.filtered_items[sel_indices[0]]
-                
-                if self.mode == "delete_req_json" and (picked_item["mimeType"] == "application/json" or picked_item["name"].lower().endswith(".json")):
-                    if self.callback:
-                        self.callback("delete_req_json", picked_item["id"], picked_item["name"])
-                    self.destroy()
-                elif picked_item["mimeType"] == "application/vnd.google-apps.spreadsheet":
+                if picked_item["mimeType"] == "application/vnd.google-apps.spreadsheet":
                     if self.callback:
                         self.callback("sheet", picked_item["id"], picked_item["name"])
                     self.destroy()
@@ -975,7 +965,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.58 (Remove Unknown Match & Similarity Analytics Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.59 (Remove Delete Requests System Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1118,7 +1108,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.58",
+            text="FACE MATCHING\nSYSTEM v6.59",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1179,40 +1169,33 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
 
-        self.btn_delete_req = ctk.CTkButton(
-            self.sidebar_frame, text="🗑️ คำขอลบภาพ (Requests)", height=36, font=menu_font,
-            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
-            anchor="w", command=lambda: self.select_menu("delete_req")
-        )
-        self.btn_delete_req.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
-
         self.btn_start_schedule = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 1. สแกนภาพเพิ่มมาใหม่", height=38, font=schedule_font,
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=9, column=0, padx=12, pady=(12, 4), sticky="ew")
+        self.btn_start_schedule.grid(row=8, column=0, padx=12, pady=(12, 4), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 2. Sync New Student", height=38, font=schedule_font,
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task2.grid(row=9, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_start_task3 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 3. Sync New Teacher", height=38, font=schedule_font,
             fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
             anchor="w", command=lambda: self.scheduler.run_task_3_manual()
         )
-        self.btn_start_task3.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task3.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task", height=38, font=schedule_font,
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
+        self.btn_stop_schedule.grid(row=11, column=0, padx=12, pady=(4, 12), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -1221,8 +1204,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(13, weight=1)
+        self.credit_label.grid(row=12, column=0, pady=15, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(12, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -1233,7 +1216,6 @@ class FaceSearchApp(ctk.CTk):
         self.btn_database.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_matched_gallery.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
-        self.btn_delete_req.configure(fg_color="transparent", text_color="#A2B5CD")
 
         # ซ่อนเฟรมเนื้อหาทั้งหมด
         self.frame_dashboard.grid_forget()
@@ -1243,7 +1225,6 @@ class FaceSearchApp(ctk.CTk):
         self.frame_database.grid_forget()
         self.frame_matched_gallery.grid_forget()
         self.frame_settings.grid_forget()
-        self.frame_delete_req.grid_forget()
 
         # แสดงเฟรมและเปลี่ยนสีปุ่มที่เลือก (วางที่แถว 0 เสมอเพื่อให้เหลือก้นจอเป็น Console)
         if menu_name == "dashboard":
@@ -1284,9 +1265,7 @@ class FaceSearchApp(ctk.CTk):
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
             if hasattr(self, 'refresh_root_folders_table'):
                 self.refresh_root_folders_table()
-        elif menu_name == "delete_req":
-            self.btn_delete_req.configure(fg_color="#1F3A60", text_color="white")
-            self.frame_delete_req.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+
 
     # --- โครงสร้างเฟรมเนื้อหาขวา (Content Pane) ---
     def create_content_areas(self):
@@ -1318,9 +1297,7 @@ class FaceSearchApp(ctk.CTk):
         self.frame_settings = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_settings_ui()
 
-        # 8. เฟรมหน้าคำขอลบภาพ (Delete Requests)
-        self.frame_delete_req = ctk.CTkFrame(self, fg_color="transparent")
-        self.setup_delete_req_ui()
+
 
     # ==================== (1) หน้า Dashboard ====================
     def setup_dashboard_ui(self):
@@ -3808,7 +3785,6 @@ class FaceSearchApp(ctk.CTk):
                 # 2. เชื่อมต่อ Google Sheets และอัปเดต Sheets + Excel + Drive JSON
                 sheet_id = self.entry_sheets_id.get().strip()
                 json_folder_id = self.entry_json_folder_id.get().strip()
-                delete_req_file_id = self.entry_delete_req_file_id.get().strip()
 
                 if sheet_id:
                     if self.sync_manager.connect(sheet_id):
@@ -3827,63 +3803,10 @@ class FaceSearchApp(ctk.CTk):
                             self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
                     else:
                         logger.error("[GSHEETS] Failed to connect to Google Sheets during deletion sync.")
-                
-                # 3. อัปเดตลบคีย์ครูคนนี้ใน delete_request.json (ทั้งบน Drive และเครื่อง)
-                loaded_requests = {}
-                loaded_from_drive = False
-                if delete_req_file_id and self.sync_manager.connected:
-                    try:
-                        media_content = self.sync_manager.drive_service.files().get_media(fileId=delete_req_file_id).execute()
-                        loaded_requests = json.loads(media_content.decode("utf-8"))
-                        loaded_from_drive = True
-                    except Exception as e:
-                        logger.error(f"[DELETE_REQ] Failed to download JSON for deletion filtering: {e}")
 
-                if not loaded_from_drive:
-                    req_file = os.path.join(get_project_root(), "delete_request.json")
-                    if os.path.exists(req_file):
-                        try:
-                            with open(req_file, "r", encoding="utf-8") as f:
-                                loaded_requests = json.load(f)
-                        except Exception:
-                            pass
-
-                # หากเป็น Dictionary คีย์ชื่อครู ให้ลบคีย์ชื่อครูคนนี้ออกไป
-                if isinstance(loaded_requests, dict):
-                    if staff_name in loaded_requests:
-                        del loaded_requests[staff_name]
-                        logger.info(f"[DELETE_REQ] Removed '{staff_name}' key from delete requests.")
-                elif isinstance(loaded_requests, list):
-                    # หากเป็น Flat List ให้กรองรายการของครูคนนี้ออก
-                    filtered_reqs = [r for r in loaded_requests if isinstance(r, dict) and r.get("staff_name") != staff_name and r.get("staff_id") != staff_id]
-                    loaded_requests = filtered_reqs
-
-                # บันทึกกลับขึ้น Google Drive (ถ้าเปิดจากไดรฟ์)
-                if delete_req_file_id and loaded_from_drive and self.sync_manager.connected:
-                    try:
-                        from googleapiclient.http import MediaIoBaseUpload
-                        import io
-                        updated_json_str = json.dumps(loaded_requests, ensure_ascii=False, indent=2)
-                        fh = io.BytesIO(updated_json_str.encode("utf-8"))
-                        media = MediaIoBaseUpload(fh, mimetype='application/json', resumable=True)
-                        self.sync_manager.drive_service.files().update(fileId=delete_req_file_id, media_body=media).execute()
-                        logger.info(f"[DELETE_REQ] Successfully updated delete_request.json on Drive.")
-                    except Exception as cloud_err:
-                        logger.error(f"[DELETE_REQ] Error uploading filtered JSON: {cloud_err}")
-
-                # บันทึกสำรองลงเครื่อง
-                req_file = os.path.join(get_project_root(), "delete_request.json")
-                try:
-                    with open(req_file, "w", encoding="utf-8") as f:
-                        json.dump(loaded_requests, f, ensure_ascii=False, indent=2)
-                    logger.info("[DELETE_REQ] Saved updated delete requests to local mirror.")
-                except Exception as file_err:
-                    logger.error(f"Error updating local delete_request.json file: {file_err}")
-
-                # 4. รีเฟรชหน้าจอทั้งหมดใน Thread หลัก
+                # 3. รีเฟรชหน้าจอทั้งหมดใน Thread หลัก
                 self.after(0, self.load_staff_list)
                 self.after(0, self.refresh_dashboard_stats)
-                self.after(0, self.load_delete_requests_table)
                 self.after(0, lambda: messagebox.showinfo("ลบสำเร็จ", f"ลบข้อมูลของคุณครู '{staff_name}' ออกจากระบบทั้งหมดเรียบร้อยแล้ว"))
                 
             except Exception as ex:
@@ -6012,7 +5935,6 @@ class FaceSearchApp(ctk.CTk):
             "drive_folder_id": self.entry_drive_folder_id.get().strip(),
             "sheets_id": self.entry_sheets_id.get().strip(),
             "json_folder_id": self.entry_json_folder_id.get().strip(),
-            "delete_req_file_id": self.entry_delete_req_file_id.get().strip() if hasattr(self, "entry_delete_req_file_id") else "",
             "threshold": self.slider_threshold.get(),
             "use_gpu": self.chk_use_gpu.get(),
             "re_scan": self.chk_re_scan.get(),
@@ -6060,9 +5982,6 @@ class FaceSearchApp(ctk.CTk):
             if "json_folder_id" in settings:
                 self.entry_json_folder_id.insert(0, settings["json_folder_id"])
 
-            if "delete_req_file_id" in settings and hasattr(self, "entry_delete_req_file_id"):
-                self.entry_delete_req_file_id.insert(0, settings["delete_req_file_id"])
-                
             if "threshold" in settings:
                 self.slider_threshold.set(settings["threshold"])
                 self.update_thresh_label(settings["threshold"])
@@ -9117,11 +9036,6 @@ class FaceSearchApp(ctk.CTk):
             self.entry_sheets_id.delete(0, "end")
             self.entry_sheets_id.insert(0, item_id)
             logger.info(f"Drive Picker: Set spreadsheet ID to {item_id}")
-        elif mode == "delete_req_json":
-            self.entry_delete_req_file_id.delete(0, "end")
-            self.entry_delete_req_file_id.insert(0, item_id)
-            logger.info(f"Drive Picker: Set Delete Request JSON file ID to {item_id}")
-            self.load_delete_requests_table()
         elif mode == "root_year_folder":
             first_id = item_id.split(",")[0].strip() if item_id else ""
             first_name = item_name.split(",")[0].strip() if item_name else ""
@@ -9628,881 +9542,6 @@ class FaceSearchApp(ctk.CTk):
             self.clipboard_clear()
             self.clipboard_append(text)
             logger.info("[UI] คัดลอกข้อความ Log ทั้งหมดไปยัง Clipboard เรียบร้อยแล้ว")
-
-    # ==================== (6) หน้าเฟรมคำขอลบรูปภาพจากไฟล์ JSON (v1.6.7) ====================
-    def setup_delete_req_ui(self):
-        self.frame_delete_req.grid_columnconfigure(0, weight=1)
-        self.frame_delete_req.grid_rowconfigure(3, weight=1)
-
-        # หัวข้อหลัก
-        lbl_title = ctk.CTkLabel(
-            self.frame_delete_req, text="ระบบจัดการคำขอลบรูปภาพกิจกรรม", 
-            font=ctk.CTkFont(size=26, weight="bold"), text_color="white"
-        )
-        lbl_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
-
-        # แถวป้อนไฟล์ JSON คำขอบนคลาวด์ (Google Drive)
-        gdrive_file_frame = ctk.CTkFrame(self.frame_delete_req, fg_color="transparent")
-        gdrive_file_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        gdrive_file_frame.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            gdrive_file_frame, text="ไฟล์ JSON คำขอลบบน Google Drive:", 
-            font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD"
-        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
-
-        self.entry_delete_req_file_id = ctk.CTkEntry(
-            gdrive_file_frame, placeholder_text="ระบุ ID ไฟล์ delete_request.json บน Google Drive ของท่าน",
-            height=36, font=ctk.CTkFont(size=14)
-        )
-        self.entry_delete_req_file_id.grid(row=0, column=1, sticky="ew", padx=(0, 10))
-
-        btn_pick_file = ctk.CTkButton(
-            gdrive_file_frame, text="🔍 เลือกไฟล์ JSON", width=140, height=36,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#1F3A60", hover_color="#20334F",
-            command=lambda: self.open_google_picker("delete_req_json")
-        )
-        btn_pick_file.grid(row=0, column=2, padx=(0, 5), sticky="e")
-
-        btn_open_file = ctk.CTkButton(
-            gdrive_file_frame, text="🌐 เปิดดูไฟล์", width=120, height=36,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#E67E22", hover_color="#D35400", text_color="white",
-            command=self.open_delete_req_file_in_browser
-        )
-        btn_open_file.grid(row=0, column=3, sticky="e")
-
-        # โซนปุ่มควบคุมด้านล่าง (แถวที่ 2)
-        action_bar = ctk.CTkFrame(self.frame_delete_req, fg_color="transparent")
-        action_bar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-
-        btn_refresh = ctk.CTkButton(
-            action_bar, text="🔄 รีเฟรชตารางคำขอ", height=36,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#1F3A60", hover_color="#20334F",
-            command=self.load_delete_requests_table
-        )
-        btn_refresh.pack(side="left", padx=(0, 10))
-
-        self.btn_approve_delete = ctk.CTkButton(
-            action_bar, text="🗑️ อนุมัติการลบรูปภาพที่เลือก", height=36,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#E74C3C", hover_color="#C0392B", text_color="white",
-            command=self.approve_delete_requests
-        )
-        self.btn_approve_delete.pack(side="left")
-
-        # แถบสลับหน้า Pagination คำขอลบ
-        self.btn_next_delete_req = ctk.CTkButton(
-            action_bar, text="▶️", width=42, height=36,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#1F3A60", hover_color="#20334F",
-            command=self.next_delete_req_page
-        )
-        self.btn_next_delete_req.pack(side="right", padx=(5, 0))
-
-        self.lbl_delete_req_page = ctk.CTkLabel(
-            action_bar, text="หน้า 1/1",
-            font=ctk.CTkFont(size=14, weight="bold"), text_color="#A2B5CD"
-        )
-        self.lbl_delete_req_page.pack(side="right", padx=10)
-
-        self.btn_prev_delete_req = ctk.CTkButton(
-            action_bar, text="◀️", width=42, height=36,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#1F3A60", hover_color="#20334F",
-            command=self.prev_delete_req_page
-        )
-        self.btn_prev_delete_req.pack(side="right", padx=(0, 5))
-
-        # ตารางคำขอแบบ Scrollable Frame (แถวที่ 3)
-        self.scr_delete_requests = ctk.CTkScrollableFrame(self.frame_delete_req, fg_color="#101B2B")
-        self.scr_delete_requests.grid(row=3, column=0, sticky="nsew", pady=5)
-        
-        # แสดงข้อความคำแนะนำเริ่มต้น
-        lbl_info = ctk.CTkLabel(
-            self.scr_delete_requests, 
-            text="[ กรุณาเลือกไฟล์ JSON หรือกดปุ่ม 🔄 รีเฟรชตารางคำขอ เพื่อดึงรายการจาก Google Drive ]",
-            font=ctk.CTkFont(size=14), text_color="#A2B5CD"
-        )
-        lbl_info.pack(pady=40)
-
-    def open_delete_req_file_in_browser(self):
-        """ดึง ID ไฟล์ JSON ของคำขอลบ แล้วเปิดลิงก์บน Google Drive ใน Web Browser"""
-        file_id = self.entry_delete_req_file_id.get().strip()
-        if not file_id:
-            messagebox.showwarning("คำเตือน", "กรุณาระบุหรือเลือก ID ไฟล์ JSON คำขอลบก่อนเปิดดู")
-            return
-            
-        url = f"https://drive.google.com/open?id={file_id}"
-        logger.info(f"[UI] Opening Delete Request JSON File in Web Browser: {url}")
-        import webbrowser
-        webbrowser.open(url)
-
-    def load_delete_requests_table(self):
-        # ล้างข้อมูลเก่า
-        for widget in self.scr_delete_requests.winfo_children():
-            widget.destroy()
-
-        # ตรวจสอบและประกาศค่าตัวแปรเริ่มต้นหากยังไม่มี
-        if not hasattr(self, "delete_req_page"):
-            self.delete_req_page = 0
-            self.delete_req_page_size = 15
-            self.delete_req_selections = {}
-            self.parsed_requests_list = []
-
-        # ตรวจสอบและดึงข้อมูลไฟล์ delete_request.json
-        import json
-        
-        # ตรวจสอบและดึงข้อมูลไฟล์ staff_index.json & former_staff_index.json จากคลาวด์ (Fallback: person_index.json - v6.38)
-        self.person_index = {}
-        json_folder_id = self.entry_json_folder_id.get().strip()
-        if json_folder_id and self.sync_manager.connected:
-            try:
-                def _download_staff_file(target_name):
-                    q = f"'{json_folder_id}' in parents and name = '{target_name}' and trashed = false"
-                    res = self.sync_manager.drive_service.files().list(q=q, fields="files(id)").execute()
-                    flist = res.get("files", [])
-                    if not flist:
-                        q_global = f"name = '{target_name}' and trashed = false"
-                        res_g = self.sync_manager.drive_service.files().list(q=q_global, fields="files(id)").execute()
-                        flist = res_g.get("files", [])
-                    if flist:
-                        fid = flist[0]['id']
-                        media = self.sync_manager.drive_service.files().get_media(fileId=fid).execute()
-                        return json.loads(media.decode("utf-8"))
-                    return None
-
-                # 1. โหลด staff_index.json (ครูปัจจุบัน) ถ้าไม่พบให้ fallback person_index.json
-                loaded_staff = _download_staff_file("staff_index.json")
-                if loaded_staff:
-                    self.person_index.update(loaded_staff)
-                    logger.info(f"[DELETE_REQ] Loaded staff_index.json successfully. Total keys: {len(loaded_staff)}")
-                else:
-                    loaded_legacy = _download_staff_file("person_index.json")
-                    if loaded_legacy:
-                        self.person_index.update(loaded_legacy)
-                        logger.info(f"[DELETE_REQ] Loaded fallback person_index.json successfully. Total keys: {len(loaded_legacy)}")
-
-                # 2. โหลด former_staff_index.json (อดีตครู/ย้าย/เกษียณ) ผสานข้อมูลเพื่อให้ลบรูปของอดีตครูได้ด้วย
-                loaded_former = _download_staff_file("former_staff_index.json")
-                if loaded_former:
-                    for k, v in loaded_former.items():
-                        if k not in self.person_index:
-                            self.person_index[k] = v
-                    logger.info(f"[DELETE_REQ] Loaded former_staff_index.json successfully. Total former keys: {len(loaded_former)}")
-            except Exception as e:
-                logger.error(f"[DELETE_REQ] Error downloading staff indexes: {e}")
-
-        # ดึงสำรองจาก Local เผื่อกรณีเชื่อมต่อขัดข้อง
-        if not self.person_index:
-            for l_name in ["staff_index.json", "person_index.json"]:
-                local_path = os.path.join(get_project_root(), l_name)
-                if os.path.exists(local_path):
-                    try:
-                        with open(local_path, "r", encoding="utf-8") as f:
-                            self.person_index.update(json.load(f))
-                        logger.info(f"[DELETE_REQ] Loaded {l_name} from local file.")
-                        break
-                    except Exception:
-                        pass
-            local_former = os.path.join(get_project_root(), "former_staff_index.json")
-            if os.path.exists(local_former):
-                try:
-                    with open(local_former, "r", encoding="utf-8") as f:
-                        for k, v in json.load(f).items():
-                            if k not in self.person_index:
-                                self.person_index[k] = v
-                    logger.info("[DELETE_REQ] Loaded former_staff_index.json from local file.")
-                except Exception:
-                    pass
-
-        # ตรวจสอบและดึงข้อมูลไฟล์ photo_index.json จากคลาวด์
-        self.photo_index = {}
-        if json_folder_id and self.sync_manager.connected:
-            try:
-                # ค้นหาไฟล์ photo_index.json ในโฟลเดอร์หลัก
-                query = f"'{json_folder_id}' in parents and name = 'photo_index.json' and trashed = false"
-                search_results = self.sync_manager.drive_service.files().list(q=query, fields="files(id)").execute()
-                files = search_results.get("files", [])
-                
-                # ถ้าไม่พบในโฟลเดอร์หลัก ลองค้นหาแบบ Global
-                if not files:
-                    query = "name = 'photo_index.json' and trashed = false"
-                    search_results = self.sync_manager.drive_service.files().list(q=query, fields="files(id)").execute()
-                    files = search_results.get("files", [])
-                    
-                if files:
-                    photo_index_file_id = files[0]['id']
-                    logger.info(f"[DELETE_REQ] Downloading photo_index.json from Google Drive (ID: {photo_index_file_id})...")
-                    media_content = self.sync_manager.drive_service.files().get_media(fileId=photo_index_file_id).execute()
-                    self.photo_index = json.loads(media_content.decode("utf-8"))
-                    logger.info(f"[DELETE_REQ] Loaded photo_index.json successfully. Total keys: {len(self.photo_index)}")
-                else:
-                    logger.warning("[DELETE_REQ] photo_index.json file not found on Google Drive.")
-            except Exception as e:
-                logger.error(f"[DELETE_REQ] Error downloading photo_index.json: {e}")
-
-        # ดึงสำรองจาก Local เผื่อกรณีเชื่อมต่อขัดข้อง
-        if not self.photo_index:
-            local_photo_index_path = os.path.join(get_project_root(), "photo_index.json")
-            if os.path.exists(local_photo_index_path):
-                try:
-                    with open(local_photo_index_path, "r", encoding="utf-8") as f:
-                        self.photo_index = json.load(f)
-                    logger.info("[DELETE_REQ] Loaded photo_index.json from local file.")
-                except Exception:
-                    pass
-
-        delete_req_file_id = self.entry_delete_req_file_id.get().strip()
-        requests = []
-        loaded_from_drive = False
-        
-        if delete_req_file_id:
-            try:
-                if not self.sync_manager.connected:
-                    sheet_id = self.entry_sheets_id.get().strip()
-                    self.sync_manager.connect(sheet_id)
-                
-                logger.info(f"[DELETE_REQ] Downloading delete_request.json from Google Drive (ID: {delete_req_file_id})...")
-                media_content = self.sync_manager.drive_service.files().get_media(fileId=delete_req_file_id).execute()
-                requests = json.loads(media_content.decode("utf-8"))
-                loaded_from_drive = True
-                logger.info(f"[DELETE_REQ] Loaded delete requests from Google Drive.")
-            except Exception as e:
-                logger.error(f"[DELETE_REQ] Failed to download delete requests JSON from Google Drive: {e}. Falling back to local file.")
-
-        if not loaded_from_drive:
-            req_file = os.path.join(get_project_root(), "delete_request.json")
-            if not os.path.exists(req_file):
-                try:
-                    with open(req_file, "w", encoding="utf-8") as f:
-                        json.dump({}, f, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
-                
-            try:
-                with open(req_file, "r", encoding="utf-8") as f:
-                    requests = json.load(f)
-                logger.info(f"[DELETE_REQ] Loaded delete requests from local delete_request.json")
-            except Exception as e:
-                logger.error(f"Error reading delete_request.json: {e}")
-                requests = {}
-
-        # ฟังก์ชันสกัดกูเกิลไดรฟ์ไอดีจากลิงก์
-        def extract_gdrive_file_id(url):
-            if not url:
-                return ""
-            import urllib.parse
-            parsed_url = urllib.parse.urlparse(url)
-            queries = urllib.parse.parse_qs(parsed_url.query)
-            if "id" in queries:
-                return queries["id"][0]
-            if "/d/" in url:
-                parts = url.split("/d/")
-                if len(parts) > 1:
-                    subparts = parts[1].split("/")
-                    return subparts[0]
-            return ""
-
-        # --- Smart Parser: แปลง Dictionary หรือ List ให้เป็น Flat List รูปแบบมาตรฐาน ---
-        flattened_requests = []
-        if isinstance(requests, dict):
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            for staff_name, file_ids in requests.items():
-                cursor.execute("SELECT id FROM staff_members WHERE name = ? LIMIT 1", (staff_name,))
-                staff_row = cursor.fetchone()
-                staff_id = staff_row[0] if staff_row else "unknown"
-                
-                for f_id in file_ids:
-                    # ค้นหาข้อมูลภาพถ่ายแบบ Hybrid (photo_index.json คลาวด์ก่อน -> SQLite ท้องถิ่นทีหลัง)
-                    file_name = f_id
-                    real_drive_file_id = f_id
-                    drive_link = f"https://drive.google.com/open?id={f_id}"
-                    event_name = "ไม่ระบุ"
-                    found_in_cloud_index = False
-                    
-                    if getattr(self, "photo_index", {}) and f_id in self.photo_index:
-                        cloud_meta = self.photo_index[f_id]
-                        file_name = f_id
-                        drive_link = cloud_meta.get("drive_link", "")
-                        real_drive_file_id = extract_gdrive_file_id(drive_link) or f_id
-                        event_name = cloud_meta.get("event", "ไม่ระบุ")
-                        found_in_cloud_index = True
-                        
-                    if not found_in_cloud_index:
-                        cursor.execute(
-                            "SELECT photo_id, drive_file_id, drive_link FROM scanned_photos WHERE photo_id = ? OR drive_file_id = ? LIMIT 1",
-                            (f_id, f_id)
-                        )
-                        photo_row = cursor.fetchone()
-                        if photo_row:
-                            file_name = photo_row[0]
-                            real_drive_file_id = photo_row[1]
-                            drive_link = photo_row[2]
-
-                    flattened_requests.append({
-                        "drive_file_id": real_drive_file_id,
-                        "file_name": file_name,
-                        "drive_link": drive_link,
-                        "staff_id": staff_id,
-                        "staff_name": staff_name,
-                        "event_name": event_name
-                    })
-            conn.close()
-            requests = flattened_requests
-            logger.info(f"[DELETE_REQ] Smart Parser: Parsed Dictionary JSON to {len(requests)} flat requests.")
-        elif isinstance(requests, list):
-            parsed_list = []
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            for item in requests:
-                if isinstance(item, str):
-                    try:
-                        item = json.loads(item)
-                    except Exception:
-                        continue
-                if isinstance(item, dict):
-                    s_name = item.get("staff_name", "")
-                    s_id = item.get("staff_id", "")
-                    f_id = item.get("drive_file_id", "")
-                    
-                    if not s_id and s_name:
-                        cursor.execute("SELECT id FROM staff_members WHERE name = ? LIMIT 1", (s_name,))
-                        row = cursor.fetchone()
-                        s_id = row[0] if row else "unknown"
-                    if s_id and not s_name:
-                        cursor.execute("SELECT name FROM staff_members WHERE id = ? LIMIT 1", (s_id,))
-                        row = cursor.fetchone()
-                        s_name = row[0] if row else "ไม่ระบุชื่อ"
-                        
-                    file_name = item.get("file_name", f_id)
-                    drive_link = item.get("drive_link", "")
-                    real_drive_file_id = f_id
-                    event_name = item.get("event_name", "ไม่ระบุ")
-                    found_in_cloud_index = False
-                    
-                    if getattr(self, "photo_index", {}) and f_id in self.photo_index:
-                        cloud_meta = self.photo_index[f_id]
-                        file_name = f_id
-                        drive_link = cloud_meta.get("drive_link", "")
-                        real_drive_file_id = extract_gdrive_file_id(drive_link) or f_id
-                        event_name = cloud_meta.get("event", "ไม่ระบุ")
-                        found_in_cloud_index = True
-                        
-                    if not found_in_cloud_index and f_id:
-                        cursor.execute(
-                            "SELECT photo_id, drive_file_id, drive_link FROM scanned_photos WHERE photo_id = ? OR drive_file_id = ? LIMIT 1",
-                            (f_id, f_id)
-                        )
-                        photo_row = cursor.fetchone()
-                        if photo_row:
-                            file_name = file_name if (file_name and file_name != f_id) else photo_row[0]
-                            real_drive_file_id = photo_row[1]
-                            drive_link = drive_link or photo_row[2]
-                            
-                    parsed_list.append({
-                        "drive_file_id": real_drive_file_id,
-                        "file_name": file_name or f_id,
-                        "drive_link": drive_link or f"https://drive.google.com/open?id={real_drive_file_id}",
-                        "staff_id": s_id,
-                        "staff_name": s_name,
-                        "event_name": event_name
-                    })
-            conn.close()
-            requests = parsed_list
-            logger.info(f"[DELETE_REQ] Smart Parser: Standardized List JSON to {len(requests)} requests.")
-
-        # อัปเดตเก็บประจุลงตัวแปรคลาส
-        self.parsed_requests_list = requests
-        
-        # ตั้งค่าเลือกเริ่มต้น (ติ๊กถูก) สำหรับคีย์ลบใหม่ๆ
-        for req in self.parsed_requests_list:
-            req_key = f"{req['drive_file_id']}_{req['staff_id']}"
-            if req_key not in self.delete_req_selections:
-                # ถ้าภาพนี้ยังคงเชื่อมโยงอยู่กับคนคนนี้ใน person_index.json ให้ติ๊กถูกเริ่มต้นเป็น True
-                # แต่หากไม่มีภาพนี้เชื่อมโยงกับคนคนนี้แล้ว (โดนลบไปแล้ว) ให้ติ๊กออกเป็น False โดยอัตโนมัติ
-                connected_photos = getattr(self, "person_index", {}).get(req['staff_name'], [])
-                is_active = (req['file_name'] in connected_photos) or (req['drive_file_id'] in connected_photos)
-                self.delete_req_selections[req_key] = is_active
-                
-        self.delete_req_page = 0
-        self.render_delete_requests_page()
-
-    def prev_delete_req_page(self):
-        if hasattr(self, "delete_req_page") and self.delete_req_page > 0:
-            self.delete_req_page -= 1
-            self.render_delete_requests_page()
-
-    def next_delete_req_page(self):
-        if hasattr(self, "delete_req_page") and hasattr(self, "parsed_requests_list"):
-            import math
-            total_pages = math.ceil(len(self.parsed_requests_list) / self.delete_req_page_size)
-            if self.delete_req_page < total_pages - 1:
-                self.delete_req_page += 1
-                self.render_delete_requests_page()
-
-    def render_delete_requests_page(self):
-        # ล้างคำขอเก่าในตารางยกเว้นหัวตาราง
-        for widget in self.scr_delete_requests.winfo_children():
-            widget.destroy()
-
-        # สร้างหัวตาราง (Table Header)
-        header_frame = ctk.CTkFrame(self.scr_delete_requests, fg_color="#1C2D42")
-        header_frame.pack(fill="x", pady=(0, 8), padx=5)
-        header_frame.grid_columnconfigure(0, weight=1) # Checkbox
-        header_frame.grid_columnconfigure(1, weight=2) # ภาพครูต้นแบบ
-        header_frame.grid_columnconfigure(2, weight=4) # ภาพกิจกรรมที่มีปัญหา
-
-        # ตรวจสอบสถานะการเลือกทั้งหมด
-        all_checked = False
-        if self.parsed_requests_list:
-            all_checked = all(self.delete_req_selections.get(f"{r['drive_file_id']}_{r['staff_id']}", False) for r in self.parsed_requests_list)
-            
-        self.select_all_var = ctk.BooleanVar(master=self, value=all_checked)
-        
-        def toggle_select_all():
-            new_val = self.select_all_var.get()
-            for r in self.parsed_requests_list:
-                rk = f"{r['drive_file_id']}_{r['staff_id']}"
-                self.delete_req_selections[rk] = new_val
-            self.render_delete_requests_page()
-            
-        cb_all = ctk.CTkCheckBox(
-            header_frame, text="เลือกทั้งหมด",
-            variable=self.select_all_var, command=toggle_select_all,
-            font=ctk.CTkFont(weight="bold", size=12)
-        )
-        cb_all.grid(row=0, column=0, pady=8, padx=5, sticky="w")
-        ctk.CTkLabel(header_frame, text="บุคลากรที่ขอลบ", font=ctk.CTkFont(weight="bold")).grid(row=0, column=1, pady=8, padx=5, sticky="w")
-        ctk.CTkLabel(header_frame, text="ภาพกิจกรรมบน Cloud", font=ctk.CTkFont(weight="bold")).grid(row=0, column=2, pady=8, padx=5, sticky="w")
-
-        if not self.parsed_requests_list:
-            lbl_empty = ctk.CTkLabel(
-                self.scr_delete_requests, text="[ ไม่มีคำขอลบรูปภาพในระบบขณะนี้ ]",
-                font=ctk.CTkFont(size=13), text_color="#A2B5CD"
-            )
-            lbl_empty.pack(pady=40)
-            self.lbl_delete_req_page.configure(text="หน้า 0/0")
-            self.btn_prev_delete_req.configure(state="disabled")
-            self.btn_next_delete_req.configure(state="disabled")
-            return
-
-        import math
-        total_items = len(self.parsed_requests_list)
-        total_pages = max(1, math.ceil(total_items / self.delete_req_page_size))
-        
-        if self.delete_req_page >= total_pages:
-            self.delete_req_page = total_pages - 1
-        if self.delete_req_page < 0:
-            self.delete_req_page = 0
-            
-        start_idx = self.delete_req_page * self.delete_req_page_size
-        end_idx = min(start_idx + self.delete_req_page_size, total_items)
-        
-        # ปรับปรุงปุ่ม Pagination
-        self.lbl_delete_req_page.configure(text=f"หน้า {self.delete_req_page + 1}/{total_pages} ({start_idx + 1}-{end_idx} จาก {total_items})")
-        self.btn_prev_delete_req.configure(state="normal" if self.delete_req_page > 0 else "disabled")
-        self.btn_next_delete_req.configure(state="normal" if self.delete_req_page < total_pages - 1 else "disabled")
-
-        page_items = self.parsed_requests_list[start_idx:end_idx]
-        self.delete_req_vars = {} 
-        
-        for idx, req in enumerate(page_items):
-            row_frame = ctk.CTkFrame(self.scr_delete_requests, fg_color="transparent")
-            row_frame.pack(fill="x", pady=5, padx=5)
-            row_frame.grid_columnconfigure(0, weight=1)
-            row_frame.grid_columnconfigure(1, weight=2)
-            row_frame.grid_columnconfigure(2, weight=4)
-
-            # --- ตรวจสอบความเชื่อมโยงใน person_index (เช็คว่าเคยถูกลบไปแล้วหรือยัง) ---
-            connected_photos = getattr(self, "person_index", {}).get(req['staff_name'], [])
-            is_active = (req['file_name'] in connected_photos) or (req['drive_file_id'] in connected_photos)
-
-            # --- คอลัมน์ 1: Checkbox ---
-            req_key = f"{req['drive_file_id']}_{req['staff_id']}"
-            is_selected = self.delete_req_selections.get(req_key, True)
-            var = ctk.BooleanVar(master=row_frame, value=is_selected)
-            self.delete_req_vars[req_key] = (var, req)
-            
-            def on_check(v=var, k=req_key):
-                self.delete_req_selections[k] = v.get()
-                
-            cb = ctk.CTkCheckBox(row_frame, text="", variable=var, command=on_check)
-            cb.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-
-            # --- คอลัมน์ 2: ข้อมูลและรูปถ่ายครูต้นแบบ ---
-            staff_info_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
-            staff_info_frame.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-            
-            ctk.CTkLabel(
-                staff_info_frame, 
-                text=f"{req['staff_name']}\nID: {req['staff_id']}", 
-                anchor="w", justify="left"
-            ).pack(anchor="w")
-
-            lbl_staff_img = ctk.CTkLabel(staff_info_frame, text="[ Pending / กำลังโหลดใบหน้า... ]", text_color="#A2B5CD")
-            lbl_staff_img.pack(anchor="w", pady=(5, 0))
-
-            # --- คอลัมน์ 3: ภาพกิจกรรม Thumbnail ---
-            activity_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
-            activity_frame.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-
-            ctk.CTkLabel(
-                activity_frame, 
-                text=f"ไฟล์: {req['file_name']}\nเหตุการณ์: {req.get('event_name', 'ไม่ระบุ')}", 
-                anchor="w", justify="left", font=ctk.CTkFont(size=11)
-            ).pack(anchor="w")
-
-            lbl_activity_img = ctk.CTkLabel(activity_frame, text="[ Pending / กำลังโหลดพรีวิวรูป... ]", text_color="#A2B5CD")
-            lbl_activity_img.pack(anchor="w", pady=(5, 0))
-
-            def make_open_link_cmd(link=req['drive_link']):
-                return lambda: self.open_drive_link(link)
-                
-            btn_link = ctk.CTkButton(
-                activity_frame, text="🔗 เปิดลิงก์รูป", width=80, height=22,
-                fg_color="#1F3A60", hover_color="#20334F", command=make_open_link_cmd()
-            )
-            btn_link.pack(anchor="w", pady=(5, 0))
-
-            # โหลดรูปในเบื้องหลังอัตโนมัติเฉพาะในหน้าปัจจุบัน (15 รายการ)
-            def load_previews_thread(s_id=req['staff_id'], f_id=req['drive_file_id'], lbl_staff=lbl_staff_img, lbl_act=lbl_activity_img, active=is_active):
-                try:
-                    # สร้างโฟลเดอร์เก็บแคชพรีวิว
-                    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "thumbnail_cache")
-                    os.makedirs(cache_dir, exist_ok=True)
-                    cache_file = os.path.join(cache_dir, f"{f_id}.jpg")
-
-                    # 1. โหลดรูปหน้าครูจาก SQLite (โลคอล)
-                    conn = self.db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT image_path FROM staff_embeddings WHERE staff_id = ? LIMIT 1", (s_id,))
-                    img_row = cursor.fetchone()
-                    conn.close()
-                    
-                    staff_img_path = img_row[0] if (img_row and os.path.exists(img_row[0])) else None
-
-                    # ส่งคิวอัปเดตหน้าครูต้นแบบไปเรนเดอร์ในเธรดหลัก (Main Thread)
-                    def update_staff_ui(path=staff_img_path, w=lbl_staff):
-                        try:
-                            if w.winfo_exists():
-                                if path:
-                                    from PIL import Image
-                                    pil_s = Image.open(path).convert("RGB").resize((70, 70), Image.Resampling.LANCZOS)
-                                    ctk_s = ctk.CTkImage(light_image=pil_s, size=(70, 70))
-                                    w.configure(image=ctk_s, text="")
-                                else:
-                                    w.configure(text="[ ไม่มีรูปต้นแบบ ]")
-                        except Exception:
-                            pass
-                    self.after(0, update_staff_ui)
-
-                    # 2. โหลดรูปกิจกรรมจาก Local Cache หรือ Google Drive
-                    img_bytes = None
-                    # ตรวจสอบว่ามีแคชอยู่ในคอมพิวเตอร์หรือไม่
-                    if os.path.exists(cache_file):
-                        try:
-                            with open(cache_file, "rb") as cf:
-                                img_bytes = cf.read()
-                        except Exception:
-                            pass
-
-                    # หากไม่มีในแคช ค่อยดาวน์โหลดจาก Google Drive
-                    if not img_bytes:
-                        downloaded = self.sync_manager.download_image_thumbnail_bytes(f_id)
-                        if downloaded:
-                            img_bytes = downloaded
-                            # เขียนไฟล์แคชลงเครื่อง
-                            try:
-                                with open(cache_file, "wb") as cf:
-                                    cf.write(downloaded)
-                            except Exception:
-                                pass
-
-                    # ส่งไบต์รูปภาพไปสร้าง CTkImage และเรนเดอร์ในเธรดหลัก
-                    def update_act_ui(bytes_data=img_bytes, w=lbl_act, is_active_status=active):
-                        try:
-                            if w.winfo_exists():
-                                if bytes_data:
-                                    import io
-                                    from PIL import Image
-                                    pil_a = Image.open(io.BytesIO(bytes_data)).convert("RGB").resize((120, 80), Image.Resampling.LANCZOS)
-                                    ctk_a = ctk.CTkImage(light_image=pil_a, size=(120, 80))
-                                    w.configure(image=ctk_a, text="")
-                                else:
-                                    # หากโหลดไม่ได้จริงๆ หรือไฟล์ไม่มีอยู่บน Google Drive
-                                    from PIL import Image, ImageDraw
-                                    err_img = Image.new("RGB", (120, 80), color="#E67E22" if not is_active_status else "#C0392B")
-                                    draw = ImageDraw.Draw(err_img)
-                                    msg = "Photo Not Found" if not is_active_status else "Error: No Image"
-                                    draw.text((12 if not is_active_status else 10, 35), msg, fill="white")
-                                    ctk_err = ctk.CTkImage(light_image=err_img, size=(120, 80))
-                                    w.configure(image=ctk_err, text="")
-                        except Exception:
-                            pass
-                    self.after(0, update_act_ui)
-
-                except Exception as preview_err:
-                    logger.error(f"Error loading preview for request: {preview_err}")
-
-            threading.Thread(target=load_previews_thread, daemon=True).start()
-            
-            # เส้นคั่น
-            ctk.CTkFrame(self.scr_delete_requests, height=2, fg_color="#1C2D42").pack(fill="x", pady=5)
-            
-    def approve_delete_requests(self):
-        selected_requests = []
-        if hasattr(self, "parsed_requests_list") and hasattr(self, "delete_req_selections"):
-            for req in self.parsed_requests_list:
-                req_key = f"{req['drive_file_id']}_{req['staff_id']}"
-                if self.delete_req_selections.get(req_key, True):
-                    selected_requests.append(req)
-
-        if not selected_requests:
-            messagebox.showinfo("ไม่ได้เลือกคำขอ", "ยังไม่มีคำขอลบรูปภาพใดที่ถูกเลือกติ๊กถูก")
-            return
-
-        confirm = messagebox.askyesno(
-            "ยืนยันการอนุมัติลบ",
-            f"คุณต้องการอนุมัติลบรูปภาพกิจกรรมคุณครูที่เลือกจำนวน {len(selected_requests)} รายการออกจากระบบ?\nการกระทำนี้จะลบข้อมูลจาก SQLite และ Google Sheets โดยถาวร"
-        )
-        if not confirm:
-            return
-
-        # เริ่มเธรดย่อยลบประวัติเพื่อไม่ให้ UI ค้าง
-        def process_delete():
-            try:
-                # 1. คอนเนค Google Sheets ก่อน
-                sheet_id = self.entry_sheets_id.get().strip()
-                if not self.sync_manager.connect(sheet_id):
-                    self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถเข้าถึง Google Sheets ได้ กระบวนการลบล้มเหลว!"))
-                    return
-
-                logger.info(f"[DELETE_REQ] Starting approval process for {len(selected_requests)} requests...")
-                
-                # ดึง Google Sheets Credentials
-                gc = self.sync_manager.gspread_client
-                sh = gc.open_by_key(sheet_id)
-                wks_faces = sh.worksheet("faces")
-                wks_photos = sh.worksheet("photos")
-                
-                # ดึง ID โฟลเดอร์ JSON
-                json_folder_id = self.entry_json_folder_id.get().strip()
-
-                for req in selected_requests:
-                    staff_id = req["staff_id"]
-                    drive_file_id = req["drive_file_id"]
-
-                    # 1. ลบความสัมพันธ์ใน SQLite `detected_faces`
-                    # หา photo_id ก่อน
-                    conn = self.db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT photo_id FROM scanned_photos WHERE drive_file_id = ?", (drive_file_id,))
-                    p_row = cursor.fetchone()
-                    
-                    count_left = -1
-                    photo_id = None
-                    if p_row:
-                        photo_id = p_row[0]
-                        # ลบใน detected_faces ของคู่ความสัมพันธ์นี้
-                        cursor.execute("DELETE FROM detected_faces WHERE photo_id = ? AND staff_id = ?", (photo_id, staff_id))
-                        conn.commit()
-                        logger.info(f"[DATABASE] Removed match: photo_id={photo_id}, staff_id={staff_id}")
-                        
-                        # ตรวจสอบว่าภาพกิจกรรมนี้ยังเหลือบุคลากรครูคนอื่นๆ อยู่หรือไม่
-                        cursor.execute("SELECT COUNT(*) FROM detected_faces WHERE photo_id = ?", (photo_id,))
-                        count_left = cursor.fetchone()[0]
-                        if count_left == 0:
-                            # ถ้าไม่เหลือใครเกี่ยวแล้ว ให้ลบภาพนี้ออกจาก scanned_photos
-                            cursor.execute("DELETE FROM scanned_photos WHERE photo_id = ?", (photo_id,))
-                            conn.commit()
-                            logger.info(f"[DATABASE] Removed empty photo record: photo_id={photo_id}")
-                    conn.close()
-
-                    # 2. ลบแถวใน Google Sheets `faces`
-                    if photo_id:
-                        try:
-                            all_faces = wks_faces.get_all_values()
-                            # หัวตาราง: photo_id, staff_id, confidence, name
-                            rows_to_delete = []
-                            # เก็บ index แถวที่จะลบ (เริ่มจาก 1 ตาม API Sheets)
-                            for r_idx, row in enumerate(all_faces):
-                                if r_idx == 0:
-                                    continue
-                                if row[0] == photo_id and row[1] == staff_id:
-                                    rows_to_delete.append(r_idx + 1)
-                            
-                            # ลบจากล่างขึ้นบนเพื่อป้องกัน index คลาดเคลื่อน
-                            for r_num in reversed(rows_to_delete):
-                                wks_faces.delete_rows(r_num)
-                                logger.info(f"[GSHEETS] Deleted row {r_num} in sheet 'faces'")
-                        except Exception as sheet_err:
-                            logger.error(f"[GSHEETS] Error deleting row in sheet 'faces': {sheet_err}")
-
-                    # 3. หากภาพนี้ไม่เหลือใครเกี่ยวแล้ว ให้ลบแถวภาพนี้ในแผ่นงาน `photos`
-                    if photo_id and count_left == 0:
-                        try:
-                            all_photos = wks_photos.get_all_values()
-                            # หัวตาราง: photo_id, drive_file_id, event_name, drive_link, photo_date
-                            photo_rows_to_delete = []
-                            for r_idx, row in enumerate(all_photos):
-                                if r_idx == 0:
-                                    continue
-                                if row[0] == photo_id:
-                                    photo_rows_to_delete.append(r_idx + 1)
-                                    
-                            for r_num in reversed(photo_rows_to_delete):
-                                wks_photos.delete_rows(r_num)
-                                logger.info(f"[GSHEETS] Deleted row {r_num} in sheet 'photos'")
-                        except Exception as sheet_err:
-                            logger.error(f"[GSHEETS] Error deleting row in sheet 'photos': {sheet_err}")
-
-                # 2. ทำการอัปเดตไฟล์ดัชนี JSON และ Excel ท้องถิ่นใหม่ทั้งหมด
-                sync_data = self.db.get_all_sync_data()
-                self.sync_manager.save_local_excel_mirror(sync_data)
-                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id)
-                logger.info("[DELETE_REQ] Final cloud and excel indexes updated successfully.")
-
-                # 3. อัปเดตไฟล์ลบประวัติ delete_request.json ทั้งบนคลาวด์และเครื่องท้องถิ่น
-                import json
-                delete_req_file_id = self.entry_delete_req_file_id.get().strip()
-                
-                # 3.1 อ่านข้อมูลตั้งต้นขึ้นมาก่อน (ไม่ว่าจะมาจากเครื่องหรือไดรฟ์)
-                loaded_requests = {}
-                loaded_from_drive = False
-                if delete_req_file_id:
-                    try:
-                        media_content = self.sync_manager.drive_service.files().get_media(fileId=delete_req_file_id).execute()
-                        loaded_requests = json.loads(media_content.decode("utf-8"))
-                        loaded_from_drive = True
-                    except Exception as e:
-                        logger.error(f"[DELETE_REQ] Failed to download JSON for update filtering: {e}")
-                
-                if not loaded_from_drive:
-                    req_file = os.path.join(get_project_root(), "delete_request.json")
-                    if os.path.exists(req_file):
-                        try:
-                            with open(req_file, "r", encoding="utf-8") as f:
-                                loaded_requests = json.load(f)
-                        except Exception:
-                            pass
-
-                # แปลง loaded_requests ให้เป็น flat list ก่อนทำการกรองเปรียบเทียบ
-                flat_loaded = []
-                conn = self.db.get_connection()
-                cursor = conn.cursor()
-                if isinstance(loaded_requests, dict):
-                    for staff_name, file_ids in loaded_requests.items():
-                        cursor.execute("SELECT id FROM staff_members WHERE name = ? LIMIT 1", (staff_name,))
-                        staff_row = cursor.fetchone()
-                        staff_id = staff_row[0] if staff_row else "unknown"
-                        for f_id in file_ids:
-                            flat_loaded.append({
-                                "drive_file_id": f_id,
-                                "staff_id": staff_id,
-                                "staff_name": staff_name
-                            })
-                elif isinstance(loaded_requests, list):
-                    for item in loaded_requests:
-                        if isinstance(item, str):
-                            try:
-                                item = json.loads(item)
-                            except Exception:
-                                continue
-                        if isinstance(item, dict):
-                            s_name = item.get("staff_name", "")
-                            s_id = item.get("staff_id", "")
-                            f_id = item.get("drive_file_id", "")
-                            if not s_id and s_name:
-                                cursor.execute("SELECT id FROM staff_members WHERE name = ? LIMIT 1", (s_name,))
-                                row = cursor.fetchone()
-                                s_id = row[0] if row else "unknown"
-                            if s_id and not s_name:
-                                cursor.execute("SELECT name FROM staff_members WHERE id = ? LIMIT 1", (s_id,))
-                                row = cursor.fetchone()
-                                s_name = row[0] if row else "ไม่ระบุชื่อ"
-                            flat_loaded.append({
-                                "drive_file_id": f_id,
-                                "staff_id": s_id,
-                                "staff_name": s_name
-                            })
-                conn.close()
-
-                # 3.2 กรองเอาคำขอที่ถูกอนุมัติออกไป
-                flat_remaining = []
-                for req in flat_loaded:
-                    match_found = False
-                    for s_req in selected_requests:
-                        # เปรียบเทียบรหัสไฟล์ และ (รหัสครู หรือ ชื่อครู)
-                        # เปรียบเทียบไฟล์ (รองรับทั้ง ID ยาว และชื่อไฟล์/ID สั้น) และ (รหัสครู หรือ ชื่อครู)
-                        if (
-                            req.get("drive_file_id") == s_req.get("drive_file_id") or 
-                            req.get("drive_file_id") == s_req.get("file_name")
-                        ) and (
-                            req.get("staff_id") == s_req.get("staff_id") or 
-                            req.get("staff_name") == s_req.get("staff_name")
-                        ):
-                            match_found = True
-                            break
-                    if not match_found:
-                        flat_remaining.append(req)
-
-                # 3.3 ทำ Reverse Parser แปลง Flat List ที่เหลือคืนกลับเป็น Dictionary {"ชื่อคุณครู": [list_ของ_file_id]}
-                final_dict = {}
-                conn = self.db.get_connection()
-                cursor = conn.cursor()
-                for req in flat_remaining:
-                    s_name = req.get("staff_name")
-                    if not s_name and req.get("staff_id"):
-                        cursor.execute("SELECT name FROM staff_members WHERE id = ? LIMIT 1", (req.get("staff_id"),))
-                        row = cursor.fetchone()
-                        s_name = row[0] if row else "unknown"
-                    if not s_name:
-                        s_name = "ไม่ระบุชื่อ"
-                    
-                    f_id = req.get("drive_file_id")
-                    if f_id:
-                        if s_name not in final_dict:
-                            final_dict[s_name] = []
-                        if f_id not in final_dict[s_name]:
-                            final_dict[s_name].append(f_id)
-                conn.close()
-                
-                # 3.4 บันทึกกลับขึ้น Google Drive (ถ้าโหลดมาจากไดรฟ์)
-                if delete_req_file_id and loaded_from_drive:
-                    try:
-                        from googleapiclient.http import MediaIoBaseUpload
-                        import io
-                        updated_json_str = json.dumps(final_dict, ensure_ascii=False, indent=2)
-                        fh = io.BytesIO(updated_json_str.encode("utf-8"))
-                        media = MediaIoBaseUpload(fh, mimetype='application/json', resumable=True)
-                        self.sync_manager.drive_service.files().update(fileId=delete_req_file_id, media_body=media).execute()
-                        logger.info(f"[DELETE_REQ] Successfully updated delete_request.json on Google Drive (ID: {delete_req_file_id})")
-                    except Exception as cloud_err:
-                        logger.error(f"[DELETE_REQ] Error uploading updated JSON to Google Drive: {cloud_err}")
-                
-                # 3.5 บันทึกสำรองลงเครื่องโลคอล
-                req_file = os.path.join(get_project_root(), "delete_request.json")
-                try:
-                    with open(req_file, "w", encoding="utf-8") as f:
-                        json.dump(final_dict, f, ensure_ascii=False, indent=2)
-                    logger.info("[DELETE_REQ] Saved updated delete requests (dictionary format) to local mirror.")
-                except Exception as file_err:
-                    logger.error(f"Error updating local delete_request.json file: {file_err}")
-
-                # 4. เสร็จสิ้น -> โหลดตารางและแสดง Pop-up
-                self.after(0, lambda: messagebox.showinfo("ลบภาพเสร็จสิ้น", f"อนุมัติและลบข้อมูลคุณครูออกจากภาพที่ระบุจำนวน {len(selected_requests)} รายการ เรียบร้อยสมบูรณ์!"))
-                self.after(0, self.load_delete_requests_table)
-                self.after(0, self.refresh_dashboard_stats)
-
-            except Exception as ex:
-                logger.error(f"Error in approve_delete_requests thread: {ex}", exc_info=True)
-                self.after(0, lambda: messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการอนุมัติลบ: {ex}"))
-
-        threading.Thread(target=process_delete, daemon=True).start()
 
 if __name__ == "__main__":
     # บังคับระบบควบคุม Windows Scaling เพื่อความคมชัดของวิดเจ็ต

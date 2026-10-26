@@ -1,3 +1,76 @@
+# แผนงานถอดถอนระบบคำขอลบรูปภาพกิจกรรม (Remove Delete Requests System Suite v6.59)
+
+## 📌 1. ข้อกำหนดและความต้องการ (Requirements & Scope)
+
+- **ความต้องการของผู้ใช้:**
+  - ถอดถอนเมนูและฟังก์ชันทั้งหมดของ "ระบบจัดการคำขอลบรูปภาพกิจกรรม" (`Delete Requests / delete_req / delete_request.json`) ออกจากโปรแกรมอย่างถาวรและหมดจด
+  - ระวังเป็นพิเศษโดย **ห้ามกระทบต่อการทำงานส่วนอื่นใดๆ ทั้งสิ้น** (Zero Side Effects)
+- **การระบุขอบเขตสิ่งที่ต้องถอดถอนออกจากโค้ด ([app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)):**
+  1. **ปุ่มเมนูบน Sidebar:** ถอด `self.btn_delete_req` ("🗑️ คำขอลบภาพ (Delete Req)") ออก และปรับหมายเลขแถว `.grid(row=...)` ของปุ่ม Task Scheduler และสถานะใน Sidebar ให้เรียงลำดับต่อเนื่อง ไม่เว้นวรรค:
+     - `self.btn_settings`: แถว 7 (คงเดิม)
+     - `self.btn_start_schedule`: แถว 8 (เดิม 9)
+     - `self.btn_start_task2`: แถว 9 (เดิม 10)
+     - `self.btn_start_task3`: แถว 10 (เดิม 11)
+     - `self.btn_stop_schedule`: แถว 11 (เดิม 12)
+     - `self.lbl_schedule_status`: แถว 12 (เดิม 13)
+     - `self.sidebar_frame.grid_rowconfigure(12, weight=1)` (เดิม 13)
+     - `self.credit_label`: แถว 13 (เดิม 14)
+  2. **การควบคุมการสลับหน้าใน `select_menu()`:** ถอดคำสั่งรีเซ็ตสี/ซ่อนปุ่ม `self.btn_delete_req`, ซ่อนเฟรม `self.frame_delete_req.grid_forget()`, และตัดบล็อกเงื่อนไข `elif menu_name == "delete_req":`
+  3. **การประกอบเฟรมหลักใน `create_content_areas()`:** ถอดการประกาศ `self.frame_delete_req` และคำสั่ง `self.setup_delete_req_ui()` ออก
+  4. **หน้าต่าง Google Drive Picker (`GooglePickerWindow`):** ถอดโหมด `"delete_req_json"` ออกจากตัวกรอง MIME และเงื่อนไขการเลือกไฟล์ใน `open_google_picker()` และ `on_folder_picked()`
+  5. **ระบบลบข้อมูลครู (`process_delete()` ในส่วน Registry):** ตัดขั้นตอนที่ 3 ซึ่งเคยพยายามดาวน์โหลด อัปเดต และอัปโหลดไฟล์ `delete_request.json` ขึ้น Google Drive และบันทึกลง Local รวมถึงตัดคำสั่ง `self.after(0, self.load_delete_requests_table)`
+  6. **การบันทึกและโหลดการตั้งค่าระบบ (`save_settings()` / `load_settings()`):** ถอดการบันทึกและโหลดคีย์ `"delete_req_file_id"` และทำความสะอาดคีย์นี้ออกจากไฟล์คอนฟิก `data/app_settings.json`
+  7. **ชุดฟังก์ชันและเมธอดทั้งหมดในส่วน (6) ของ [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):** ถอดฟังก์ชันที่เกี่ยวข้องทั้งหมด 9 เมธอด (~874 บรรทัด ตั้งแต่บรรทัด 9632 ถึง 10505) ประกอบด้วย:
+     - `setup_delete_req_ui`
+     - `open_delete_req_file_in_browser`
+     - `load_delete_requests_table`
+     - `_load_cloud_indexes_for_delete_req`
+     - `prev_delete_req_page`
+     - `next_delete_req_page`
+     - `render_delete_requests_page`
+     - `show_full_delete_request_image`
+     - `approve_delete_requests`
+
+- **การรับประกันความปลอดภัยและความต่อเนื่องของระบบ (Zero-Regression & Isolation Guarantee):**
+  - **ฟังก์ชันหลัก 7 แท็บทำงานสมบูรณ์ 100%:** แดชบอร์ด (Dashboard), ทะเบียนครู (Teacher Registry), ทะเบียนนักเรียน (Student Registry), สแกนรูปภาพกิจกรรม (Scan Activity Photos), ฐานข้อมูล SQLite (Database Browser), คลังภาพกิจกรรมที่แมตช์แล้ว (Matched Gallery), และการตั้งค่าระบบ (System Settings)
+  - **ระบบแบ็กกราวด์สเก็ตชูลเลอร์ทำงานต่อเนื่อง 100%:** Task 1 (สแกนภาพกิจกรรมเพิ่มมาใหม่), Task 2 (Sync ทะเบียนนักเรียน), Task 3 (Sync ทะเบียนครู)
+  - **ระบบจัดการฐานข้อมูล (SQLite & GDrive Sync):** ไม่แตะต้องโครงสร้างฐานข้อมูล SQLite หรือโมดูล `db_manager.py` / `gdrive_sync.py` ทุกอย่างยังคงทำงานได้อย่างมีเสถียรภาพสูงสุด
+
+---
+
+## 🏗️ 2. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ดำเนินการตัดโค้ดและปรับปรุง Layout ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- ถอดปุ่ม `self.btn_delete_req` ออกจาก Sidebar Frame
+- ปรับหมายเลขแถว `.grid(row=...)` ของปุ่มใน Sidebar ให้ต่อเนื่อง ชิดเรียงตัวสวยงาม
+- ตัดบล็อก `elif menu_name == "delete_req":` และคำสั่งรีเซ็ตสี/ซ่อนเฟรมใน `select_menu()`
+- ตัดการสร้าง `self.frame_delete_req` และการเรียก `self.setup_delete_req_ui()` ใน `create_content_areas()`
+- ถอดโหมด `"delete_req_json"` ออกจาก `GooglePickerWindow` และเมธอด `on_folder_picked()`
+- ปรับปรุงเมธอด `process_delete()` ในส่วน Registry โดยตัดการเรียกใช้ `entry_delete_req_file_id`, การอัปเดตไฟล์ `delete_request.json`, และการรีเฟรช `load_delete_requests_table`
+- ตัดการจัดการคีย์ `delete_req_file_id` ออกจาก `save_settings()` และ `load_settings()`
+- ลบชุดฟังก์ชันทั้งหมด 9 เมธอดในส่วน `(6) หน้าเฟรมคำขอลบรูปภาพจากไฟล์ JSON` ออกทั้งหมดอย่างหมดจด (~874 บรรทัด)
+
+### ขั้นตอนที่ 2: ปรับปรุงไฟล์คอนฟิก [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json)
+- นำคีย์ `"delete_req_file_id"` ออกจากไฟล์คอนฟิกเพื่อป้องกันค่าค้างในระบบ
+
+### ขั้นตอนที่ 3: ตรวจสอบความถูกต้องและทดสอบระบบ (Verification)
+- ตรวจสอบไวยากรณ์ด้วย `py_compile app_gui.py` ให้ได้ exit code 0
+- ทดสอบเปิดโปรแกรมและจำลองการคลิกสลับแท็บเมนูที่เหลือทั้ง 7 แท็บ ว่าทำงานได้ลื่นไหล ไร้ข้อผิดพลาด
+- รันชุดทดสอบความสมบูรณ์ของระบบ (Single Instance Self-Heal, Splash Screen, Archive Sync Suite) ให้ผ่าน 100% (22/22 tests)
+
+### ขั้นตอนที่ 4: อัปเดตเวอร์ชันเป็น `v6.59` ทั่วทั้งโปรเจกต์
+- อัปเดต Title Bar: `ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.59`
+- อัปเดต Sidebar Logo: `FACE MATCHING
+SYSTEM v6.59`
+- อัปเดต [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat), และชุดทดสอบ
+- รันคำสั่งตรวจสอบค้นหาเวอร์ชันเก่าทั่วทั้งโปรเจกต์ตามกฎ Zero-Omission Version Update
+
+### ขั้นตอนที่ 5: บันทึก Changelog และ Git Workflow
+- บันทึกประวัติการเปลี่ยนแปลง `v6.59` แทรกไว้บรรทัดบนสุดของ [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+- ดำเนินการ `git add .`, `git commit -m "refactor(ui): remove delete requests system suite v6.59"`, และ `git push origin master`
+
+---
+
 # แผนงานถอดถอนเมนูและฟังก์ชันค้นหาความเหมือนของบุคคลนิรนาม (Remove Unknown Match & Similarity Analytics Suite v6.58)
 
 ## 📌 1. ข้อกำหนดและความต้องการ (Requirements & Scope)

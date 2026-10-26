@@ -1,3 +1,200 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.59 (Remove Delete Requests System Suite)
+
+## 📋 Version 6.59 Changelog (Remove Delete Requests System Suite)
+
+**Date:** 26 ตุลาคม 2026 (15:15 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.59 (Remove Delete Requests System Suite)  
+**Core Technologies:** Complete Removal of Delete Requests Suite (`delete_req` / `delete_request.json`), Clean Sidebar Grid Alignment (7 Main Tabs + 4 Background Task Buttons), Seamless Teacher Deletion Pipeline, Zero-Regression Architecture across All Remaining Menus, Headless Runtime Verification, Unit Test Suites (27/27 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ถอดถอนระบบคำขอลบรูปภาพกิจกรรม (Remove Delete Requests System Suite):**
+   - ผู้ใช้แจ้งความต้องการว่า "ระบบคำขอลบภาพไม่มีแล้วครับ เอาออกด้วย" เนื่องจากระบบคำขอลบรูปภาพกิจกรรมไม่ได้ใช้งานในโฟลว์งานจริงอีกต่อไป ต้องการนำปุ่ม เมนู ตัวเลือกไดรฟ์ และฟังก์ชันที่เกี่ยวข้องทั้งหมดออกจากโค้ดของโปรแกรม
+   - **ข้อกำหนดสำคัญสูงสุด:** ถอดถอนโค้ดอย่างหมดจด ไร้ข้อผิดพลาดตกค้าง และต้องไม่กระทบต่อการทำงานของ 7 แท็บหลักที่เหลือ (Dashboard, ทะเบียนครู, ทะเบียนนักเรียน, สแกนรูปภาพกิจกรรม, ฐานข้อมูล SQLite, คลังภาพที่แมตช์แล้ว, ตั้งค่าระบบ) รวมถึง Background Tasks (Task 1, Task 2, Task 3) 100%
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ถอดถอนส่วนประกอบใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - **Sidebar Menu:** ถอดปุ่ม `self.btn_delete_req` ("🗑️ คำขอลบภาพ (Requests)") ออก และปรับหมายเลขแถว `.grid(row=...)` ของปุ่ม Task Scheduler และสถานะใน Sidebar ให้เรียงตัวต่อเนื่อง สวยงาม ชิดกันพอดี:
+     - `self.btn_settings`: แถว 7 (คงเดิม)
+     - `self.btn_start_schedule` (Task 1): ปรับเป็นแถว 8 (เดิม 9)
+     - `self.btn_start_task2` (Task 2): ปรับเป็นแถว 9 (เดิม 10)
+     - `self.btn_start_task3` (Task 3): ปรับเป็นแถว 10 (เดิม 11)
+     - `self.btn_stop_schedule`: ปรับเป็นแถว 11 (เดิม 12)
+     - `self.credit_label`: ปรับเป็นแถว 12 (เดิม 13)
+     - `self.sidebar_frame.grid_rowconfigure(12, weight=1)` (เดิม 13)
+   - **การสลับหน้าจอใน `select_menu()`:** ถอดคำสั่งรีเซ็ตสีปุ่ม `self.btn_delete_req`, ซ่อนเฟรม `self.frame_delete_req.grid_forget()`, และตัดบล็อกเงื่อนไข `elif menu_name == "delete_req":` ออกทั้งหมด
+   - **การสร้างเฟรมหลักใน `create_content_areas()`:** ถอดการประกาศ `self.frame_delete_req` และคำสั่ง `self.setup_delete_req_ui()` ออก
+   - **Google Drive Picker (`GooglePickerWindow` & `on_folder_picked`):** ตัดโหมด `"delete_req_json"` ออกจากหน้าต่างค้นหาและตัวกรองไฟล์ใน Google Drive
+   - **ระบบลบข้อมูลครู (`process_delete()` ในส่วน Registry):** ตัดขั้นตอนที่ 3 ซึ่งเคยพยายามดาวน์โหลด อัปเดต และบันทึกไฟล์ `delete_request.json` ขึ้น Google Drive และตัดคำสั่ง `self.after(0, self.load_delete_requests_table)` ออก เพื่อป้องกันข้อผิดพลาด Attribute Missing
+   - **การตั้งค่าระบบ (`save_settings()` / `load_settings()`):** ตัดการบันทึกและโหลดคีย์ `"delete_req_file_id"` ออก และลบคีย์นี้ออกจาก [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json)
+   - **ชุดฟังก์ชันทั้งหมดในส่วน (6):** ลบฟังก์ชันทั้ง 9 เมธอดในหมวด `(6) หน้าเฟรมคำขอลบรูปภาพจากไฟล์ JSON` ออกทั้งหมดอย่างหมดจด (~874 บรรทัด / 46,126 ตัวอักษร)
+2. **การอัปเดตเวอร์ชันและตรวจสอบความถูกต้อง (Verification & Version Parity):**
+   - อัปเดตเวอร์ชันโปรแกรมเป็น `v6.59` ครบทุกจุดใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py), [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat), และชุดทดสอบ
+   - ทดสอบ Execution Path Runtime Verification ด้วยการเปิด GUI แบบ Headless และคลิกสลับเมนูที่เหลือทั้ง 7 เมนู: ผ่านสมบูรณ์ 100%
+   - รันชุดทดสอบความสมบูรณ์รวม 27 รายการ (Single Instance Self-Heal, Splash Screen, Archive Sync Suite, Sharded Staff Index Suite): ผ่านสมบูรณ์ 100% (27/27 Tests Passed)
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - การถอดปุ่มคำขอลบภาพบน Sidebar และจัดเรียงแถวต่อเนื่อง
+**ก่อนแก้ไข (Before):**
+```python
+        self.btn_settings = ctk.CTkButton(
+            self.sidebar_frame, text="⚙️ ตั้งค่าระบบ", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("settings")
+        )
+        self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+
+        self.btn_delete_req = ctk.CTkButton(
+            self.sidebar_frame, text="🗑️ คำขอลบภาพ (Requests)", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("delete_req")
+        )
+        self.btn_delete_req.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
+
+        self.btn_start_schedule.grid(row=9, column=0, padx=12, pady=(12, 4), sticky="ew")
+        self.btn_start_task2.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task3.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
+        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(13, weight=1)
+```
+
+**หลังแก้ไข (After):**
+```python
+        self.btn_settings = ctk.CTkButton(
+            self.sidebar_frame, text="⚙️ ตั้งค่าระบบ", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("settings")
+        )
+        self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+
+        self.btn_start_schedule = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ 1. สแกนภาพเพิ่มมาใหม่", height=38, font=schedule_font,
+            fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
+            anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
+        )
+        self.btn_start_schedule.grid(row=8, column=0, padx=12, pady=(12, 4), sticky="ew")
+
+        self.btn_start_task2 = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ 2. Sync New Student", height=38, font=schedule_font,
+            fg_color="#D35400", text_color="white", hover_color="#E67E22",
+            anchor="w", command=lambda: self.scheduler.run_task_2_manual()
+        )
+        self.btn_start_task2.grid(row=9, column=0, padx=12, pady=4, sticky="ew")
+
+        self.btn_start_task3 = ctk.CTkButton(
+            self.sidebar_frame, text="▶️ 3. Sync New Teacher", height=38, font=schedule_font,
+            fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
+            anchor="w", command=lambda: self.scheduler.run_task_3_manual()
+        )
+        self.btn_start_task3.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
+
+        self.btn_stop_schedule = ctk.CTkButton(
+            self.sidebar_frame, text="🛑 Stop Schedule Task", height=38, font=schedule_font,
+            fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
+            anchor="w", command=lambda: self.scheduler.request_stop()
+        )
+        self.btn_stop_schedule.grid(row=11, column=0, padx=12, pady=(4, 12), sticky="ew")
+
+        # เครดิตด้านล่าง
+        self.credit_label = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="Admin Console\n© 2026 School Face Finder",
+            font=ctk.CTkFont(size=11),
+            text_color="#4F6580"
+        )
+        self.credit_label.grid(row=12, column=0, pady=15, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(12, weight=1)
+```
+
+---
+
+#### 2. `app_gui.py` - การควบคุมการสลับเมนูใน `select_menu()`
+**ก่อนแก้ไข (Before):**
+```python
+        self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
+        self.btn_delete_req.configure(fg_color="transparent", text_color="#A2B5CD")
+
+        # ซ่อนเฟรมเนื้อหาทั้งหมด
+        self.frame_dashboard.grid_forget()
+        self.frame_registry.grid_forget()
+        self.frame_student_registry.grid_forget()
+        self.frame_scan.grid_forget()
+        self.frame_database.grid_forget()
+        self.frame_matched_gallery.grid_forget()
+        self.frame_settings.grid_forget()
+        self.frame_delete_req.grid_forget()
+...
+        elif menu_name == "delete_req":
+            self.btn_delete_req.configure(fg_color="#1F3A60", text_color="white")
+            self.frame_delete_req.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+```
+
+**หลังแก้ไข (After):**
+```python
+        self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
+
+        # ซ่อนเฟรมเนื้อหาทั้งหมด
+        self.frame_dashboard.grid_forget()
+        self.frame_registry.grid_forget()
+        self.frame_student_registry.grid_forget()
+        self.frame_scan.grid_forget()
+        self.frame_database.grid_forget()
+        self.frame_matched_gallery.grid_forget()
+        self.frame_settings.grid_forget()
+```
+
+---
+
+#### 3. `app_gui.py` - กระบวนการลบข้อมูลครู `process_delete()`
+**ก่อนแก้ไข (Before):**
+```python
+                delete_req_file_id = self.entry_delete_req_file_id.get().strip()
+                ...
+                # 3. อัปเดตลบคีย์ครูคนนี้ใน delete_request.json (ทั้งบน Drive และเครื่อง)
+                loaded_requests = {}
+                ...
+                # 4. รีเฟรชหน้าจอทั้งหมดใน Thread หลัก
+                self.after(0, self.load_staff_list)
+                self.after(0, self.refresh_dashboard_stats)
+                self.after(0, self.load_delete_requests_table)
+                self.after(0, lambda: messagebox.showinfo("ลบสำเร็จ", f"ลบข้อมูลของคุณครู '{staff_name}' ออกจากระบบทั้งหมดเรียบร้อยแล้ว"))
+```
+
+**หลังแก้ไข (After):**
+```python
+                # 3. รีเฟรชหน้าจอทั้งหมดใน Thread หลัก
+                self.after(0, self.load_staff_list)
+                self.after(0, self.refresh_dashboard_stats)
+                self.after(0, lambda: messagebox.showinfo("ลบสำเร็จ", f"ลบข้อมูลของคุณครู '{staff_name}' ออกจากระบบทั้งหมดเรียบร้อยแล้ว"))
+```
+
+---
+
+#### 4. `app_gui.py` & `data/app_settings.json` - การบันทึกและโหลดการตั้งค่า
+**ก่อนแก้ไข (Before):**
+```python
+            "delete_req_file_id": self.entry_delete_req_file_id.get().strip() if hasattr(self, "entry_delete_req_file_id") else "",
+            ...
+            if "delete_req_file_id" in settings and hasattr(self, "entry_delete_req_file_id"):
+                self.entry_delete_req_file_id.insert(0, settings["delete_req_file_id"])
+```
+
+**หลังแก้ไข (After):**
+```python
+            # ตัดคีย์ delete_req_file_id ออกอย่างหมดจด ทั้งในคำสั่งบันทึก โหลด และใน data/app_settings.json
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.58 (Remove Unknown Match & Similarity Analytics Suite)
 
 ## 📋 Version 6.58 Changelog (Remove Unknown Match & Similarity Analytics Suite)
