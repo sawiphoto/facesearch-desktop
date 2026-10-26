@@ -1,3 +1,78 @@
+# แผนงานถอดถอนเมนูและฟังก์ชันค้นหาความเหมือนของบุคคลนิรนาม (Remove Unknown Match & Similarity Analytics Suite v6.58)
+
+## 📌 1. ข้อกำหนดและความต้องการ (Requirements & Scope)
+
+- **ความต้องการของผู้ใช้:**
+  - ถอดถอนเมนูและฟังก์ชันทั้งหมดที่เกี่ยวข้องกับการค้นหาความเหมือนของรูปภาพบุคคลนิรนาม (`Unknown Faces Analytics / Unknown Match / Clustering`) ออกจากโค้ดของโปรแกรม
+  - ระวังเป็นพิเศษโดย **ห้ามกระทบต่อการทำงานส่วนอื่นใดๆ ทั้งสิ้น** (Zero Side Effects)
+- **การระบุขอบเขตสิ่งที่ต้องถอดถอนออกจากโค้ด ([app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)):**
+  1. **การนำเข้าโมดูล (Imports):** ถอด `from gradient_chart import GradientBarChart, get_gradient_color` และ `import unknown_analyzer` (บรรทัด 23-24)
+  2. **ตัวแปรสถานะใน `FaceSearchApp.__init__`:** ถอดตัวแปรกลุ่ม `selected_unknown_cluster_id`, `selected_unknown_cluster_data`, `unknown_clusters_cache`, `unknown_filtered_rows`, `unknown_page`, `unknown_page_size`, `_unknown_search_timer`, `unknown_gallery_filter_year`, `_unknown_face_preview_img` (บรรทัด 1048-1057)
+  3. **ปุ่มเมนูบน Sidebar:** ถอด `self.btn_unknown_analytics` ("👥 สถิติบุคคลนิรนาม (Unknowns)") ออก และปรับหมายเลขแถว `.grid(row=...)` ของปุ่มถัดไป (ตั้งแต่ `self.btn_settings`, `self.btn_delete_req` จนถึงปุ่มสเก็ตชูลเลอร์แถว 7 ถึง 13) ให้เรียงลำดับต่อเนื่อง ไร้ช่องว่างเว้นวรรค
+  4. **การควบคุมการสลับหน้าใน `select_menu()`:** ถอดคำสั่งซ่อน/แสดงปุ่มและเฟรมของ `unknown_analytics`
+  5. **การประกอบเฟรมหลักใน `__init__`:** ถอด `self.frame_unknown_analytics` และคำสั่ง `self.setup_unknown_analytics_ui()` (บรรทัด 1343-1345)
+  6. **ชุดฟังก์ชันและเมธอดทั้งหมดในส่วน (7) ของ [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):** ถอดเมธอดที่เกี่ยวข้องทั้งหมด 18 เมธอด (~742 บรรทัด ตั้งแต่บรรทัด 10537 ถึง 11278) ประกอบด้วย:
+     - `setup_unknown_analytics_ui`
+     - `update_unknown_year_dropdown`
+     - `on_unknown_year_change`
+     - `on_unknown_search_key`
+     - `_apply_unknown_search_filter`
+     - `_render_unknown_tree_page`
+     - `on_unknown_page_prev`
+     - `on_unknown_page_next`
+     - `load_unknown_clusters_list`
+     - `on_unknown_cluster_select`
+     - `display_unknown_cluster_detail`
+     - `clear_unknown_detail`
+     - `_load_unknown_face_preview_async`
+     - `on_unknown_bar_click`
+     - `reset_unknown_gallery_filter`
+     - `render_unknown_gallery`
+     - `export_cropped_unknown_face`
+     - `run_recluster_thread`
+
+- **การรับประกันความปลอดภัยและความต่อเนื่องของระบบ (Zero-Regression & Isolation Guarantee):**
+  - **ฟังก์ชันหลัก 8 แท็บทำงานสมบูรณ์ 100%:** แดชบอร์ด (Dashboard), ลงทะเบียนครู (Registry), ลงทะเบียนนักเรียน (Student Registry), สแกนรูปภาพกิจกรรม (Scan), ตรวจสอบฐานข้อมูล SQLite (Database), ภาพกิจกรรมที่แมตช์แล้ว (Matched Gallery), ตั้งค่าระบบ (Settings), คำขอลบภาพ (Delete Requests)
+  - **ระบบแบ็กกราวด์สเก็ตชูลเลอร์ทำงานต่อเนื่อง 100%:** Task 1 (สแกนภาพเพิ่มมาใหม่), Task 2 (Sync New Student), Task 3 (Sync New Teacher)
+  - **ระบบตรวจจับและแมตช์ใบหน้า (Face Matching Engine):** ไม่แตะต้องโค้ดตรวจจับใบหน้า ArcFace/InsightFace สำหรับคุณครูและนักเรียน โดยใบหน้าในภาพที่ไม่ตรงกับบุคคลในระบบจะยังคงถูกบันทึก/แสดงเป็น "Unknown" ตามปกติของระบบตรวจจับมาตรฐาน
+  - **โครงสร้างฐานข้อมูล SQLite (`data/faces_db.db`):** คงสภาพตารางไว้ ไม่ทำการ Drop Table ใดๆ เพื่อป้องกันความเสี่ยงต่อข้อมูลรูปภาพและประวัติการสแกนเดิม 100%
+
+---
+
+## 🏗️ 2. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ดำเนินการตัดโค้ดและปรับปรุง Layout ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- ตัดคำสั่ง Import โมดูล `unknown_analyzer` และ `gradient_chart` ที่ส่วนหัว
+- ตัดตัวแปรสถานะและคอมเมนต์เกี่ยวกับ Unknown Analytics ใน `FaceSearchApp.__init__`
+- ถอดปุ่ม `self.btn_unknown_analytics` ออกจาก Sidebar Frame
+- ปรับหมายเลขแถวใน `.grid(row=...)` ของปุ่มใน Sidebar ให้ต่อเนื่อง:
+  - `self.btn_settings`: แถว 7 (เดิม 8)
+  - `self.btn_delete_req`: แถว 8 (เดิม 9)
+  - `self.btn_start_schedule`: แถว 9 (เดิม 10)
+  - `self.btn_start_task2`: แถว 10 (เดิม 11)
+  - `self.btn_start_task3`: แถว 11 (เดิม 12)
+  - `self.btn_stop_schedule`: แถว 12 (เดิม 13)
+  - `self.lbl_schedule_status`: แถว 13 (เดิม 14)
+- ตัดบล็อก `elif menu_name == "unknown_analytics":` และคำสั่งรีเซ็ตสี/ซ่อนเฟรมใน `select_menu()`
+- ตัดการสร้าง `self.frame_unknown_analytics` และการเรียก `self.setup_unknown_analytics_ui()`
+- ตัดเมธอดทั้ง 18 ฟังก์ชันในส่วน `(7) เมนูสถิติบุคคลนิรนาม` ออกทั้งหมดอย่างหมดจด
+
+### ขั้นตอนที่ 2: ตรวจสอบความถูกต้องและทดสอบระบบ (Verification)
+- ตรวจสอบไวยากรณ์ด้วย `py_compile app_gui.py` ให้ได้ exit code 0
+- รันชุดทดสอบความสมบูรณ์ของระบบ (Single Instance Self-Heal, Splash Screen, Archive Sync Suite) ให้ผ่าน 100%
+- ทดสอบการนำทางใน Sidebar เมนูทั้งหมดว่าทำงานปกติและไม่มีข้อผิดพลาดอ้างอิงถึง Attribute หรือ Widget ที่ถูกลบออกไป
+
+### ขั้นตอนที่ 3: อัปเดตเวอร์ชันเป็น `v6.58`
+- อัปเดต Title Bar: `ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.58`
+- อัปเดต Sidebar Logo: `FACE MATCHING\nSYSTEM v6.58`
+- อัปเดต [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat), และชุดทดสอบ
+
+### ขั้นตอนที่ 4: บันทึก Changelog และ Git Workflow
+- บันทึกประวัติการเปลี่ยนแปลง `v6.58` แทรกไว้บรรทัดบนสุดของ [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+- ดำเนินการ `git add .`, `git commit -m "refactor(ui): remove unknown match and similarity analytics suite v6.58"`, และ `git push origin master`
+
+---
+
 # แผนงานแก้ไขและส่งออกดัชนีภาพเก่า Crowdsource ครบถ้วน 845 ภาพ (Complete Archive Crowdsource 845 Photos Full Sync v6.57)
 
 ## 📌 1. ผลการวินิจฉัยเชิงลึกและสาเหตุที่แท้จริง (Deep Root Cause Analysis)
