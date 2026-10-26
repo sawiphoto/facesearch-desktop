@@ -1,3 +1,116 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.60 (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb)
+
+## 📋 Version 6.60 Changelog (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb)
+
+**Date:** 26 ตุลาคม 2026 (15:55 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.60 (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb)  
+**Core Technologies:** Fix Google Drive HTTP 404 Error on Cloud JSON Sync, Entry Box Clearing via `.delete(0, 'end')`, Self-Healing ID Sanitizer (`_sanitize_setting_id`), Pillow Large Image Decoding Unlocked (`Image.MAX_IMAGE_PIXELS = None`), OpenCV Max Pixel Expansion (`OPENCV_IO_MAX_IMAGE_PIXELS`), Unit Test Suites (27/27 Tests Passed 100%).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **Google Drive Sync ล้มเหลวด้วยข้อผิดพลาด HTTP 404 (`File not found: .`):**
+   - หลังสแกนอัลบั้มภาพกิจกรรมใหม่เสร็จสิ้นและเริ่มกระบวนการอัปโหลดไฟล์ JSON ซิงก์ขึ้น Google Drive (`staff_index.json`, `photo_index_*.json`, `photo_manifest.json`, ฯลฯ) เกิดข้อผิดพลาด 404 ทุกไฟล์
+   - **สาเหตุที่แท้จริง:** Parameter `q` ที่ส่งไปยัง Google Drive API ค้นหาโฟลเดอร์ด้วย ID ที่เบิ้ลซ้ำ 2 เท่า เช่น `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` (ความยาว 66 ตัวอักษร) อันเกิดจากฟังก์ชัน `load_settings()` ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py) ขาดคำสั่ง `.delete(0, "end")` ก่อน `.insert(0, ...)` เมื่อมีการเรียกโหลดตั้งค่าซ้ำ จึงเกิดการแทรกข้อความซ้ำด้านหน้าและถูกบันทึกลง [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json)
+2. **Pillow Decode Fallback Error (Decompression Bomb DOS Attack):**
+   - เมื่อสแกนอัลบั้มภาพที่มีภาพถ่ายความละเอียดสูงเป็นพิเศษ (199,756,800 พิกเซล หรือเกือบ 200 ล้านพิกเซล เช่น ภาพพาโนรามามุมกว้าง) Pillow โยนข้อยกเว้น: `Image size (199756800 pixels) exceeds limit of 178956970 pixels, could be decompression bomb DOS attack` เนื่องจากค่ามาตรฐานของ Pillow จำกัดไว้ที่ ~178.9 ล้านพิกเซล
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **แก้ไข [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - เติมคำสั่ง `.delete(0, "end")` ก่อนคำสั่ง `.insert(0, ...)` ใน `load_settings()` สำหรับทุกช่องกรอกข้อมูล (`drive_folder_id`, `sheets_id`, `json_folder_id`, `credentials_path`)
+   - เพิ่มฟังก์ชันช่วยเหลือ `_sanitize_setting_id(val)` เพื่อตัดทอนสตริง ID หากพบการเบิ้ลซ้ำสองท่อน (`s[:n] == s[n:]`) โดยอัตโนมัติ (Self-Healing Sanitizer) ทั้งในขั้นตอน `load_settings()` และ `save_settings()` เพื่อรับประกันว่าจะไม่มี ID เบิ้ลซ้ำเกิดขึ้นอีกตลอดไป
+2. **แก้ไขไฟล์คอนฟิก [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json):**
+   - ตัดทอนค่า ID ที่เบิ้ลซ้ำทั้ง 3 ค่าให้กลับมาเป็นค่าที่ถูกต้องแท้จริง 100%:
+     - `"drive_folder_id": "1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA"`
+     - `"sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc"`
+     - `"json_folder_id": "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"`
+3. **แก้ไข [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py):**
+   - กำหนด `Image.MAX_IMAGE_PIXELS = None` ที่ส่วนหัวของโมดูล และภายใน `decode_image_bytes()`
+   - ละเว้นคำเตือน `DecompressionBombWarning` ด้วย `warnings.simplefilter('ignore', Image.DecompressionBombWarning)`
+   - กำหนดตัวแปรสภาพแวดล้อม `os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = "1099511627776"` เพื่อรองรับการเปิดภาพขนาดมหึมา (ระดับ 200+ ล้านพิกเซล) ได้อย่างสมบูรณ์แบบ
+4. **การตรวจสอบความถูกต้อง (Verification):**
+   - ทดสอบเรียก `load_settings()` และ `save_settings()` ต่อเนื่อง 5 รอบ ยืนยันว่าค่า ID ยังคงถูกต้องและไม่มีการเบิ้ลซ้ำอีก
+   - ทดสอบเชื่อมต่อ Google Drive API และค้นหาโฟลเดอร์ JSON ด้วย ID `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L`: เชื่อมต่อสำเร็จ HTTP 200 OK และดึงรายการไฟล์ในโฟลเดอร์ได้ครบถ้วน
+   - รันชุดทดสอบยูนิตเทสต์ทั้งหมดรวม 27 รายการ: **ผ่านสมบูรณ์ 100% (27/27 OK)**
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - การล้าง Entry และเพิ่ม Self-Healing Sanitizer ใน `load_settings()`
+**ก่อนแก้ไข (Before):**
+```python
+            if "drive_folder_id" in settings:
+                self.entry_drive_folder_id.insert(0, settings["drive_folder_id"])
+                
+            if "sheets_id" in settings:
+                self.entry_sheets_id.insert(0, settings["sheets_id"])
+                
+            if "json_folder_id" in settings:
+                self.entry_json_folder_id.insert(0, settings["json_folder_id"])
+```
+
+**หลังแก้ไข (After):**
+```python
+    @staticmethod
+    def _sanitize_setting_id(val):
+        """ตัดทอนสตริง ID หากพบการเบิ้ลซ้ำสองท่อน (Self-Healing Sanitizer)"""
+        if not val or not isinstance(val, str):
+            return ""
+        s = val.strip()
+        while len(s) >= 20 and len(s) % 2 == 0 and s[:len(s)//2] == s[len(s)//2:]:
+            s = s[:len(s)//2]
+        return s
+...
+            if "drive_folder_id" in settings:
+                clean_drive = self._sanitize_setting_id(settings["drive_folder_id"])
+                self.entry_drive_folder_id.delete(0, "end")
+                self.entry_drive_folder_id.insert(0, clean_drive)
+                
+            if "sheets_id" in settings:
+                clean_sheet = self._sanitize_setting_id(settings["sheets_id"])
+                self.entry_sheets_id.delete(0, "end")
+                self.entry_sheets_id.insert(0, clean_sheet)
+                
+            if "json_folder_id" in settings:
+                clean_json = self._sanitize_setting_id(settings["json_folder_id"])
+                self.entry_json_folder_id.delete(0, "end")
+                self.entry_json_folder_id.insert(0, clean_json)
+```
+
+---
+
+#### 2. `face_analyzer.py` - การปลดล็อกขีดจำกัดขนาดภาพใน Pillow & OpenCV
+**ก่อนแก้ไข (Before):**
+```python
+from PIL import Image
+...
+    # 2. Fallback ผ่าน Pillow + pillow-heif (รองรับ .HEIC / .HEIF / .WEBP / TIFF / Progressive JPEG)
+    try:
+        from PIL import ImageOps
+        pil_img = Image.open(io.BytesIO(img_bytes))
+```
+
+**หลังแก้ไข (After):**
+```python
+from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
+warnings.simplefilter('ignore', Image.DecompressionBombWarning)
+os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = "1099511627776"
+...
+    # 2. Fallback ผ่าน Pillow + pillow-heif (รองรับ .HEIC / .HEIF / .WEBP / TIFF / Progressive JPEG)
+    try:
+        from PIL import Image, ImageOps
+        Image.MAX_IMAGE_PIXELS = None
+        pil_img = Image.open(io.BytesIO(img_bytes))
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.59 (Remove Delete Requests System Suite)
 
 ## 📋 Version 6.59 Changelog (Remove Delete Requests System Suite)

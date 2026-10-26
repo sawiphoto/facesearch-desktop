@@ -1,8 +1,8 @@
 {
     "credentials_path": "D:\\Projects\\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\\config\\service_account.json",
-    "drive_folder_id": "1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA",
-    "sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc",
-    "json_folder_id": "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L",
+    "drive_folder_id": "1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA",
+    "sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc",
+    "json_folder_id": "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L",
     "threshold": 0.45,
     "use_gpu": 1,
     "re_scan": 1,

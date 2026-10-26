@@ -965,7 +965,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.59 (Remove Delete Requests System Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.60 (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1108,7 +1108,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.59",
+            text="FACE MATCHING\nSYSTEM v6.60",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -5925,6 +5925,16 @@ class FaceSearchApp(ctk.CTk):
             messagebox.showinfo("ล้างประวัติสำเร็จ", "ทำการล้างประวัติภาพกิจกรรมใน SQLite เรียบร้อยแล้ว")
 
     # ==================== (5) การจัดการ Settings & Configuration ====================
+    @staticmethod
+    def _sanitize_setting_id(val):
+        """ตัดทอนสตริง ID หากพบการเบิ้ลซ้ำสองท่อน (Self-Healing Sanitizer)"""
+        if not val or not isinstance(val, str):
+            return ""
+        s = val.strip()
+        while len(s) >= 20 and len(s) % 2 == 0 and s[:len(s)//2] == s[len(s)//2:]:
+            s = s[:len(s)//2]
+        return s
+
     def save_settings(self):
         """บันทึกข้อมูลการตั้งค่าลงไฟล์เก็บสถานะ"""
         settings_file = os.path.join(get_project_root(), "data", "app_settings.json")
@@ -5932,9 +5942,9 @@ class FaceSearchApp(ctk.CTk):
         
         settings = {
             "credentials_path": self.entry_cred_path.get().strip(),
-            "drive_folder_id": self.entry_drive_folder_id.get().strip(),
-            "sheets_id": self.entry_sheets_id.get().strip(),
-            "json_folder_id": self.entry_json_folder_id.get().strip(),
+            "drive_folder_id": self._sanitize_setting_id(self.entry_drive_folder_id.get()),
+            "sheets_id": self._sanitize_setting_id(self.entry_sheets_id.get()),
+            "json_folder_id": self._sanitize_setting_id(self.entry_json_folder_id.get()),
             "threshold": self.slider_threshold.get(),
             "use_gpu": self.chk_use_gpu.get(),
             "re_scan": self.chk_re_scan.get(),
@@ -5974,13 +5984,19 @@ class FaceSearchApp(ctk.CTk):
                 self.sync_manager.credentials_path = settings["credentials_path"]
                 
             if "drive_folder_id" in settings:
-                self.entry_drive_folder_id.insert(0, settings["drive_folder_id"])
+                clean_drive = self._sanitize_setting_id(settings["drive_folder_id"])
+                self.entry_drive_folder_id.delete(0, "end")
+                self.entry_drive_folder_id.insert(0, clean_drive)
                 
             if "sheets_id" in settings:
-                self.entry_sheets_id.insert(0, settings["sheets_id"])
+                clean_sheet = self._sanitize_setting_id(settings["sheets_id"])
+                self.entry_sheets_id.delete(0, "end")
+                self.entry_sheets_id.insert(0, clean_sheet)
                 
             if "json_folder_id" in settings:
-                self.entry_json_folder_id.insert(0, settings["json_folder_id"])
+                clean_json = self._sanitize_setting_id(settings["json_folder_id"])
+                self.entry_json_folder_id.delete(0, "end")
+                self.entry_json_folder_id.insert(0, clean_json)
 
             if "threshold" in settings:
                 self.slider_threshold.set(settings["threshold"])

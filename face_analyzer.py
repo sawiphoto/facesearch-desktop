@@ -8,6 +8,9 @@ import cv2
 import logging
 import warnings
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
+warnings.simplefilter('ignore', Image.DecompressionBombWarning)
+os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = "1099511627776"
 from tqdm import tqdm
 from insightface.app import FaceAnalysis
 
@@ -446,7 +449,8 @@ def decode_image_bytes(img_bytes):
 
     # 2. Fallback ด้วย Pillow + pillow-heif (สำหรับ .HEIC / .HEIF / .WEBP / TIFF / Progressive JPEG)
     try:
-        from PIL import ImageOps
+        from PIL import Image, ImageOps
+        Image.MAX_IMAGE_PIXELS = None
         pil_img = Image.open(io.BytesIO(img_bytes))
         pil_img = ImageOps.exif_transpose(pil_img)
         if pil_img.mode != "RGB":

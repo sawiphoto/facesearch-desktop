@@ -1,3 +1,187 @@
+# แผนงานแก้ไขปัญหาซิงก์ Google Drive 404 (ID โฟลเดอร์ซ้ำซ้อน) และปลดล็อกการอ่านภาพขนาดใหญ่พิเศษใน Pillow (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb v6.60)
+
+## 📌 1. ข้อกำหนดและสาเหตุที่แท้จริงของปัญหา (Root Cause Analysis & Requirements)
+
+### ปัญหาที่ 1: การอัปโหลดไฟล์ JSON ซิงก์ขึ้น Google Drive ล้มเหลวด้วยข้อผิดพลาด 404 (`File not found: .`)
+- **การวินิจฉัยจาก Log ของผู้ใช้:**
+  - ข้อความเตือนและข้อผิดพลาด:
+    `q=%271X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L%27+in+parents+and+trashed+%3D+false ... returned "File not found: ."`
+  - **สาเหตุที่แท้จริง:** สังเกตที่ Folder ID ใน Parameter `q`:
+    `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` (ความยาว 66 ตัวอักษร) เกิดจากการนำ ID จริง `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` (ความยาว 33 ตัวอักษร) มาต่อท้ายตัวเองซ้ำ 2 รอบ!
+  - **จุดบกพร่องในโค้ด [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+    ในเมธอด `load_settings()` บรรทัดที่ 5976-5983:
+    ```python
+    if "drive_folder_id" in settings:
+        self.entry_drive_folder_id.insert(0, settings["drive_folder_id"])
+    if "sheets_id" in settings:
+        self.entry_sheets_id.insert(0, settings["sheets_id"])
+    if "json_folder_id" in settings:
+        self.entry_json_folder_id.insert(0, settings["json_folder_id"])
+    ```
+    ไม่มีคำสั่ง `.delete(0, "end")` ก่อนทำการ `.insert(0, ...)` (ต่างจาก `credentials_path` ที่มี `delete` อยู่แล้ว)
+    ทำให้เมื่อมีการเรียก `load_settings()` ข้อความเก่าที่มีอยู่แล้วใน Entry Box ไม่ถูกล้างออก แต่ถูกแทรกข้อความซ้ำเข้าไปข้างหน้า และเมื่อเกิดการบันทึก `save_settings()` ค่า ID ที่เบิ้ลซ้ำจึงถูกบันทึกกลับลงไปใน [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json) ทั้ง 3 ค่า (`drive_folder_id`, `sheets_id`, `json_folder_id`)
+    ส่งผลให้เมื่อระบบสแกนอัลบั้มเสร็จแล้วพยายามอัปโหลดไฟล์ดัชนี JSON (`staff_index.json`, `photo_index_*.json`, ฯลฯ) จึงค้นหาโฟลเดอร์ Google Drive ด้วย ID ที่ผิดพลาด ทำให้ Google Drive ตอบกลับมาว่า `404 File not found: .` ทุกไฟล์!
+
+### ปัญหาที่ 2: Pillow decode fallback error: Image size exceeds limit (could be decompression bomb DOS attack)
+- **การวินิจฉัยจาก Log ของผู้ใช้:**
+  - `Image size (199756800 pixels) exceeds limit of 178956970 pixels, could be decompression bomb DOS attack.`
+  - **สาเหตุที่แท้จริง:** รูปภาพในอัลบั้มบางภาพมีความละเอียดสูงมากเป็นพิเศษ เช่น ภาพถ่ายพาโนรามา หรือภาพป้ายไวนิลกิจกรรมขนาดใหญ่ (199.7 ล้านพิกเซล เช่น ขนาด ~17,300 x 11,500 พิกเซล)
+  - ตามมาตรฐานเดิมของไลบรารี Pillow จะมีค่าความปลอดภัยตั้งต้น `Image.MAX_IMAGE_PIXELS = 178,956,970` เพื่อป้องกัน DoS Attack
+  - เมื่อ OpenCV ไม่สามารถอ่านไฟล์ภาพบางฟอร์แมตได้และส่งต่อให้ Pillow อ่านผ่าน `decode_image_bytes()` ใน [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py) Pillow จึงหยุดการทำงานและโยน `DecompressionBombError`
+
+---
+
+## 💡 2. วิธีการแก้ไข (Solution)
+
+1. **แก้ไข [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py):**
+   - กำหนด `Image.MAX_IMAGE_PIXELS = None` ทั้งที่ระดับโมดูล และภายในฟังก์ชัน `decode_image_bytes()` พร้อมปิดคำเตือน DecompressionBombWarning เพื่อให้ Pillow สามารถถอดรหัสรูปภาพความละเอียดสูงมาก (ภาพพาโนรามา / แบนเนอร์) ได้อย่างสมบูรณ์แบบโดยไม่ถูกบล็อก
+2. **แก้ไข [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ในเมธอด `load_settings()` ให้ใส่ `.delete(0, "end")` ก่อนคำสั่ง `.insert(0, ...)` ในทุกช่องกรอกข้อความ
+   - เพิ่มฟังก์ชัน **Self-Healing Sanitizer (แก้ปัญหา ID เบิ้ลซ้ำอัตโนมัติ):**
+     ตรวจสอบก่อนนำไปใช้งานหรือบันทึก หากพบว่าความยาวของ ID เป็นเลขคู่ และครึ่งแรกกับครึ่งหลังเหมือนกันทุกประการ (`val[:len//2] == val[len//2:]`) ให้ตัดทอนเหลือครึ่งเดียวทันที เพื่อป้องกันข้อผิดพลาดเชิงลึกในอนาคต 100%
+3. **แก้ไข [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json):**
+   - ปรับแก้ค่า ID ทั้ง 3 ตัวในไฟล์คอนฟิกให้กลับมาเป็นค่าที่ถูกต้องแท้จริง:
+     - `"drive_folder_id": "1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA"`
+     - `"sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc"`
+     - `"json_folder_id": "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"`
+
+---
+
+## 🏗️ 3. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: ปลดล็อก Decompression Bomb ใน [face_analyzer.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/face_analyzer.py)
+- ตั้งค่า `from PIL import Image; Image.MAX_IMAGE_PIXELS = None`
+- เพิ่มการจัดการข้อยกเว้นใน `decode_image_bytes` ให้อ่านภาพพาโนรามาขนาดใหญ่พิเศษได้อย่างราบรื่น
+
+### ขั้นตอนที่ 2: ป้องกันและรักษาตนเองเรื่อง Folder ID ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+- แก้ไขเมธอด `load_settings()` โดยเพิ่ม `.delete(0, "end")` ให้กับ `entry_drive_folder_id`, `entry_sheets_id`, `entry_json_folder_id`
+- เพิ่มฟังก์ชันช่วย `_sanitize_id(id_str)` สำหรับตรวจตัด ID ที่ซ้ำซ้อนสองท่อนอัตโนมัติ
+
+### ขั้นตอนที่ 3: แก้ไขไฟล์คอนฟิก [data/app_settings.json](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/data/app_settings.json)
+- ตัดข้อความส่วนที่เบิ้ลซ้ำออก ให้เหลือเฉพาะ ID ดั้งเดิมที่ถูกต้อง 100%
+
+### ขั้นตอนที่ 4: ตรวจสอบความถูกต้องและทดสอบระบบ (Verification)
+- ทดสอบจำลองการ Decode รูปภาพขนาดใหญ่เกิน 180 ล้านพิกเซลผ่าน `decode_image_bytes()`
+- ทดสอบเรียก `load_settings()` และ `save_settings()` ต่อเนื่องหลายครั้ง ตรวจสอบว่า ID ยังคงสะอาด ไม่เบิ้ลซ้ำ
+- ทดสอบเชื่อมต่อ Google Drive API และทดสอบค้นหาโฟลเดอร์ JSON ด้วย ID `1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L` ว่าตอบกลับ HTTP 200 OK
+- รันชุดทดสอบความสมบูรณ์ของระบบทั้งหมด (27/27 Tests Passed)
+
+### ขั้นตอนที่ 5: อัปเดตเวอร์ชันเป็น `v6.60` และบันทึกประวัติ
+- อัปเดตเวอร์ชันบน UI, `splash_screen.py`, `main.py`, `db_manager.py`, `run_app.bat`
+- บันทึกประวัติการแก้ไขลงบนสุดของ [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+- ดำเนินการ Commit และ Push ขึ้น Git
+
+---
+
+# แผนงานพัฒนาระบบค้นหาและขึ้นทะเบียนบุคคลจากภาพเดี่ยวเทียบกับคลังภาพกิจกรรมทั้งหมด (1-to-N Face Search & Quick Register Suite v6.60)
+
+## 📌 1. ข้อกำหนดและความต้องการของผู้ใช้ (Requirements & Scope)
+
+- **ความต้องการหลักของผู้ใช้:**
+  - เพิ่มเมนูและระบบใหม่สำหรับค้นหาใบหน้าบุคคลจากภาพถ่ายเดี่ยว 1 ภาพ (1-to-N Face Matching):
+    1. ผู้ใช้อัปโหลดภาพถ่ายใบหน้า 1 รูปภาพ (รองรับทุกนามสกุลไฟล์)
+    2. ส่งภาพเข้าโมเดล InsightFace (SCRFD + ArcFace) เพื่อตรวจจับและสกัดเวกเตอร์ Embedding (512 มิติ)
+    3. คำนวณเปรียบเทียบความคล้ายคลึง (Cosine Similarity) กับใบหน้าทั้งหมดในคลังภาพกิจกรรมของระบบ (`scanned_photo_faces` มากกว่า 1,000,000 ใบหน้า จาก 125,750 ภาพ)
+    4. แสดงผลลัพธ์รูปภาพกิจกรรมที่พบว่ามีบุคคลนี้ปรากฏตัวอยู่อย่างสวยงาม ชัดเจน และใช้งานง่าย
+    5. ส่วนการตัดสินใจหลังการค้นหา (Post-Search Actions):
+       - **ปุ่มปฏิเสธ / ละทิ้ง (Reject / Discard):** ปฏิเสธผลการค้นหา ล้างข้อมูล และยกเลิกโดยไม่แตะต้องฐานข้อมูล
+       - **ปุ่มบันทึกขึ้นทะเบียน (Save & Register):** กรอกชื่อ-นามสกุล, เลือกสถานะ (ครู/บุคลากร หรือ นักเรียน), รหัสประจำตัว, ห้องเรียน/แผนก แล้วบันทึกบุคคลใหม่ลงในระบบ พร้อมผูกภาพกิจกรรมที่เลือกเข้ากับบุคคลคนนี้ในตาราง `detected_faces` ทันที และซิงค์ขึ้น Google Sheets / Excel
+- **ข้อกำหนดพิเศษเพิ่มเติม (Scalability for 10,000+ Matches Scale):**
+  - **ออกแบบรองรับกรณีพบบุคคลนั้นเป็นหมื่นๆ ภาพ (เช่น ผู้บริหาร, ครูใหญ่, หรือบุคคลที่มีรูปถ่ายในกิจกรรมจำนวนมาก):**
+    - ค้นหาต้องเร็วมาก ไม่หน่วงเครื่อง ไม่กินแรม
+    - เปิดดูและเลื่อนดูภาพต้องลื่นไหล ไร้อาการกระตุก (Zero-Lag) ไม่ทำให้หน้าจอ Tkinter ค้าง
+    - มีระบบคัดกรองและจัดเรียงผลลัพธ์ในเสี้ยววินาที
+    - มีระบบเลือกและบันทึกข้อมูลก้อนใหญ่ (10,000+ แถว) ลงฐานข้อมูลได้ในระดับมิลลิวินาที
+
+---
+
+## 🚀 2. สถาปัตยกรรมรองรับผลลัพธ์ขนาดใหญ่ (10,000+ Matches High-Performance Architecture)
+
+### 1) การคำนวณและเก็บผลลัพธ์แบบ Compact In-Memory Index:
+- ระหว่างสแกนเวกเตอร์ 1,000,000 ใบหน้า จะประมวลผลเป็น Batch ละ 50,000 แถวด้วย NumPy Matrix Dot Product
+- ผลลัพธ์ที่ตรงเงื่อนไขจะถูกเก็บในรูปแบบ Compact Dictionary: `{photo_id: (best_score, drive_file_id, event_name, photo_date, drive_link, bbox)}` โดยระบบจะเลือกเฉพาะคะแนนสูงสุดของแต่ละภาพ (Deduplicated per photo) เพื่อป้องกันภาพซ้ำ
+- จัดเรียงผลลัพธ์ 10,000 รายการในหน่วยความจำด้วย Timsort ใช้เวลาเพียง **< 5 มิลลิวินาที**
+
+### 2) การแสดงผลแบบ Virtualized Grid & Fast Pagination (แบ่งหน้าแสดงผลอัจฉริยะ):
+- **ตัดปัญหา Tkinter Widget Overload:** หากสร้าง Widget 10,000 การ์ดพร้อมกัน หน้าจอจะค้างและกินแรมหลายกิกะไบต์
+- **ทางออก:** ใช้ระบบแบ่งหน้าแสดงผลความเร็วสูง โดยแสดงผลครั้งละ **24 ถึง 36 ภาพต่อหน้า** (Grid 4x6 หรือ 4x8)
+- เวลาในการเปลี่ยนหน้าเร็วมากเพียง **< 15 มิลลิวินาที**
+- แผงควบคุมหน้าครบครัน:
+  - `[ << หน้าแรก ]` `[ < ก่อนหน้า ]` `[ หน้า 1 / 417 ]` `[ ถัดไป > ]` `[ หน้าสุดท้าย >> ]`
+  - ช่องพิมพ์เลขหน้า (Jump to Page) และปุ่มตกลง เพื่อกระโดดไปหน้าที่ต้องการได้ทันที
+  - ป้ายสรุปจำนวน: `แสดงภาพที่ 1 - 24 จากที่พบทั้งหมด 10,008 ภาพ`
+
+### 3) ระบบโหลด Thumbnail หลายชั้นแบบ Asynchronous (Multi-Tier Zero-Lag Thumbnails):
+- **Tier 1 (Disk Cache):** ตรวจสอบไฟล์แคชใน `data/thumbnail_cache/` โหลดขึ้นมาแสดงผลทันที (< 1ms)
+- **Tier 2 (SQLite BLOB):** หากไม่มีในโฟลเดอร์แคช ให้ดึงจากคอลัมน์ `scanned_photos.thumbnail`
+- **Tier 3 (Google Drive Background Thread):** หากยังไม่มีรูป ให้คิวดาวน์โหลดในเบื้องหลังผ่าน Background Thread Pool
+- **Auto-Cancellation:** เมื่อผู้ใช้เปลี่ยนหน้าใหม่ ให้ยกเลิกงานโหลดรูปของหน้าที่แล้วทันที ประหยัด CPU และ Memory 100%
+
+### 4) ระบบกรองย่อยในผลลัพธ์แบบตอบสนองทันที (Instant In-Memory Sub-Filters):
+- ค้นหาเสร็จแล้ว สามารถเจาะจงกลุ่มภาพที่ต้องการได้ใน 0 วินาที โดยไม่ต้องสแกนใหม่:
+  - **กรองตามปีการศึกษา:** Dropdown เลือกดูเฉพาะปีที่สนใจ (เช่น "เฉพาะปี 2566")
+  - **กรองตามความเหมือน (% Match):** เลือกระดับความมั่นใจ เช่น `ทั้งหมด`, `> 75%`, `> 85%`, `> 90%`
+  - **ค้นหาตามชื่องานกิจกรรม:** ช่อง Search Box ค้นหาตามชื่องาน/โฟลเดอร์ (เช่น "ปัจฉิม", "วันครู", "อบรม")
+  - **จัดเรียง (Sort):** ความเหมือนสูงสุด, วันที่ล่าสุด, วันที่เก่าสุด
+
+### 5) ระบบเลือกภาพแบบชุดข้อมูลใหญ่ (Global Set Selection Model):
+- จัดเก็บสถานะการเลือกด้วย `set(photo_ids)` ในหน่วยความจำ (ความเร็วค้นหา O(1))
+- ปุ่มจัดการในคลิกเดียว:
+  - `☑️ เลือกทั้งหมด (10,008 ภาพ)`
+  - `☑️ เลือกเฉพาะหน้านี้ (24 ภาพ)`
+  - `🎯 เลือกเฉพาะภาพที่ตรงกัน >= 80% (Smart Threshold Selection)`
+  - `⬜ ไม่เลือกเลย (Deselect All)`
+
+### 6) ระบบบันทึกขึ้นทะเบียนแบบก้อนเดียวความเร็วสูง (Bulk `executemany` Commit):
+- เมื่อบันทึกผูกรูปภาพ 10,000+ ภาพ ระบบจะใช้คำสั่ง `cursor.executemany("INSERT OR IGNORE INTO detected_faces ...", batch_rows)` ภายใน Single Transaction
+- บันทึก 10,000 แถวลง SQLite ได้ในเวลาเพียง **< 0.2 วินาที**!
+- ทำงานใน Background Thread พร้อม Progress Dialog ไม่บล็อกหน้าต่างโปรแกรม
+
+---
+
+## 🏗️ 3. แผนการดำเนินงานทีละขั้นตอน (Step-by-Step Implementation Plan)
+
+### ขั้นตอนที่ 1: เพิ่มเมธอดค้นหาเวกเตอร์ความเร็วสูงใน [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py)
+- สร้างเมธอด `search_faces_by_embedding(query_emb, threshold=0.45, academic_year=None, cancel_event=None, progress_callback=None)`
+- ใช้การ Query แบบ Chunked Streaming (รอบละ 50,000 แถว) เพื่อประหยัดหน่วยความจำ
+- คำนวณ Cosine Similarity ด้วย Normalized Matrix Dot Product: `np.dot(norm_embs, query_emb)`
+- คืนค่า Compact Dictionary ของรูปภาพที่ไม่ซ้ำกัน (`photo_id`) โดยเลือกคะแนนสูงสุดของแต่ละภาพ พร้อมข้อมูลรายละเอียด: `drive_file_id`, `event_name`, `photo_date`, `confidence`, `bbox`, `thumbnail`, `drive_link`
+
+### ขั้นตอนที่ 2: ออกแบบและพัฒนา UI เมนูใหม่ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py)
+1. **เพิ่มปุ่มบน Sidebar:**
+   - เพิ่มปุ่ม `self.btn_face_search = ctk.CTkButton(...)` ข้อความ `"🎯 ค้นหาบุคคลจากภาพ (Face Search)"`
+   - จัดวางในแถวที่ 7 (หลังคลังภาพกิจกรรมที่แมตช์แล้ว) และปรับแถวถัดไปให้เรียงลำดับต่อเนื่อง
+2. **การสลับหน้าใน `select_menu()` และการสร้างเฟรมใน `create_content_areas()`:**
+   - เพิ่มการจัดการปุ่มและเฟรม `self.frame_face_search` ใน `select_menu()`
+   - สร้างเฟรม `self.frame_face_search` และเรียก `self.setup_face_search_ui()`
+3. **โครงสร้างและเมธอดใน `setup_face_search_ui()`:**
+   - `on_upload_query_image()`: เปิดไฟล์ภาพ อ่านผ่าน Multi-Format Decoder และส่งเข้า `self.analyzer.get_faces_optimized()`
+   - `display_detected_query_faces()`: แสดงรูปภาพ Crop ใบหน้าเป้าหมาย และเปิดให้เลือกกรณีมีหลายคนในภาพ
+   - `start_face_search_thread()` / `_run_face_search_worker()`: ประมวลผลการค้นหาใน Background Thread พร้อมอัปเดต Progress Bar และ Label สถานะ
+   - `apply_face_search_subfilters()`: กรองผลลัพธ์ในหน่วยความจำทันที (ตามปีการศึกษา, threshold, ชื่องาน)
+   - `render_face_search_results_page()`: แสดงการ์ดผลลัพธ์รูปภาพแบบแบ่งหน้า (หน้าละ 24 รูป) พร้อม Checkbox, Badge ความเหมือน, และระบบเปลี่ยนหน้า
+   - `save_and_register_matched_person()`: ตรวจสอบความถูกต้อง -> บันทึกลง `staff_members` -> บันทึก `staff_embeddings` -> บันทึก `executemany` ลง `detected_faces` -> ซิงค์ Google Sheets / Local Excel -> แจ้งสำเร็จ
+   - `discard_face_search_results()`: ล้างข้อมูลผลการค้นหาและรีเซ็ตหน้าจอสู่สถานะเริ่มต้น
+
+### ขั้นตอนที่ 3: ตรวจสอบความถูกต้องและทดสอบระบบจริง (Verification & Edge Cases)
+- ทดสอบการอัปโหลดไฟล์ภาพหลากหลายรูปแบบ (JPEG, PNG, WEBP, HEIC)
+- ทดสอบภาพที่มีใบหน้าเดียวและภาพที่มีหลายใบหน้า (Multi-face detection)
+- ทดสอบประสิทธิภาพการค้นหาและเปลี่ยนหน้ากรณีผลลัพธ์มีจำนวนมาก
+- ทดสอบฟังก์ชันบันทึกขึ้นทะเบียน (ทั้งบทบาทครูและนักเรียน) ตรวจสอบความสมบูรณ์ในตาราง `staff_members`, `staff_embeddings`, และ `detected_faces`
+- ทดสอบการกดปุ่มปฏิเสธ (Discard) ว่าคืนสภาพหน้าจอสะอาดและไม่กระทบฐานข้อมูล
+- รันชุดทดสอบยูนิตเทสต์ทั้งหมด (27/27 OK)
+
+### ขั้นตอนที่ 4: อัปเดตเวอร์ชันเป็น `v6.60` ทั่วทั้งโปรเจกต์
+- อัปเดต Window Title และ Sidebar Logo เป็น `v6.60`
+- อัปเดต `splash_screen.py`, `main.py`, `db_manager.py`, `run_app.bat`, และชุดทดสอบ
+- รันตรวจสอบ Zero-Omission Version Check ทั่วทั้งระบบ
+
+### ขั้นตอนที่ 5: บันทึก Changelog และ Git Workflow
+- บันทึกประวัติการเปลี่ยนแปลง `v6.60` แทรกไว้บรรทัดบนสุดของ [README.md](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/README.md)
+- ดำเนินการ `git add .`, `git commit -m "feat(ui): add 1-to-N face search and quick register suite v6.60"`, และ `git push origin master`
+
+---
+
 # แผนงานถอดถอนระบบคำขอลบรูปภาพกิจกรรม (Remove Delete Requests System Suite v6.59)
 
 ## 📌 1. ข้อกำหนดและความต้องการ (Requirements & Scope)

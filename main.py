@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) พร้อม Progress Bar 0-100%
     from splash_screen import SplashScreen
-    splash = SplashScreen(version="v6.59")
+    splash = SplashScreen(version="v6.60")
     splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
