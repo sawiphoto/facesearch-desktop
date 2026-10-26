@@ -965,7 +965,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.60 (Fix GDrive 404 Duplicated Folder ID & Pillow Decompression Bomb)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.61 (1-to-N Face Search & Quick Register Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1108,7 +1108,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.60",
+            text="FACE MATCHING\nSYSTEM v6.61",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -1162,40 +1162,47 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_matched_gallery.grid(row=6, column=0, padx=12, pady=5, sticky="ew")
 
+        self.btn_face_search = ctk.CTkButton(
+            self.sidebar_frame, text="🎯 ค้นหาบุคคลจากภาพ", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("face_search")
+        )
+        self.btn_face_search.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+
         self.btn_settings = ctk.CTkButton(
             self.sidebar_frame, text="⚙️ ตั้งค่าระบบ", height=36, font=menu_font,
             fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
             anchor="w", command=lambda: self.select_menu("settings")
         )
-        self.btn_settings.grid(row=7, column=0, padx=12, pady=5, sticky="ew")
+        self.btn_settings.grid(row=8, column=0, padx=12, pady=5, sticky="ew")
 
         self.btn_start_schedule = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 1. สแกนภาพเพิ่มมาใหม่", height=38, font=schedule_font,
             fg_color="#8E44AD", text_color="white", hover_color="#9B59B6",
             anchor="w", command=lambda: self.scheduler.run_scheduled_tasks_manual()
         )
-        self.btn_start_schedule.grid(row=8, column=0, padx=12, pady=(12, 4), sticky="ew")
+        self.btn_start_schedule.grid(row=9, column=0, padx=12, pady=(12, 4), sticky="ew")
 
         self.btn_start_task2 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 2. Sync New Student", height=38, font=schedule_font,
             fg_color="#D35400", text_color="white", hover_color="#E67E22",
             anchor="w", command=lambda: self.scheduler.run_task_2_manual()
         )
-        self.btn_start_task2.grid(row=9, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task2.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_start_task3 = ctk.CTkButton(
             self.sidebar_frame, text="▶️ 3. Sync New Teacher", height=38, font=schedule_font,
             fg_color="#16A085", text_color="white", hover_color="#1ABC9C",
             anchor="w", command=lambda: self.scheduler.run_task_3_manual()
         )
-        self.btn_start_task3.grid(row=10, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_start_task3.grid(row=11, column=0, padx=12, pady=4, sticky="ew")
 
         self.btn_stop_schedule = ctk.CTkButton(
             self.sidebar_frame, text="🛑 Stop Schedule Task", height=38, font=schedule_font,
             fg_color="#E74C3C", text_color="white", hover_color="#C0392B",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=11, column=0, padx=12, pady=(4, 12), sticky="ew")
+        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -1204,8 +1211,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#4F6580"
         )
-        self.credit_label.grid(row=12, column=0, pady=15, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(12, weight=1)
+        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(13, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด
@@ -1215,6 +1222,7 @@ class FaceSearchApp(ctk.CTk):
         self.btn_scan.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_database.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_matched_gallery.configure(fg_color="transparent", text_color="#A2B5CD")
+        self.btn_face_search.configure(fg_color="transparent", text_color="#A2B5CD")
         self.btn_settings.configure(fg_color="transparent", text_color="#A2B5CD")
 
         # ซ่อนเฟรมเนื้อหาทั้งหมด
@@ -1224,6 +1232,7 @@ class FaceSearchApp(ctk.CTk):
         self.frame_scan.grid_forget()
         self.frame_database.grid_forget()
         self.frame_matched_gallery.grid_forget()
+        self.frame_face_search.grid_forget()
         self.frame_settings.grid_forget()
 
         # แสดงเฟรมและเปลี่ยนสีปุ่มที่เลือก (วางที่แถว 0 เสมอเพื่อให้เหลือก้นจอเป็น Console)
@@ -1260,6 +1269,11 @@ class FaceSearchApp(ctk.CTk):
                     need_reload = True
                 if need_reload:
                     self.after(20, lambda: self.on_matched_role_change(self.combo_matched_role.get()))
+        elif menu_name == "face_search":
+            self.btn_face_search.configure(fg_color="#1F3A60", text_color="white")
+            self.frame_face_search.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
+            if hasattr(self, "refresh_face_search_years"):
+                self.refresh_face_search_years()
         elif menu_name == "settings":
             self.btn_settings.configure(fg_color="#1F3A60", text_color="white")
             self.frame_settings.grid(row=0, column=1, padx=25, pady=(25, 10), sticky="nsew")
@@ -1293,7 +1307,11 @@ class FaceSearchApp(ctk.CTk):
         self.frame_matched_gallery = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_matched_gallery_ui()
 
-        # 7. เฟรมหน้าตั้งค่าระบบ
+        # 7. เฟรมหน้าค้นหาบุคคลจากภาพ 1-ต่อ-N (v6.61)
+        self.frame_face_search = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_face_search_ui()
+
+        # 8. เฟรมหน้าตั้งค่าระบบ
         self.frame_settings = ctk.CTkFrame(self, fg_color="transparent")
         self.setup_settings_ui()
 
@@ -9558,6 +9576,1225 @@ class FaceSearchApp(ctk.CTk):
             self.clipboard_clear()
             self.clipboard_append(text)
             logger.info("[UI] คัดลอกข้อความ Log ทั้งหมดไปยัง Clipboard เรียบร้อยแล้ว")
+
+    # ==================== (8) หน้าค้นหาบุคคลจากภาพ 1-ต่อ-N & ขึ้นทะเบียนด่วน (v6.61) ====================
+    def setup_face_search_ui(self):
+        """สร้างส่วนติดต่อผู้ใช้สำหรับฟีเจอร์ค้นหาใบหน้า 1-ต่อ-N ความเร็วสูง และบันทึกขึ้นทะเบียนด่วน (v6.61)"""
+        self.face_search_img_path = None
+        self.face_search_cv_img = None
+        self.face_search_detected_faces = []
+        self.face_search_selected_face_idx = 0
+        self.face_search_query_emb = None
+        self.face_search_query_bbox = None
+
+        self.face_search_all_matches = []
+        self.face_search_filtered_matches = []
+        self.face_search_selected_pids = set()
+        self.face_search_current_page = 1
+        self.face_search_page_size = 24
+        self.face_search_worker_gen = 0
+        self.face_search_cancel_event = threading.Event()
+        self.face_search_is_running = False
+        self._face_search_filter_timer = None
+        self._fs_checkbox_vars = {}
+
+        self.frame_face_search.grid_columnconfigure(0, weight=0)
+        self.frame_face_search.grid_columnconfigure(1, weight=1)
+        self.frame_face_search.grid_rowconfigure(1, weight=1)
+
+        # --- แถบหัวข้อด้านบน ---
+        header_bar = ctk.CTkFrame(self.frame_face_search, fg_color="transparent")
+        header_bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        header_bar.grid_columnconfigure(0, weight=1)
+
+        lbl_title = ctk.CTkLabel(
+            header_bar,
+            text="🎯 ค้นหาบุคคลจากภาพ 1-ต่อ-N & ขึ้นทะเบียนด่วน (Face Search Suite)",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color="white"
+        )
+        lbl_title.grid(row=0, column=0, sticky="w")
+
+        self.lbl_fs_db_badge = ctk.CTkLabel(
+            header_bar,
+            text="⚡ พร้อมสแกนเปรียบเทียบเวกเตอร์ใบหน้าในคลังข้อมูล SQLite",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#5CACEE",
+            fg_color="#152336",
+            corner_radius=6,
+            padx=10,
+            pady=4
+        )
+        self.lbl_fs_db_badge.grid(row=0, column=1, sticky="e")
+
+        # ==================== โซนซ้าย: อัปโหลดภาพใบหน้า & ตั้งค่าการค้นหา ====================
+        self.fs_left_panel = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", width=330, corner_radius=10)
+        self.fs_left_panel.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 8))
+        self.fs_left_panel.grid_propagate(False)
+        self.fs_left_panel.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self.fs_left_panel,
+            text="1️⃣ อัปโหลดภาพใบหน้าต้นแบบ",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#6CA6CD"
+        ).grid(row=0, column=0, padx=14, pady=(12, 6), sticky="w")
+
+        self.btn_fs_upload = ctk.CTkButton(
+            self.fs_left_panel,
+            text="📂 เลือกรูปภาพใบหน้า (JPG/PNG/HEIC/WEBP)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#2980B9",
+            hover_color="#1F618D",
+            height=36,
+            command=self.on_upload_query_image
+        )
+        self.btn_fs_upload.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        # กล่องแสดงภาพต้นฉบับคู่กับภาพใบหน้าที่ครอป
+        preview_box = ctk.CTkFrame(self.fs_left_panel, fg_color="#0E1724", corner_radius=8)
+        preview_box.grid(row=2, column=0, padx=14, pady=(0, 6), sticky="ew")
+        preview_box.grid_columnconfigure((0, 1), weight=1)
+
+        self.lbl_fs_orig_preview = ctk.CTkLabel(
+            preview_box,
+            text="🖼️ ภาพต้นฉบับ",
+            width=135,
+            height=120,
+            fg_color="#101B2B",
+            corner_radius=6,
+            font=ctk.CTkFont(size=11),
+            text_color="#7F8C8D"
+        )
+        self.lbl_fs_orig_preview.grid(row=0, column=0, padx=(8, 4), pady=8)
+
+        self.lbl_fs_crop_preview = ctk.CTkLabel(
+            preview_box,
+            text="👤 ใบหน้าที่ใช้ค้นหา",
+            width=135,
+            height=120,
+            fg_color="#101B2B",
+            corner_radius=6,
+            font=ctk.CTkFont(size=11),
+            text_color="#7F8C8D"
+        )
+        self.lbl_fs_crop_preview.grid(row=0, column=1, padx=(4, 8), pady=8)
+
+        self.lbl_fs_face_status = ctk.CTkLabel(
+            self.fs_left_panel,
+            text="สถานะ: ยังไม่ได้เลือกรูปภาพ",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#A2B5CD"
+        )
+        self.lbl_fs_face_status.grid(row=3, column=0, padx=14, pady=(0, 4), sticky="w")
+
+        # ตัวเลือกใบหน้า (กรณีในภาพมีหลายคน)
+        face_sel_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
+        face_sel_row.grid(row=4, column=0, padx=14, pady=(0, 8), sticky="ew")
+        face_sel_row.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(face_sel_row, text="เลือกใบหน้า:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").grid(row=0, column=0, padx=(0, 6), sticky="w")
+        self.combo_fs_face_selector = ctk.CTkComboBox(
+            face_sel_row,
+            values=["- ไม่มีข้อมูลใบหน้า -"],
+            state="disabled",
+            height=28,
+            command=self.on_select_query_face_index
+        )
+        self.combo_fs_face_selector.grid(row=0, column=1, sticky="ew")
+
+        # เส้นคั่น
+        ctk.CTkFrame(self.fs_left_panel, height=2, fg_color="#22354D").grid(row=5, column=0, padx=14, pady=6, sticky="ew")
+
+        ctk.CTkLabel(
+            self.fs_left_panel,
+            text="2️⃣ ตั้งค่าความแม่นยำ & ขอบเขตการค้นหา",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#6CA6CD"
+        ).grid(row=6, column=0, padx=14, pady=(4, 4), sticky="w")
+
+        self.lbl_fs_threshold_val = ctk.CTkLabel(
+            self.fs_left_panel,
+            text="ความเหมือนขั้นต่ำ (Threshold): 45% (0.45)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#F1C40F"
+        )
+        self.lbl_fs_threshold_val.grid(row=7, column=0, padx=14, pady=(0, 2), sticky="w")
+
+        self.slider_fs_threshold = ctk.CTkSlider(
+            self.fs_left_panel,
+            from_=0.35,
+            to=0.75,
+            number_of_steps=40,
+            command=self.on_fs_threshold_slide
+        )
+        self.slider_fs_threshold.set(0.45)
+        self.slider_fs_threshold.grid(row=8, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        scope_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
+        scope_row.grid(row=9, column=0, padx=14, pady=(0, 8), sticky="ew")
+        scope_row.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(scope_row, text="ปีการศึกษาที่ค้นหา:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").grid(row=0, column=0, padx=(0, 8), sticky="w")
+        self.combo_fs_year_scope = ctk.CTkComboBox(
+            scope_row,
+            values=["ทั้งหมด"],
+            height=28
+        )
+        self.combo_fs_year_scope.set("ทั้งหมด")
+        self.combo_fs_year_scope.grid(row=0, column=1, sticky="ew")
+
+        btn_action_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
+        btn_action_row.grid(row=10, column=0, padx=14, pady=(2, 6), sticky="ew")
+        btn_action_row.grid_columnconfigure(0, weight=3)
+        btn_action_row.grid_columnconfigure(1, weight=1)
+
+        self.btn_fs_start_search = ctk.CTkButton(
+            btn_action_row,
+            text="🚀 เริ่มค้นหาในคลังภาพทั้งหมด",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#27AE60",
+            hover_color="#219150",
+            height=38,
+            command=self.start_one_to_n_face_search
+        )
+        self.btn_fs_start_search.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+
+        self.btn_fs_stop_search = ctk.CTkButton(
+            btn_action_row,
+            text="🛑 หยุด",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#E74C3C",
+            hover_color="#C0392B",
+            height=38,
+             width=65,
+            state="disabled",
+            command=self.stop_one_to_n_face_search
+        )
+        self.btn_fs_stop_search.grid(row=0, column=1, sticky="ew")
+
+        self.prog_fs_search = ctk.CTkProgressBar(self.fs_left_panel, height=10)
+        self.prog_fs_search.set(0)
+        self.prog_fs_search.grid(row=11, column=0, padx=14, pady=(4, 2), sticky="ew")
+
+        self.lbl_fs_progress = ctk.CTkLabel(
+            self.fs_left_panel,
+            text="อัปโหลดภาพใบหน้าเพื่อเริ่มต้นค้นหา",
+            font=ctk.CTkFont(size=11),
+            text_color="#95A5A6",
+            wraplength=300,
+            justify="left"
+        )
+        self.lbl_fs_progress.grid(row=12, column=0, padx=14, pady=(0, 8), sticky="w")
+
+        # ==================== โซนขวา: แกลเลอรีผลลัพธ์ + ตัวกรอง + Pagination ความเร็วสูง ====================
+        self.fs_right_panel = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", corner_radius=10)
+        self.fs_right_panel.grid(row=1, column=1, sticky="nsew", pady=(0, 8))
+        self.fs_right_panel.grid_columnconfigure(0, weight=1)
+        self.fs_right_panel.grid_rowconfigure(2, weight=1)
+
+        # 1. แถบตัวกรองย่อยในหน่วยความจำ (Instant 0ms In-Memory Sub-Filters)
+        filter_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="#101B2B", corner_radius=8)
+        filter_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        filter_bar.grid_columnconfigure(3, weight=1)
+
+        ctk.CTkLabel(filter_bar, text="กรองปี:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").grid(row=0, column=0, padx=(10, 4), pady=6)
+        self.combo_fs_sub_year = ctk.CTkComboBox(
+            filter_bar,
+            values=["ทุกปีการศึกษา"],
+            width=115,
+            height=28,
+            command=lambda _: self.apply_face_search_subfilters()
+        )
+        self.combo_fs_sub_year.set("ทุกปีการศึกษา")
+        self.combo_fs_sub_year.grid(row=0, column=1, padx=(0, 8), pady=6)
+
+        self.combo_fs_sub_conf = ctk.CTkComboBox(
+            filter_bar,
+            values=["ทุกระดับ %", ">= 50%", ">= 60%", ">= 70%", ">= 80%"],
+            width=110,
+            height=28,
+            command=lambda _: self.apply_face_search_subfilters()
+        )
+        self.combo_fs_sub_conf.set("ทุกระดับ %")
+        self.combo_fs_sub_conf.grid(row=0, column=2, padx=(0, 8), pady=6)
+
+        self.entry_fs_sub_keyword = ctk.CTkEntry(
+            filter_bar,
+            placeholder_text="🔍 ค้นหาชื่อกิจกรรม / อัลบั้ม / รหัสภาพ...",
+            height=28
+        )
+        self.entry_fs_sub_keyword.grid(row=0, column=3, padx=(0, 8), pady=6, sticky="ew")
+        self.entry_fs_sub_keyword.bind("<KeyRelease>", self.on_fs_keyword_debounced)
+
+        self.combo_fs_sort = ctk.CTkComboBox(
+            filter_bar,
+            values=["ความเหมือนสูงสุด", "วันที่ถ่ายล่าสุด", "วันที่ถ่ายเก่าสุด"],
+            width=145,
+            height=28,
+            command=lambda _: self.apply_face_search_subfilters()
+        )
+        self.combo_fs_sort.set("ความเหมือนสูงสุด")
+        self.combo_fs_sort.grid(row=0, column=4, padx=(0, 10), pady=6)
+
+        # 2. แถบเครื่องมือเลือกภาพแบบกลุ่ม (Smart Batch Selection Toolbar)
+        sel_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="transparent")
+        sel_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        sel_bar.grid_columnconfigure(0, weight=1)
+
+        self.lbl_fs_match_summary = ctk.CTkLabel(
+            sel_bar,
+            text="📊 พบทั้งหมด: 0 รูป | แสดงตามตัวกรอง: 0 รูป | ☑️ เลือกไว้: 0 รูป",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#5CACEE"
+        )
+        self.lbl_fs_match_summary.grid(row=0, column=0, sticky="w", padx=4)
+
+        btn_sel_group = ctk.CTkFrame(sel_bar, fg_color="transparent")
+        btn_sel_group.grid(row=0, column=1, sticky="e")
+
+        ctk.CTkButton(
+            btn_sel_group, text="☑️ เลือกทั้งหมด", width=95, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#2980B9", hover_color="#1F618D",
+            command=self.fs_select_all_filtered
+        ).pack(side="left", padx=3)
+
+        ctk.CTkButton(
+            btn_sel_group, text="📄 เลือกหน้านี้", width=90, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
+            command=self.fs_select_current_page
+        ).pack(side="left", padx=3)
+
+        ctk.CTkButton(
+            btn_sel_group, text="🎯 เลือก >= 60%", width=95, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#16A085", hover_color="#1ABC9C",
+            command=lambda: self.fs_select_high_confidence(0.60)
+        ).pack(side="left", padx=3)
+
+        ctk.CTkButton(
+            btn_sel_group, text="⬜ ไม่เลือกเลย", width=85, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#7F8C8D", hover_color="#95A5A6",
+            command=self.fs_deselect_all
+        ).pack(side="left", padx=3)
+
+        # 3. พื้นที่แสดงการ์ดรูปภาพแบบแบ่งหน้า (Virtualized 24-Cards Grid)
+        self.scr_face_search_results = ctk.CTkScrollableFrame(self.fs_right_panel, fg_color="#0E1724", corner_radius=8)
+        self.scr_face_search_results.grid(row=2, column=0, sticky="nsew", padx=10, pady=4)
+        for c in range(4):
+            self.scr_face_search_results.grid_columnconfigure(c, weight=1)
+
+        self.lbl_fs_empty_hint = ctk.CTkLabel(
+            self.scr_face_search_results,
+            text="🎯 อัปโหลดรูปภาพใบหน้าทางด้านซ้าย แล้วกด 'เริ่มค้นหาในคลังภาพทั้งหมด'\nระบบรองรับการแสดงผลระดับ 10,000+ ภาพอย่างรวดเร็วด้วยระบบแบ่งหน้าอัจฉริยะ (24 ภาพ/หน้า)",
+            font=ctk.CTkFont(size=14),
+            text_color="#7F8C8D",
+            justify="center"
+        )
+        self.lbl_fs_empty_hint.grid(row=0, column=0, columnspan=4, pady=90)
+
+        # 4. แถบเปลี่ยนหน้า (Fast Pagination Bar)
+        self.fs_pagination_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="#101B2B", corner_radius=8)
+        self.fs_pagination_bar.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 10))
+        self.fs_pagination_bar.grid_columnconfigure(2, weight=1)
+
+        self.btn_fs_first_page = ctk.CTkButton(
+            self.fs_pagination_bar, text="⏮ หน้าแรก", width=75, height=28,
+            fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(1)
+        )
+        self.btn_fs_first_page.grid(row=0, column=0, padx=(8, 4), pady=6)
+
+        self.btn_fs_prev_page = ctk.CTkButton(
+            self.fs_pagination_bar, text="◀ ก่อนหน้า", width=80, height=28,
+            fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self.face_search_current_page - 1)
+        )
+        self.btn_fs_prev_page.grid(row=0, column=1, padx=4, pady=6)
+
+        self.lbl_fs_page_info = ctk.CTkLabel(
+            self.fs_pagination_bar,
+            text="หน้า 1 / 1 (0 รูปภาพ)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#E0E6ED"
+        )
+        self.lbl_fs_page_info.grid(row=0, column=2, padx=10, pady=6)
+
+        self.btn_fs_next_page = ctk.CTkButton(
+            self.fs_pagination_bar, text="ถัดไป ▶", width=80, height=28,
+            fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self.face_search_current_page + 1)
+        )
+        self.btn_fs_next_page.grid(row=0, column=3, padx=4, pady=6)
+
+        self.btn_fs_last_page = ctk.CTkButton(
+            self.fs_pagination_bar, text="สุดท้าย ⏭", width=75, height=28,
+            fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self._get_fs_total_pages())
+        )
+        self.btn_fs_last_page.grid(row=0, column=4, padx=4, pady=6)
+
+        jump_frame = ctk.CTkFrame(self.fs_pagination_bar, fg_color="transparent")
+        jump_frame.grid(row=0, column=5, padx=(8, 8), pady=6)
+        ctk.CTkLabel(jump_frame, text="ไปหน้า:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").pack(side="left", padx=(0, 4))
+        self.entry_fs_jump_page = ctk.CTkEntry(jump_frame, width=55, height=26, justify="center")
+        self.entry_fs_jump_page.pack(side="left", padx=(0, 4))
+        self.entry_fs_jump_page.bind("<Return>", lambda _: self.on_fs_jump_page())
+        ctk.CTkButton(
+            jump_frame, text="ไป", width=40, height=26,
+            fg_color="#2980B9", hover_color="#1F618D", command=self.on_fs_jump_page
+        ).pack(side="left")
+
+        # ==================== โซนล่าง: แถบกรอกชื่อบันทึกขึ้นทะเบียนด่วน หรือ กดปฏิเสธ ====================
+        self.fs_bottom_bar = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", corner_radius=10, border_width=1, border_color="#26384D")
+        self.fs_bottom_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.fs_bottom_bar.grid_columnconfigure(2, weight=1)
+        self.fs_bottom_bar.grid_columnconfigure(4, weight=1)
+
+        ctk.CTkLabel(
+            self.fs_bottom_bar,
+            text="3️⃣ บันทึกขึ้นทะเบียน:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#2ECC71"
+        ).grid(row=0, column=0, padx=(12, 6), pady=10, sticky="w")
+
+        self.combo_fs_reg_role = ctk.CTkComboBox(
+            self.fs_bottom_bar,
+            values=["ครู/บุคลากร (Teacher)", "นักเรียน (Student)"],
+            width=165,
+            height=32,
+            command=self.on_fs_reg_role_change
+        )
+        self.combo_fs_reg_role.set("ครู/บุคลากร (Teacher)")
+        self.combo_fs_reg_role.grid(row=0, column=1, padx=4, pady=10)
+
+        self.entry_fs_reg_name = ctk.CTkEntry(
+            self.fs_bottom_bar,
+            placeholder_text="ระบุชื่อ-นามสกุล (เช่น นายสมชาย ใจดี)...",
+            height=32
+        )
+        self.entry_fs_reg_name.grid(row=0, column=2, padx=4, pady=10, sticky="ew")
+
+        self.entry_fs_reg_code = ctk.CTkEntry(
+            self.fs_bottom_bar,
+            placeholder_text="รหัสนักเรียน (ถ้ามี)",
+            width=135,
+            height=32
+        )
+        self.entry_fs_reg_code.grid(row=0, column=3, padx=4, pady=10)
+
+        self.entry_fs_reg_dept = ctk.CTkEntry(
+            self.fs_bottom_bar,
+            placeholder_text="กลุ่มสาระ/ตำแหน่ง หรือ ห้องเรียน (เช่น ม.1/1)",
+            height=32
+        )
+        self.entry_fs_reg_dept.grid(row=0, column=4, padx=4, pady=10, sticky="ew")
+
+        self.var_fs_save_emb = tk.BooleanVar(value=True)
+        self.chk_fs_save_face_emb = ctk.CTkCheckBox(
+            self.fs_bottom_bar,
+            text="บันทึกใบหน้าต้นแบบ",
+            variable=self.var_fs_save_emb,
+            font=ctk.CTkFont(size=12)
+        )
+        self.chk_fs_save_face_emb.grid(row=0, column=5, padx=6, pady=10)
+
+        self.btn_fs_discard = ctk.CTkButton(
+            self.fs_bottom_bar,
+            text="❌ ปฏิเสธ / ล้างผลลัพธ์",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#C0392B",
+            hover_color="#922B21",
+            width=150,
+            height=34,
+            command=self.discard_face_search_results
+        )
+        self.btn_fs_discard.grid(row=0, column=6, padx=4, pady=10)
+
+        self.btn_fs_save_register = ctk.CTkButton(
+            self.fs_bottom_bar,
+            text="💾 บันทึกขึ้นทะเบียน & ผูกภาพที่เลือก",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#27AE60",
+            hover_color="#1E8449",
+            width=235,
+            height=34,
+            command=self.save_and_register_matched_person
+        )
+        self.btn_fs_save_register.grid(row=0, column=7, padx=(4, 12), pady=10)
+
+    def refresh_face_search_years(self):
+        """อัปเดตรายการปีการศึกษาในหน้าค้นหาบุคคลจากภาพ (v6.61)"""
+        try:
+            years = self.db.get_available_academic_years() if hasattr(self.db, "get_available_academic_years") else []
+            scope_vals = ["ทั้งหมด"] + years
+            current_scope = self.combo_fs_year_scope.get()
+            self.combo_fs_year_scope.configure(values=scope_vals)
+            if current_scope not in scope_vals:
+                self.combo_fs_year_scope.set("ทั้งหมด")
+
+            sub_vals = ["ทุกปีการศึกษา"] + years
+            current_sub = self.combo_fs_sub_year.get()
+            self.combo_fs_sub_year.configure(values=sub_vals)
+            if current_sub not in sub_vals:
+                self.combo_fs_sub_year.set("ทุกปีการศึกษา")
+        except Exception as e:
+            logger.warning(f"[FACE_SEARCH] Failed to refresh academic years: {e}")
+
+    def on_fs_threshold_slide(self, value):
+        val = float(value)
+        self.lbl_fs_threshold_val.configure(text=f"ความเหมือนขั้นต่ำ (Threshold): {int(round(val * 100))}% ({val:.2f})")
+
+    def on_fs_reg_role_change(self, choice):
+        if "นักเรียน" in str(choice):
+            self.entry_fs_reg_code.configure(placeholder_text="รหัสนักเรียน (เช่น 66001)")
+            self.entry_fs_reg_dept.configure(placeholder_text="ห้องเรียน (เช่น ม.1/1)")
+        else:
+            self.entry_fs_reg_code.configure(placeholder_text="รหัสอ้างอิง (เว้นว่างได้)")
+            self.entry_fs_reg_dept.configure(placeholder_text="กลุ่มสาระ/ตำแหน่ง (เช่น วิทยาศาสตร์)")
+
+    def on_upload_query_image(self):
+        """เปิดหน้าต่างเลือกไฟล์รูปภาพต้นแบบและสกัดใบหน้าด้วย InsightFace ทันที (v6.61)"""
+        file_path = filedialog.askopenfilename(
+            title="เลือกรูปภาพใบหน้าบุคคลที่ต้องการค้นหา",
+            filetypes=[
+                ("All Supported Images", "*.jpg *.jpeg *.png *.webp *.heic *.heif *.bmp *.tiff *.tif"),
+                ("All Files", "*.*")
+            ]
+        )
+        if not file_path:
+            return
+        self.load_query_image_from_path(file_path)
+
+    def load_query_image_from_path(self, file_path):
+        """โหลดไฟล์ภาพต้นแบบ ถอดรหัสด้วย Multi-Format Decoder และสกัดเวกเตอร์ใบหน้าด้วย InsightFace (v6.61)"""
+        if not file_path or not os.path.exists(file_path):
+            messagebox.showerror("ไม่พบไฟล์", f"ไม่พบไฟล์รูปภาพ: {file_path}")
+            return
+
+        self.lbl_fs_face_status.configure(text="⏳ กำลังวิเคราะห์ใบหน้าด้วย InsightFace...", text_color="#F1C40F")
+        self.update_idletasks()
+
+        img_cv = read_image_file(file_path)
+        if img_cv is None:
+            self.lbl_fs_face_status.configure(text="❌ อ่านไฟล์ภาพไม่สำเร็จ (Decode Error)", text_color="#E74C3C")
+            messagebox.showerror("อ่านไฟล์ไม่สำเร็จ", "ไม่สามารถถอดรหัสไฟล์รูปภาพนี้ได้ กรุณาเลือกไฟล์รูปภาพใหม่")
+            return
+
+        try:
+            faces_raw = self.analyzer.get_faces_optimized(img_cv)
+        except Exception as e:
+            logger.error(f"[FACE_SEARCH] InsightFace detection failed on {file_path}: {e}")
+            self.lbl_fs_face_status.configure(text=f"❌ วิเคราะห์ใบหน้าล้มเหลว: {e}", text_color="#E74C3C")
+            return
+
+        if not faces_raw:
+            self.face_search_img_path = file_path
+            self.face_search_cv_img = img_cv
+            self.face_search_detected_faces = []
+            self.face_search_query_emb = None
+            self.face_search_query_bbox = None
+            self.combo_fs_face_selector.configure(values=["- ไม่พบใบหน้าในภาพ -"], state="disabled")
+            self.combo_fs_face_selector.set("- ไม่พบใบหน้าในภาพ -")
+            self.lbl_fs_face_status.configure(text="⚠️ ไม่พบใบหน้าในรูปภาพนี้ กรุณาเลือกภาพที่เห็นใบหน้าชัดเจน", text_color="#E67E22")
+            return
+
+        # จัดเรียงใบหน้าจากขนาดกรอบใหญ่สุดและความมั่นใจสูงสุด
+        parsed_faces = []
+        for f in faces_raw:
+            bbox = f.bbox.astype(int).tolist()
+            area = max(1, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
+            score = float(getattr(f, "det_score", 0.0))
+            parsed_faces.append({
+                "bbox": bbox,
+                "embedding": f.embedding,
+                "det_score": score,
+                "area": area
+            })
+        parsed_faces.sort(key=lambda x: (x["area"] * x["det_score"]), reverse=True)
+
+        self.face_search_img_path = file_path
+        self.face_search_cv_img = img_cv
+        self.face_search_detected_faces = parsed_faces
+
+        selector_vals = [
+            f"ใบหน้าที่ {i + 1} (ความคมชัด {f['det_score'] * 100:.1f}%)"
+            for i, f in enumerate(parsed_faces)
+        ]
+        self.combo_fs_face_selector.configure(
+            values=selector_vals,
+            state="normal" if len(selector_vals) > 1 else "disabled"
+        )
+        self.combo_fs_face_selector.set(selector_vals[0])
+        self._apply_selected_query_face(0)
+
+        # ตั้งชื่อเบื้องต้นในช่องกรอกชื่อจากชื่อไฟล์ (ถ้าช่องชื่อยังว่างอยู่)
+        if not self.entry_fs_reg_name.get().strip():
+            base_stem = os.path.splitext(os.path.basename(file_path))[0].strip()
+            if base_stem and not base_stem.lower().startswith(("img_", "dsc_", "photo", "image", "whatsapp", "line_")):
+                self.entry_fs_reg_name.insert(0, base_stem)
+
+    def on_select_query_face_index(self, choice):
+        """สลับใบหน้าต้นแบบเมื่อผู้ใช้เลือกจาก Dropdown กรณีภาพอัปโหลดมีหลายคน (v6.61)"""
+        if not self.face_search_detected_faces:
+            return
+        try:
+            idx = 0
+            for i, val in enumerate(self.combo_fs_face_selector.cget("values")):
+                if val == choice:
+                    idx = i
+                    break
+            self._apply_selected_query_face(idx)
+        except Exception as e:
+            logger.warning(f"[FACE_SEARCH] Error switching face index: {e}")
+
+    def _apply_selected_query_face(self, face_idx):
+        """อัปเดตภาพพรีวิวต้นฉบับ (วาดกรอบใบหน้าที่เลือก) และภาพใบหน้าครอป พร้อมเก็บเวกเตอร์ 512-D (v6.61)"""
+        if not self.face_search_detected_faces or self.face_search_cv_img is None:
+            return
+        face_idx = max(0, min(int(face_idx), len(self.face_search_detected_faces) - 1))
+        self.face_search_selected_face_idx = face_idx
+        face_info = self.face_search_detected_faces[face_idx]
+        self.face_search_query_emb = face_info["embedding"]
+        self.face_search_query_bbox = face_info["bbox"]
+
+        import cv2
+        img_copy = self.face_search_cv_img.copy()
+        h, w = img_copy.shape[:2]
+
+        # วาดกรอบใบหน้าทั้งหมดเป็นสีเทาจาง และวาดใบหน้าที่เลือกเป็นสีเขียวสด
+        for i, f in enumerate(self.face_search_detected_faces):
+            bx1, by1, bx2, by2 = f["bbox"]
+            if i == face_idx:
+                cv2.rectangle(img_copy, (bx1, by1), (bx2, by2), (46, 204, 113), max(2, int(max(h, w) / 250)))
+            else:
+                cv2.rectangle(img_copy, (bx1, by1), (bx2, by2), (149, 165, 166), max(1, int(max(h, w) / 400)))
+
+        # สร้างภาพพรีวิวต้นฉบับ
+        rgb_orig = cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB)
+        pil_orig = Image.fromarray(rgb_orig)
+        pil_orig.thumbnail((135, 120), Image.Resampling.LANCZOS)
+        ctk_orig = ctk.CTkImage(light_image=pil_orig, dark_image=pil_orig, size=pil_orig.size)
+        self.lbl_fs_orig_preview.configure(image=ctk_orig, text="")
+        self.lbl_fs_orig_preview._ctk_img_ref = ctk_orig
+
+        # สร้างภาพพรีวิวครอปใบหน้าที่เลือก
+        x1, y1, x2, y2 = face_info["bbox"]
+        pad_x = int((x2 - x1) * 0.18)
+        pad_y = int((y2 - y1) * 0.18)
+        cx1, cy1 = max(0, x1 - pad_x), max(0, y1 - pad_y)
+        cx2, cy2 = min(w, x2 + pad_x), min(h, y2 + pad_y)
+        crop_cv = self.face_search_cv_img[cy1:cy2, cx1:cx2]
+        if crop_cv.size > 0:
+            rgb_crop = cv2.cvtColor(crop_cv, cv2.COLOR_BGR2RGB)
+            pil_crop = Image.fromarray(rgb_crop).resize((120, 120), Image.Resampling.LANCZOS)
+            ctk_crop = ctk.CTkImage(light_image=pil_crop, dark_image=pil_crop, size=(120, 120))
+            self.lbl_fs_crop_preview.configure(image=ctk_crop, text="")
+            self.lbl_fs_crop_preview._ctk_img_ref = ctk_crop
+
+        total_f = len(self.face_search_detected_faces)
+        self.lbl_fs_face_status.configure(
+            text=f"✅ พบ {total_f} ใบหน้า (เลือกใบหน้าที่ {face_idx + 1} ความคมชัด {face_info['det_score']*100:.1f}%)",
+            text_color="#2ECC71"
+        )
+
+    def start_one_to_n_face_search(self):
+        """เริ่มสแกนเปรียบเทียบเวกเตอร์ใบหน้าต้นแบบกับคลังภาพทั้งหมดใน Background Thread (v6.61)"""
+        if self.face_search_query_emb is None:
+            messagebox.showwarning("ยังไม่มีใบหน้าต้นแบบ", "กรุณาอัปโหลดรูปภาพที่มีใบหน้าบุคคลก่อนเริ่มค้นหาครับ")
+            return
+        if self.face_search_is_running:
+            return
+
+        threshold = float(self.slider_fs_threshold.get())
+        year_scope = self.combo_fs_year_scope.get().strip()
+
+        self.face_search_is_running = True
+        self.face_search_cancel_event.clear()
+        self.face_search_worker_gen += 1
+        self.btn_fs_start_search.configure(state="disabled", text="⏳ กำลังค้นหา...")
+        self.btn_fs_stop_search.configure(state="normal")
+        self.prog_fs_search.set(0)
+        self.lbl_fs_progress.configure(text="กำลังเริ่มสแกนเปรียบเทียบเวกเตอร์ใบหน้าใน SQLite...", text_color="#F1C40F")
+
+        def _search_worker():
+            t0 = time.time()
+            try:
+                def _on_progress(done_rows, total_rows, found_cnt):
+                    frac = (done_rows / total_rows) if total_rows > 0 else 0.0
+                    self.after(0, lambda f=frac, d=done_rows, t=total_rows, c=found_cnt: (
+                        self.prog_fs_search.set(min(1.0, max(0.0, f))),
+                        self.lbl_fs_progress.configure(
+                            text=f"⚡ สแกนแล้ว {d:,}/{t:,} ใบหน้า | พบภาพตรงกัน {c:,} รูป",
+                            text_color="#5CACEE"
+                        )
+                    ))
+
+                matches = self.db.search_faces_by_embedding(
+                    query_emb=self.face_search_query_emb,
+                    threshold=threshold,
+                    academic_year=year_scope,
+                    cancel_event=self.face_search_cancel_event,
+                    progress_callback=_on_progress
+                )
+                elapsed = time.time() - t0
+
+                def _on_done():
+                    self.face_search_is_running = False
+                    self.btn_fs_start_search.configure(state="normal", text="🚀 เริ่มค้นหาในคลังภาพทั้งหมด")
+                    self.btn_fs_stop_search.configure(state="disabled")
+
+                    if self.face_search_cancel_event.is_set():
+                        self.lbl_fs_progress.configure(text="🛑 ยกเลิกการค้นหาแล้ว", text_color="#E67E22")
+                        return
+
+                    self.prog_fs_search.set(1.0)
+                    self.face_search_all_matches = matches
+                    # ค่าเริ่มต้น: เลือกภาพทั้งหมดที่ผ่านเกณฑ์ Threshold ทันที (ผู้ใช้สามารถติ๊กออกหรือกดปุ่มกรองเลือกได้)
+                    self.face_search_selected_pids = {m["photo_id"] for m in matches}
+                    self.lbl_fs_progress.configure(
+                        text=f"✅ ค้นหาเสร็จสิ้นใน {elapsed:.2f} วินาที — พบรูปภาพตรงกัน {len(matches):,} รูป",
+                        text_color="#2ECC71" if matches else "#E67E22"
+                    )
+                    logger.info(f"[FACE_SEARCH] Completed 1-to-N search in {elapsed:.2f}s (threshold={threshold:.2f}, year={year_scope}) -> {len(matches):,} photos matched.")
+                    self.apply_face_search_subfilters(reset_page=True)
+
+                self.after(0, _on_done)
+            except Exception as err:
+                logger.error(f"[FACE_SEARCH] Error during 1-to-N search: {err}", exc_info=True)
+                self.after(0, lambda e=err: (
+                    setattr(self, "face_search_is_running", False),
+                    self.btn_fs_start_search.configure(state="normal", text="🚀 เริ่มค้นหาในคลังภาพทั้งหมด"),
+                    self.btn_fs_stop_search.configure(state="disabled"),
+                    self.lbl_fs_progress.configure(text=f"❌ เกิดข้อผิดพลาด: {e}", text_color="#E74C3C")
+                ))
+
+        threading.Thread(target=_search_worker, daemon=True).start()
+
+    def stop_one_to_n_face_search(self):
+        """สั่งหยุดการค้นหา 1-ต่อ-N ทันที (v6.61)"""
+        if self.face_search_is_running:
+            self.face_search_cancel_event.set()
+            self.face_search_worker_gen += 1
+            self.lbl_fs_progress.configure(text="🛑 กำลังหยุดการค้นหา...", text_color="#E67E22")
+
+    def on_fs_keyword_debounced(self, event=None):
+        """หน่วงเวลา 250ms ขณะพิมพ์ค้นหาชื่อกิจกรรม เพื่อป้องกันหน้าตารางกระตุก (Zero-Lag Standard v6.61)"""
+        if self._face_search_filter_timer is not None:
+            try:
+                self.after_cancel(self._face_search_filter_timer)
+            except Exception:
+                pass
+        self._face_search_filter_timer = self.after(250, lambda: self.apply_face_search_subfilters(reset_page=True))
+
+    def apply_face_search_subfilters(self, reset_page=True):
+        """กรองและจัดเรียงผลลัพธ์ในหน่วยความจำทันที (0ms In-Memory Sub-Filtering) รองรับ 10,000+ รูป (v6.61)"""
+        sub_year = self.combo_fs_sub_year.get().strip()
+        sub_conf_str = self.combo_fs_sub_conf.get().strip()
+        keyword = self.entry_fs_sub_keyword.get().strip().lower()
+        sort_mode = self.combo_fs_sort.get().strip()
+
+        min_conf = 0.0
+        if ">=" in sub_conf_str:
+            try:
+                min_conf = float(sub_conf_str.replace(">=", "").replace("%", "").strip()) / 100.0
+            except Exception:
+                min_conf = 0.0
+
+        filtered = []
+        for item in self.face_search_all_matches:
+            if sub_year and sub_year != "ทุกปีการศึกษา":
+                if item.get("academic_year", "") != sub_year:
+                    continue
+            if min_conf > 0.0 and item.get("confidence", 0.0) < min_conf:
+                continue
+            if keyword:
+                haystack = f"{item.get('event_name', '')} {item.get('photo_id', '')} {item.get('file_name', '')} {item.get('photo_date', '')}".lower()
+                if keyword not in haystack:
+                    continue
+            filtered.append(item)
+
+        if sort_mode == "วันที่ถ่ายล่าสุด":
+            filtered.sort(key=lambda x: (x.get("photo_date", ""), x.get("confidence", 0.0)), reverse=True)
+        elif sort_mode == "วันที่ถ่ายเก่าสุด":
+            filtered.sort(key=lambda x: (x.get("photo_date", "9999-99-99"), -x.get("confidence", 0.0)))
+        else:
+            filtered.sort(key=lambda x: (x.get("confidence", 0.0), x.get("photo_date", "")), reverse=True)
+
+        self.face_search_filtered_matches = filtered
+        if reset_page:
+            self.face_search_current_page = 1
+        self._update_fs_summary_label()
+        self.render_face_search_page(self.face_search_current_page)
+
+    def _get_fs_total_pages(self):
+        total = len(self.face_search_filtered_matches)
+        return max(1, (total + self.face_search_page_size - 1) // self.face_search_page_size)
+
+    def _update_fs_summary_label(self):
+        total_all = len(self.face_search_all_matches)
+        total_filt = len(self.face_search_filtered_matches)
+        total_sel = len(self.face_search_selected_pids)
+        self.lbl_fs_match_summary.configure(
+            text=f"📊 พบทั้งหมด: {total_all:,} รูป | แสดงตามตัวกรอง: {total_filt:,} รูป | ☑️ เลือกไว้: {total_sel:,} รูป"
+        )
+
+    def go_to_face_search_page(self, page_num):
+        total_pages = self._get_fs_total_pages()
+        target_page = max(1, min(int(page_num), total_pages))
+        if target_page == self.face_search_current_page and self.scr_face_search_results.winfo_children():
+            pass
+        self.face_search_current_page = target_page
+        self.render_face_search_page(target_page)
+
+    def on_fs_jump_page(self):
+        raw = self.entry_fs_jump_page.get().strip()
+        if not raw.isdigit():
+            return
+        self.go_to_face_search_page(int(raw))
+
+    def render_face_search_page(self, page_num=1):
+        """วาดการ์ดรูปภาพเฉพาะหน้าปัจจุบัน (สูงสุด 24 ใบ) พร้อมโหลด Thumbnail แบบ Async ยกเลิกคิวเก่าอัตโนมัติ (v6.61)"""
+        self.face_search_worker_gen += 1
+        current_gen = self.face_search_worker_gen
+
+        for child in self.scr_face_search_results.winfo_children():
+            child.destroy()
+        self._fs_checkbox_vars.clear()
+
+        total_items = len(self.face_search_filtered_matches)
+        total_pages = self._get_fs_total_pages()
+        page_num = max(1, min(int(page_num), total_pages))
+        self.face_search_current_page = page_num
+
+        if total_items == 0:
+            self.lbl_fs_page_info.configure(text="หน้า 1 / 1 (0 รูปภาพ)")
+            self.btn_fs_first_page.configure(state="disabled")
+            self.btn_fs_prev_page.configure(state="disabled")
+            self.btn_fs_next_page.configure(state="disabled")
+            self.btn_fs_last_page.configure(state="disabled")
+
+            msg = "🔍 ไม่พบรูปภาพที่ตรงกับเงื่อนไขตัวกรอง" if self.face_search_all_matches else "🎯 อัปโหลดรูปภาพใบหน้าทางด้านซ้าย แล้วกด 'เริ่มค้นหาในคลังภาพทั้งหมด'"
+            lbl_empty = ctk.CTkLabel(
+                self.scr_face_search_results,
+                text=msg,
+                font=ctk.CTkFont(size=14),
+                text_color="#7F8C8D",
+                justify="center"
+            )
+            lbl_empty.grid(row=0, column=0, columnspan=4, pady=80)
+            return
+
+        start_idx = (page_num - 1) * self.face_search_page_size
+        end_idx = min(start_idx + self.face_search_page_size, total_items)
+        page_slice = self.face_search_filtered_matches[start_idx:end_idx]
+
+        self.lbl_fs_page_info.configure(
+            text=f"หน้า {page_num:,} / {total_pages:,}  (แสดงรูปที่ {start_idx + 1:,}-{end_idx:,} จาก {total_items:,} รูป)"
+        )
+        self.btn_fs_first_page.configure(state="normal" if page_num > 1 else "disabled")
+        self.btn_fs_prev_page.configure(state="normal" if page_num > 1 else "disabled")
+        self.btn_fs_next_page.configure(state="normal" if page_num < total_pages else "disabled")
+        self.btn_fs_last_page.configure(state="normal" if page_num < total_pages else "disabled")
+
+        cache_dir = os.path.join(get_project_root(), "data", "thumbnail_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        try:
+            cache_files = set(os.listdir(cache_dir))
+        except Exception:
+            cache_files = set()
+
+        def _get_cached_thumb(pid_str, fid_str):
+            for candidate in (f"{pid_str}.jpg", f"thumb_{fid_str}.jpg", f"{fid_str}.jpg"):
+                if candidate in cache_files:
+                    return os.path.join(cache_dir, candidate)
+            return None
+
+        cached_load_items = []
+        uncached_queue = []
+        cols = 4
+
+        for idx, item in enumerate(page_slice):
+            r_idx = idx // cols
+            c_idx = idx % cols
+
+            pid = item["photo_id"]
+            fid = item.get("drive_file_id", "")
+            ev_name = item.get("event_name", "กิจกรรมทั่วไป")
+            p_date = item.get("photo_date", "")
+            a_year = item.get("academic_year", "")
+            conf = float(item.get("confidence", 0.0))
+            conf_pct = conf * 100.0 if conf <= 1.0 else conf
+            d_link = item.get("drive_link", "")
+            open_url = self.sync_manager.format_drive_view_url(d_link) if hasattr(self, "sync_manager") and hasattr(self.sync_manager, "format_drive_view_url") else d_link
+
+            is_selected = pid in self.face_search_selected_pids
+            border_col = "#2ECC71" if is_selected else "#26384D"
+
+            card = ctk.CTkFrame(
+                self.scr_face_search_results,
+                fg_color="#141E2B",
+                corner_radius=8,
+                border_width=2 if is_selected else 1,
+                border_color=border_col
+            )
+            card.grid(row=r_idx, column=c_idx, padx=5, pady=5, sticky="nsew")
+
+            # แถบบนของการ์ด: Checkbox เลือกภาพ + ป้าย % ความเหมือน
+            top_row = ctk.CTkFrame(card, fg_color="transparent")
+            top_row.pack(fill="x", padx=6, pady=(6, 2))
+
+            chk_var = tk.BooleanVar(value=is_selected)
+            self._fs_checkbox_vars[pid] = (chk_var, card)
+
+            chk = ctk.CTkCheckBox(
+                top_row,
+                text=f"{pid}",
+                variable=chk_var,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                checkbox_width=18,
+                checkbox_height=18,
+                command=lambda p=pid, v=chk_var, cd=card: self.on_toggle_fs_photo_select(p, v, cd)
+            )
+            chk.pack(side="left")
+
+            badge_color = "#27AE60" if conf_pct >= 65.0 else ("#2980B9" if conf_pct >= 50.0 else "#D35400")
+            lbl_badge = ctk.CTkLabel(
+                top_row,
+                text=f"🎯 {conf_pct:.1f}%",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                fg_color=badge_color,
+                text_color="white",
+                corner_radius=5,
+                padx=6,
+                pady=1
+            )
+            lbl_badge.pack(side="right")
+
+            # รูปพรีวิว Thumbnail
+            img_label = ctk.CTkLabel(
+                card,
+                text="⌛ กำลังโหลด...",
+                width=185,
+                height=145,
+                fg_color="#0A111A",
+                corner_radius=6
+            )
+            img_label.pack(padx=6, pady=4, fill="both", expand=True)
+
+            year_tag = f"ปี {a_year}" if a_year else "ไม่ระบุปี"
+            lbl_meta = ctk.CTkLabel(
+                card,
+                text=f"📌 {ev_name[:25]}\n📅 {p_date[:10]} ({year_tag})",
+                font=ctk.CTkFont(size=11),
+                text_color="#D0D8E0",
+                justify="center"
+            )
+            lbl_meta.pack(padx=4, pady=(0, 4))
+
+            btn_open = ctk.CTkButton(
+                card,
+                text="🌐 เปิดดูภาพบน Drive",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                fg_color="#1F3A60",
+                hover_color="#2980B9",
+                height=24,
+                command=lambda u=open_url: webbrowser.open(u) if u else None
+            )
+            btn_open.pack(padx=6, pady=(0, 6), fill="x")
+
+            self.bind_scroll_events(card)
+
+            c_path = _get_cached_thumb(pid, fid)
+            if c_path:
+                cached_load_items.append((c_path, img_label, open_url))
+            else:
+                uncached_queue.append((pid, fid, open_url, img_label))
+
+        # โหลดภาพที่มีใน Disk Cache ทันทีใน Background Thread
+        if cached_load_items:
+            def _load_cached_worker(items, gen_token):
+                for path, target_lbl, target_url in items:
+                    if gen_token != self.face_search_worker_gen:
+                        return
+                    try:
+                        pil_img = Image.open(path).convert("RGB")
+                        pil_img = pil_img.resize((185, 145), Image.Resampling.LANCZOS)
+
+                        def _apply_img(p_img, lbl, u):
+                            if gen_token == self.face_search_worker_gen and lbl.winfo_exists():
+                                ctk_i = ctk.CTkImage(light_image=p_img, dark_image=p_img, size=(185, 145))
+                                lbl.configure(image=ctk_i, text="")
+                                lbl._ctk_img_ref = ctk_i
+                                if u:
+                                    lbl.bind("<Double-Button-1>", lambda _e, link=u: webbrowser.open(link))
+
+                        try:
+                            self.after(0, lambda p=pil_img, l=target_lbl, u=target_url: _apply_img(p, l, u))
+                        except Exception:
+                            return
+                    except Exception:
+                        try:
+                            self.after(0, lambda l=target_lbl: l.configure(text="🖼️ อ่านรูปไม่ได้") if l.winfo_exists() else None)
+                        except Exception:
+                            return
+
+            threading.Thread(target=_load_cached_worker, args=(cached_load_items, current_gen), daemon=True).start()
+
+        # ดาวน์โหลดภาพที่ยังไม่มีใน Cache จาก Google Drive API ทีละภาพแบบยกเลิกอัตโนมัติเมื่อเปลี่ยนหน้า
+        if uncached_queue:
+            def _download_uncached_worker(q_items, gen_token):
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                for p_code, target_fid, target_url, target_lbl in q_items:
+                    if gen_token != self.face_search_worker_gen:
+                        return
+                    if not target_fid:
+                        try:
+                            self.after(0, lambda l=target_lbl: l.configure(text="🖼️ ไม่มีรหัสไฟล์") if l.winfo_exists() else None)
+                        except Exception:
+                            return
+                        continue
+                    try:
+                        target_thumb_path = os.path.join(cache_dir, f"{p_code}.jpg")
+                        downloaded = False
+
+                        if hasattr(self, "sync_manager") and self.sync_manager:
+                            if not self.sync_manager.connected or not getattr(self.sync_manager, "drive_service", None):
+                                if not hasattr(self, "_drive_connect_lock"):
+                                    self._drive_connect_lock = threading.Lock()
+                                with self._drive_connect_lock:
+                                    if not self.sync_manager.connected or not getattr(self.sync_manager, "drive_service", None):
+                                        self.sync_manager.connect()
+
+                        if hasattr(self, "sync_manager") and self.sync_manager and getattr(self.sync_manager, "drive_service", None):
+                            try:
+                                f_meta = self.sync_manager.drive_service.files().get(fileId=target_fid, fields="thumbnailLink").execute()
+                                thumb_url = f_meta.get("thumbnailLink")
+                                if thumb_url:
+                                    t_url_500 = thumb_url.replace("=s220", "=s500")
+                                    resp = requests.get(t_url_500, headers=headers, timeout=8)
+                                    if resp.status_code == 200 and len(resp.content) > 0:
+                                        import cv2
+                                        nparr = np.frombuffer(resp.content, np.uint8)
+                                        img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                        if img_cv is not None:
+                                            ok, enc = cv2.imencode(".jpg", img_cv)
+                                            if ok:
+                                                enc.tofile(target_thumb_path)
+                                                downloaded = True
+                            except Exception:
+                                pass
+
+                        if gen_token != self.face_search_worker_gen:
+                            return
+
+                        if downloaded and os.path.exists(target_thumb_path):
+                            pil_img = Image.open(target_thumb_path).convert("RGB")
+                            pil_img = pil_img.resize((185, 145), Image.Resampling.LANCZOS)
+
+                            def _render_dl(p_img, lbl, u):
+                                if gen_token == self.face_search_worker_gen and lbl.winfo_exists():
+                                    ctk_i = ctk.CTkImage(light_image=p_img, dark_image=p_img, size=(185, 145))
+                                    lbl.configure(image=ctk_i, text="")
+                                    lbl._ctk_img_ref = ctk_i
+                                    if u:
+                                        lbl.bind("<Double-Button-1>", lambda _e, link=u: webbrowser.open(link))
+
+                            try:
+                                self.after(0, lambda p=pil_img, l=target_lbl, u=target_url: _render_dl(p, l, u))
+                            except Exception:
+                                return
+                        else:
+                            try:
+                                self.after(0, lambda l=target_lbl: l.configure(text="🖼️ ไม่มีพรีวิว") if l.winfo_exists() else None)
+                            except Exception:
+                                return
+                    except Exception:
+                        try:
+                            self.after(0, lambda l=target_lbl: l.configure(text="🖼️ โหลดไม่ได้") if l.winfo_exists() else None)
+                        except Exception:
+                            return
+
+            threading.Thread(target=_download_uncached_worker, args=(uncached_queue, current_gen), daemon=True).start()
+
+    def on_toggle_fs_photo_select(self, photo_id, bool_var, card_widget=None):
+        """สลับสถานะการเลือกผูกภาพรายใบแบบ O(1) (v6.61)"""
+        if bool_var.get():
+            self.face_search_selected_pids.add(photo_id)
+            if card_widget and card_widget.winfo_exists():
+                card_widget.configure(border_width=2, border_color="#2ECC71")
+        else:
+            self.face_search_selected_pids.discard(photo_id)
+            if card_widget and card_widget.winfo_exists():
+                card_widget.configure(border_width=1, border_color="#26384D")
+        self._update_fs_summary_label()
+
+    def _sync_visible_fs_checkboxes(self):
+        """อัปเดตสถานะ Checkbox เฉพาะการ์ด 24 ใบในหน้าปัจจุบันให้ตรงกับ Set โดยไม่ต้องสร้างการ์ดใหม่ (v6.61)"""
+        for pid, (var, card) in list(self._fs_checkbox_vars.items()):
+            is_sel = pid in self.face_search_selected_pids
+            var.set(is_sel)
+            if card and card.winfo_exists():
+                card.configure(border_width=2 if is_sel else 1, border_color="#2ECC71" if is_sel else "#26384D")
+        self._update_fs_summary_label()
+
+    def fs_select_all_filtered(self):
+        """เลือกรูปภาพทั้งหมดที่ผ่านตัวกรองปัจจุบัน (รองรับ 10,000+ รูปใน 1 คลิก) (v6.61)"""
+        for item in self.face_search_filtered_matches:
+            self.face_search_selected_pids.add(item["photo_id"])
+        self._sync_visible_fs_checkboxes()
+
+    def fs_select_current_page(self):
+        """เลือกรูปภาพเฉพาะ 24 รูปในหน้าปัจจุบัน (v6.61)"""
+        start_idx = (self.face_search_current_page - 1) * self.face_search_page_size
+        end_idx = min(start_idx + self.face_search_page_size, len(self.face_search_filtered_matches))
+        for item in self.face_search_filtered_matches[start_idx:end_idx]:
+            self.face_search_selected_pids.add(item["photo_id"])
+        self._sync_visible_fs_checkboxes()
+
+    def fs_select_high_confidence(self, min_conf=0.60):
+        """เลือกเฉพาะรูปภาพที่มีความเหมือนตั้งแต่ min_conf ขึ้นไป (v6.61)"""
+        self.face_search_selected_pids = {
+            item["photo_id"]
+            for item in self.face_search_filtered_matches
+            if float(item.get("confidence", 0.0)) >= float(min_conf)
+        }
+        self._sync_visible_fs_checkboxes()
+
+    def fs_deselect_all(self):
+        """ยกเลิกการเลือกรูปภาพทั้งหมด (v6.61)"""
+        self.face_search_selected_pids.clear()
+        self._sync_visible_fs_checkboxes()
+
+    def discard_face_search_results(self):
+        """กดปฏิเสธ / ล้างผลการค้นหาและรีเซ็ตฟอร์มกลับสู่สถานะเริ่มต้นโดยไม่แก้ไขฐานข้อมูล (v6.61)"""
+        self.stop_one_to_n_face_search()
+        self.face_search_worker_gen += 1
+        self.face_search_img_path = None
+        self.face_search_cv_img = None
+        self.face_search_detected_faces = []
+        self.face_search_selected_face_idx = 0
+        self.face_search_query_emb = None
+        self.face_search_query_bbox = None
+        self.face_search_all_matches = []
+        self.face_search_filtered_matches = []
+        self.face_search_selected_pids.clear()
+        self.face_search_current_page = 1
+
+        self.lbl_fs_orig_preview.configure(image=None, text="🖼️ ภาพต้นฉบับ")
+        self.lbl_fs_crop_preview.configure(image=None, text="👤 ใบหน้าที่ใช้ค้นหา")
+        self.lbl_fs_face_status.configure(text="สถานะ: ล้างข้อมูลแล้ว พร้อมเลือกรูปภาพใหม่", text_color="#A2B5CD")
+        self.combo_fs_face_selector.configure(values=["- ไม่มีข้อมูลใบหน้า -"], state="disabled")
+        self.combo_fs_face_selector.set("- ไม่มีข้อมูลใบหน้า -")
+        self.prog_fs_search.set(0)
+        self.lbl_fs_progress.configure(text="ล้างผลลัพธ์เรียบร้อยแล้ว", text_color="#95A5A6")
+
+        self.entry_fs_reg_name.delete(0, "end")
+        self.entry_fs_reg_code.delete(0, "end")
+        self.entry_fs_reg_dept.delete(0, "end")
+        self.entry_fs_sub_keyword.delete(0, "end")
+
+        self._update_fs_summary_label()
+        self.render_face_search_page(1)
+        logger.info("[FACE_SEARCH] 🗑️ Discarded search results and reset form.")
+
+    def save_and_register_matched_person(self):
+        """บันทึกขึ้นทะเบียนบุคคล (ครูหรือนักเรียน) พร้อมผูกภาพกิจกรรมที่เลือกทั้งหมดลงฐานข้อมูลใน Transaction เดียว (v6.61)"""
+        name = self.entry_fs_reg_name.get().strip()
+        if not name:
+            messagebox.showwarning("กรุณาระบุชื่อ", "กรุณากรอกชื่อ-นามสกุลของบุคคลในช่องด้านล่างก่อนกดบันทึกครับ")
+            self.entry_fs_reg_name.focus_set()
+            return
+
+        if self.face_search_query_emb is None:
+            messagebox.showwarning("ยังไม่มีข้อมูลใบหน้า", "กรุณาอัปโหลดรูปภาพใบหน้าก่อนบันทึกขึ้นทะเบียนครับ")
+            return
+
+        selected_matches = [
+            m for m in self.face_search_all_matches
+            if m["photo_id"] in self.face_search_selected_pids
+        ]
+
+        role_text = self.combo_fs_reg_role.get()
+        is_student = "นักเรียน" in str(role_text)
+        code_val = self.entry_fs_reg_code.get().strip()
+        dept_or_room = self.entry_fs_reg_dept.get().strip()
+        save_emb = bool(self.var_fs_save_emb.get())
+        used_thresh = float(self.slider_fs_threshold.get())
+
+        t_start = time.time()
+        try:
+            if is_student:
+                staff_id = self.db.register_member(
+                    name=name,
+                    role="student",
+                    student_id=code_val if code_val else None,
+                    class_room=dept_or_room,
+                    status="active"
+                )
+            else:
+                staff_id = self.db.register_staff_member(name=name, department=dept_or_room)
+
+            # บันทึกภาพใบหน้าครอปและเวกเตอร์อ้างอิงลง staff_embeddings (หากติ๊กเลือกไว้)
+            if save_emb and self.face_search_img_path and self.face_search_query_bbox:
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM staff_embeddings WHERE staff_id = ?", (staff_id,))
+                    existing_cnt = int(cursor.fetchone()[0] or 0)
+
+                if is_student and hasattr(self, "save_cropped_student_face"):
+                    cropped_path = self.save_cropped_student_face(
+                        staff_id=staff_id,
+                        student_code=code_val or str(staff_id),
+                        original_path=self.face_search_img_path,
+                        bbox=self.face_search_query_bbox,
+                        count=existing_cnt + 1,
+                        orig_filename=name
+                    )
+                else:
+                    cropped_path = self.save_cropped_face(
+                        staff_id=staff_id,
+                        original_path=self.face_search_img_path,
+                        bbox=self.face_search_query_bbox,
+                        count=existing_cnt + 1,
+                        orig_filename=name
+                    )
+
+                self.db.add_staff_embedding(
+                    staff_id=staff_id,
+                    image_path=cropped_path,
+                    embedding_vector=self.face_search_query_emb
+                )
+
+            # ผูกรูปภาพที่เลือกทั้งหมดลงตาราง detected_faces แบบ Bulk Transaction
+            linked_count = 0
+            if selected_matches:
+                linked_count = self.db.bulk_append_detected_faces(
+                    staff_id=staff_id,
+                    photo_matches=selected_matches,
+                    used_threshold=used_thresh
+                )
+
+            elapsed = time.time() - t_start
+
+            # ล้างแคชรายการครู/นักเรียนเพื่อให้แท็บอื่นๆ เห็นข้อมูลใหม่ทันที
+            self._cached_teachers_list = None
+            self._cached_students_list = None
+            if hasattr(self, "_all_teachers_avatar_data"):
+                self._all_teachers_avatar_data = None
+            if hasattr(self, "_all_students_avatar_data"):
+                self._all_students_avatar_data = None
+
+            role_label = "นักเรียน" if is_student else "ครู/บุคลากร"
+            logger.info(
+                f"[FACE_SEARCH] 💾 บันทึก '{name}' ({role_label}, ID={staff_id}) และผูกภาพกิจกรรม {linked_count:,} รูป สำเร็จใน {elapsed:.2f}s"
+            )
+            messagebox.showinfo(
+                "บันทึกขึ้นทะเบียนสำเร็จ",
+                f"บันทึกข้อมูลลงระบบเรียบร้อยแล้ว!\n\n"
+                f"👤 ชื่อ-นามสกุล: {name}\n"
+                f"🏷️ ประเภท: {role_label} (ID: {staff_id})\n"
+                f"🖼️ ผูกภาพกิจกรรมที่เลือก: {linked_count:,} รูป\n"
+                f"⚡ ใช้เวลาบันทึก: {elapsed:.2f} วินาที"
+            )
+        except Exception as e:
+            logger.error(f"[FACE_SEARCH] Failed to save & register matched person '{name}': {e}", exc_info=True)
+            messagebox.showerror("บันทึกไม่สำเร็จ", f"เกิดข้อผิดพลาดขณะบันทึกข้อมูล:\n{e}")
 
 if __name__ == "__main__":
     # บังคับระบบควบคุม Windows Scaling เพื่อความคมชัดของวิดเจ็ต
