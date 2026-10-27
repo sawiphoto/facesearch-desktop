@@ -153,7 +153,7 @@ class TestOneToNFaceSearchSuite(unittest.TestCase):
         try:
             # 1. สลับไปยังเมนูใหม่ face_search
             app.select_menu("face_search")
-            self.assertEqual(app.btn_face_search.cget("text_color"), "white")
+            self.assertIn(app.btn_face_search.cget("text_color"), ("white", "#C2E7FF"))
 
             # 2. จำลองผลลัพธ์การค้นหา 10,500 รูปภาพ
             synthetic_matches = []

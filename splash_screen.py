@@ -7,9 +7,9 @@ class SplashScreen:
     """
     หน้าต่าง Splash Screen น้ำหนักเบาพิเศษ (Pure Tkinter)
     เปิดได้ทันทีใน <0.15 วินาที พร้อมแถบ Progress Bar (0% - 100%)
-    และป้ายข้อความแสดงสถานะการโหลดแบบเรียลไทม์ (v6.62)
+    และป้ายข้อความแสดงสถานะการโหลดแบบเรียลไทม์ (v6.63)
     """
-    def __init__(self, title="FACE MATCHING SYSTEM", version="v6.62"):
+    def __init__(self, title="GOOGLE PHOTOS FACE FINDER", version="v6.63"):
         self.root = tk.Tk()
         self.root.title(title)
         self.root.overrideredirect(True)  # ไร้กรอบขอบหน้าต่างแบบโมเดิร์น
@@ -25,16 +25,16 @@ class SplashScreen:
         self.root.geometry(f"{width}x{height}+{x}+{y}")
         
         # ธีมสี Dark Navy (#1A252F / #243342 / #3498DB)
-        self.bg_color = "#1A252F"
-        self.card_color = "#243342"
-        self.accent_color = "#3498DB"
-        self.text_title_color = "#6CA6CD"
-        self.text_sub_color = "#BDC3C7"
+        self.bg_color = "#121212"
+        self.card_color = "#1E1F22"
+        self.accent_color = "#8AB4F8"
+        self.text_title_color = "#8AB4F8"
+        self.text_sub_color = "#C4C7C5"
         
         self.root.configure(bg=self.bg_color)
         
         # กรอบด้านใน (Card container พร้อมขอบบางๆ)
-        self.card = tk.Frame(self.root, bg=self.card_color, highlightbackground="#34495E", highlightthickness=2)
+        self.card = tk.Frame(self.root, bg=self.card_color, highlightbackground="#3C4043", highlightthickness=2)
         self.card.pack(fill="both", expand=True, padx=4, pady=4)
         
         # โลโก้ / หัวข้อ
@@ -52,7 +52,7 @@ class SplashScreen:
             self.card,
             text=f"Version {version} • GPU AI Accelerated",
             font=("Segoe UI", 10, "bold"),
-            fg="#2ECC71",
+            fg="#81C995",
             bg=self.card_color
         )
         self.lbl_version.pack(pady=(0, 4))
@@ -72,11 +72,11 @@ class SplashScreen:
         style.theme_use("clam")
         style.configure(
             "Splash.Horizontal.TProgressbar",
-            troughcolor="#1A252F",
-            background="#3498DB",
-            bordercolor="#2C3E50",
-            lightcolor="#3498DB",
-            darkcolor="#2980B9"
+            troughcolor="#121212",
+            background="#1A73E8",
+            bordercolor="#3C4043",
+            lightcolor="#8AB4F8",
+            darkcolor="#1765CC"
         )
         
         self.pb = ttk.Progressbar(
@@ -96,7 +96,7 @@ class SplashScreen:
             status_frame,
             text="กำลังเริ่มต้นระบบและตรวจสอบสภาพแวดล้อม...",
             font=("Segoe UI", 9),
-            fg="#ECF0F1",
+            fg="#E8EAED",
             bg=self.card_color,
             anchor="w"
         )

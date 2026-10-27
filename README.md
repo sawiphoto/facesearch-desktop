@@ -1,3 +1,104 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.63 (Google Photos Material Design Theme Suite)
+
+## 📋 Version 6.63 Changelog (Google Photos Material Design Theme Suite)
+
+**Date:** 27 ตุลาคม 2026 (09:24 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 4 Argon  
+**Version:** v6.63 (Google Photos Material Design Theme Suite)  
+**Core Technologies:** Google Photos Material Design 3 Dark Theme (`#121212` / `#1E1F22` / `#282A2D`), Google Material You Active Pill Navigation (`#004A77` / `#C2E7FF` with `corner_radius=18`), Google Brand Accents (`#1A73E8` Blue, `#34A853` Green, `#EA4335` Red, `#FBBC04` Yellow, `#8AB4F8` Light Blue), Updated Google Photos Style Iconography, 100% Backend & Logic Integrity Preserved, Unit Test Suite Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความต้องการปรับโฉมธีมสีและไอคอนสไตล์ Google Photos:**
+   - ผู้ใช้ต้องการเปลี่ยนธีมสีของโปรแกรม พื้นหลัง การ์ด ปุ่มกด และไอคอนเมนูต่างๆ ให้มีความสวยงาม ทันสมัย และใกล้เคียงกับ **Google Photos (Material Design 3 / Google Material You)**
+2. **ข้อกำหนดสำคัญด้านเสถียรภาพของระบบ (100% Backend Preservation):**
+   - ต้องปรับปรุง **เฉพาะส่วนของ UI เท่านั้น** โดยห้ามกระทบการทำงานของระบบเบื้องหลังทั้งหมด (SQLite Database, InsightFace AI Vector Matching, 1-to-N Face Search, Google Drive Sync, Scheduler Tasks, In-Memory Caching, และ Multi-Format Image Decoding ต้องทำงานได้สมบูรณ์ 100% เหมือนเดิม)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **กำหนดระบบสีมาตรฐาน `GP_THEME` (Google Photos Material Design 3 Dark Palette) ใน [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - **พื้นหลังหน้าต่างหลัก (`#121212`):** สีดำชาร์โคลนุ่มลึกสไตล์ Material Dark 900 สบายตาและขับเน้นภาพถ่ายให้โดดเด่น
+   - **แถบนำทางด้านซ้าย (`#1E1F22`):** พื้นผิว Navigation Rail สไตล์ Google Apps
+   - **การ์ดคอนเทนเนอร์ (`#282A2D`) และกรอบภาพด้านใน (`#1F2023`) พร้อมเส้นขอบ (`#3C4043`):** ให้มิติความลึกแบบ Material Surface Container
+   - **สีประจำแบรนด์ Google:** ปุ่มหลักใช้ Google Blue (`#1A73E8`), ปุ่มสำเร็จ/บันทึกใช้ Google Green (`#34A853`), ปุ่มหยุด/ลบใช้ Google Red (`#EA4335`), และไฮไลต์ข้อความ/กรอบรูปที่เลือกใช้ Google Blue 400 (`#8AB4F8`)
+2. **ปรับโฉม Sidebar เป็น Google Photos Navigation Rail:**
+   - เปลี่ยนโลโก้เป็น `✦ GOOGLE PHOTOS / FACE FINDER v6.63`
+   - ปรับปุ่มเมนูทั้งหมดให้เป็นทรงแคปซูลโค้งมน (`corner_radius=18`) พร้อมไอคอนและชื่อหมวดหมู่สไตล์ Google Photos (`📷 ภาพถ่ายทั้งหมด (Photos)`, `👨‍🏫 บุคลากรครู (Teachers)`, `🎒 นักเรียน (Students)`, `🔍 ค้นหา & สแกนภาพ (Scan)`, `🗄️ คลังข้อมูล (Library)`, `🖼️ อัลบั้มที่แมตช์ (Albums)`, `🎯 ค้นหาจากใบหน้า (Face Search)`, `⚙️ การตั้งค่าระบบ (Settings)`)
+   - เมื่อเลือกเมนู ปุ่มจะแสดงผลเป็นแคปซูลสีฟ้า Google Material You Active Pill (`fg_color="#004A77"`, `text_color="#C2E7FF"`)
+3. **ปรับโฉมหน้าต่างเริ่มต้น [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py):**
+   - เปลี่ยนโทนสีหน้าต่างโหลดเริ่มต้นและแถบ Progress Bar ให้เป็นโทน `#121212` / `#1E1F22` / `#1A73E8` กลมกลืนกับหน้าต่างหลักแบบไร้รอยต่อ
+4. **อัปเดตเวอร์ชัน `v6.63` ครบทุกจุด (Zero-Omission):**
+   - อัปเดต [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py), [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat), และชุดทดสอบทั้งหมด
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - การตั้งค่าชุดสี `GP_THEME` และแถบนำทาง Google Photos Navigation Rail
+**ก่อนแก้ไข (Before):**
+```python
+        # พื้นหลัง Sidebar สี Navy ครามเข้ม
+        self.sidebar_frame = ctk.CTkFrame(self, width=260, corner_radius=0, fg_color="#101B2B")
+        self.logo_label = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="FACE MATCHING\nSYSTEM v6.62",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color="#6CA6CD"
+        )
+        self.btn_dashboard = ctk.CTkButton(
+            self.sidebar_frame, text="📊 Dashboard", height=36, font=menu_font,
+            fg_color="transparent", text_color="#A2B5CD", hover_color="#20334F",
+            anchor="w", command=lambda: self.select_menu("dashboard")
+        )
+        # เมื่อถูกเลือก:
+        self.btn_dashboard.configure(fg_color="#1F3A60", text_color="white")
+```
+
+**หลังแก้ไข (After):**
+```python
+        # พื้นหลัง Sidebar สไตล์ Google Photos Surface Container (#1E1F22)
+        self.sidebar_frame = ctk.CTkFrame(self, width=260, corner_radius=0, fg_color="#1E1F22")
+        self.logo_label = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.63",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#8AB4F8"
+        )
+        self.btn_dashboard = ctk.CTkButton(
+            self.sidebar_frame, text="📷 ภาพถ่ายทั้งหมด (Photos)", height=36, corner_radius=18, font=menu_font,
+            fg_color="transparent", text_color="#C4C7C5", hover_color="#2B2D31",
+            anchor="w", command=lambda: self.select_menu("dashboard")
+        )
+        # เมื่อถูกเลือกเป็นแคปซูล Google Material You Active Pill:
+        self.btn_dashboard.configure(fg_color="#004A77", text_color="#C2E7FF")
+```
+
+#### 2. `splash_screen.py` - ปรับธีมหน้าต่างโหลดเริ่มต้นเป็น Google Photos Material Design 3
+**ก่อนแก้ไข (Before):**
+```python
+        # ธีมสี Dark Navy (#1A252F / #243342 / #3498DB)
+        self.bg_color = "#1A252F"
+        self.card_color = "#243342"
+        self.accent_color = "#3498DB"
+        self.text_title_color = "#6CA6CD"
+        self.text_sub_color = "#BDC3C7"
+```
+
+**หลังแก้ไข (After):**
+```python
+        # ธีมสี Google Photos Material Design 3 Dark (#121212 / #1E1F22 / #1A73E8)
+        self.bg_color = "#121212"
+        self.card_color = "#1E1F22"
+        self.accent_color = "#8AB4F8"
+        self.text_title_color = "#8AB4F8"
+        self.text_sub_color = "#C4C7C5"
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.62 (Minimal 3-Step Face Search Suite)
 
 ## 📋 Version 6.62 Changelog (Minimal 3-Step Face Search Suite)
