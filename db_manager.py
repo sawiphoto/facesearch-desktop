@@ -2142,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.69",
+                "version": "v6.70",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2179,18 +2179,16 @@ class DatabaseManager:
 
     def get_archive_crowdsource_data(self, academic_year="25xx", sync_manager=None):
         """
-        ดึงข้อมูลภาพกิจกรรมในอดีต (2562-25xx) พร้อมพิกัดใบหน้าทั้งหมดในหน่วยเปอร์เซ็นต์
-        สำหรับ Crowdsourcing Tagging บนเว็บ (v6.49):
-        - ไม่มีข้อมูลชื่อหรือตำแหน่งของบุคคล (เพื่อให้ผู้ใช้บนเว็บระบุชื่อเอง)
-        - แต่ละรูปภาพมีรายการใบหน้าพร้อม box_pct (สำหรับครอปทำ Avatar) และ center_pct (สำหรับ Hover วงกลม)
+        ดึงข้อมูลภาพกิจกรรมในอดีต (2562-25xx/2568) แบบข้อมูลทั่วไปของรูปภาพ (v6.70):
+        - ตัดตำแหน่งพิกัดกรอบใบหน้า (box_pct/bbox) และการนับจำนวนใบหน้าออกทั้งหมดตามความต้องการของผู้ใช้
+        - คงเหลือเฉพาะข้อมูลทั่วไปของรูปภาพ: photo_id, drive_file_id, drive_link, event, file_name, date, year
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
             # 1. ดึงรายการรูปภาพทั้งหมดในปีการศึกษาที่กำหนด (เช่น '25xx')
             cursor.execute("""
-                SELECT photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, total_faces_detected,
-                       COALESCE(image_width, 0), COALESCE(image_height, 0)
+                SELECT photo_id, drive_file_id, event_name, drive_link, photo_date, file_name, academic_year
                 FROM scanned_photos
                 WHERE academic_year = ?
                 ORDER BY photo_date DESC, photo_id ASC
@@ -2199,122 +2197,34 @@ class DatabaseManager:
             
             if not photos:
                 return {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "photos": {}
                 }
 
-            # 2. ตรวจสอบรูปภาพที่ยังไม่มีมิติภาพ (image_width <= 0 หรือ image_height <= 0)
-            # และเติมเต็มจาก Drive API (Batch)
-            missing_dim_fids = [p[1] for p in photos if p[7] <= 0 or p[8] <= 0]
-            fetched_dims = {}
-            if missing_dim_fids and sync_manager and hasattr(sync_manager, 'drive_service') and sync_manager.drive_service:
-                try:
-                    def _batch_cb(req_id, response, exception):
-                        if not exception and response:
-                            meta = response.get('imageMediaMetadata', {})
-                            w = meta.get('width', 0)
-                            h = meta.get('height', 0)
-                            rot = meta.get('rotation', 0)
-                            if rot in (1, 3):
-                                w, h = h, w
-                            if w > 0 and h > 0:
-                                fetched_dims[req_id] = (w, h)
-                    
-                    chunk_size = 50
-                    for i in range(0, len(missing_dim_fids), chunk_size):
-                        chunk = missing_dim_fids[i:i + chunk_size]
-                        batch = sync_manager.drive_service.new_batch_http_request(callback=_batch_cb)
-                        for fid in chunk:
-                            batch.add(sync_manager.drive_service.files().get(fileId=fid, fields='id,imageMediaMetadata'), request_id=fid)
-                        batch.execute()
-
-                    if fetched_dims:
-                        update_rows = [(w, h, fid) for fid, (w, h) in fetched_dims.items()]
-                        cursor.executemany("UPDATE scanned_photos SET image_width = ?, image_height = ? WHERE drive_file_id = ?", update_rows)
-                        conn.commit()
-                        logger.info(f"[DB] Backfilled image dimensions for {len(fetched_dims)} photos to SQLite.")
-                except Exception as b_err:
-                    logger.warning(f"[DB] Could not batch fetch dimensions from Drive: {b_err}")
-
-            # 3. ดึงพิกัดใบหน้าทั้งหมดจาก scanned_photo_faces
-            photo_ids = [p[0] for p in photos]
-            placeholders = ",".join("?" for _ in photo_ids)
-            cursor.execute(f"""
-                SELECT photo_id, face_index, bbox_x1, bbox_y1, bbox_x2, bbox_y2
-                FROM scanned_photo_faces
-                WHERE photo_id IN ({placeholders}) AND face_index >= 0
-                ORDER BY photo_id ASC, face_index ASC
-            """, photo_ids)
-            faces_raw = cursor.fetchall()
-
-            faces_by_photo = {}
-            for r in faces_raw:
-                pid, f_idx, x1, y1, x2, y2 = r
-                if pid not in faces_by_photo:
-                    faces_by_photo[pid] = []
-                faces_by_photo[pid].append((f_idx, float(x1), float(y1), float(x2), float(y2)))
-
-            # 4. ประกอบข้อมูลในแต่ละรูปภาพ (Ultra-Minimal Schema v6.56)
             photo_dict = {}
-
             for p in photos:
-                pid, fid, ev_name, d_link, p_date, fname, face_cnt, db_w, db_h = p
+                pid, fid, ev_name, d_link, p_date, fname, a_year = p
                 pid_str = str(pid) if str(pid).startswith('P') else f"P{pid}"
                 
-                # ตรวจสอบขนาดภาพ
-                dim = fetched_dims.get(fid)
-                w = dim[0] if dim else db_w
-                h = dim[1] if dim else db_h
-                
-                raw_faces = faces_by_photo.get(pid, [])
-                
-                # Fallback หาขนาดภาพถ้ายังเป็น 0
-                if w <= 0 or h <= 0:
-                    if raw_faces:
-                        max_x = max(f[3] for f in raw_faces)
-                        max_y = max(f[4] for f in raw_faces)
-                        w = max(2000, int(max_x * 1.15))
-                        h = max(1500, int(max_y * 1.15))
-                    else:
-                        w, h = 2880, 1920
-
-                face_list = []
-                for f_idx, x1, y1, x2, y2 in raw_faces:
-                    left = max(0.0, min(float(w), float(x1)))
-                    top = max(0.0, min(float(h), float(y1)))
-                    right = max(0.0, min(float(w), float(x2)))
-                    bottom = max(0.0, min(float(h), float(y2)))
-                    bw = right - left
-                    bh = bottom - top
-                    if bw <= 0 or bh <= 0:
-                        continue
-                    
-                    left_pct = round((left / w) * 100.0, 2)
-                    top_pct = round((top / h) * 100.0, 2)
-                    width_pct = round((bw / w) * 100.0, 2)
-                    height_pct = round((bh / h) * 100.0, 2)
-
-                    face_list.append({
-                        "face_id": f"{pid_str}_F{int(f_idx) + 1:03d}",
-                        "box_pct": {
-                            "left": left_pct,
-                            "top": top_pct,
-                            "width": width_pct,
-                            "height": height_pct
-                        }
-                    })
+                # Format drive view url if sync_manager is available
+                view_link = d_link
+                if sync_manager and hasattr(sync_manager, 'format_drive_view_url'):
+                    view_link = sync_manager.format_drive_view_url(d_link)
+                elif fid:
+                    view_link = f"https://drive.google.com/file/d/{fid}/view"
 
                 photo_dict[pid_str] = {
+                    "photo_id": pid_str,
                     "drive_file_id": fid,
-                    "dimensions": {
-                        "width": int(w),
-                        "height": int(h)
-                    },
-                    "faces": face_list
+                    "drive_link": view_link,
+                    "event": ev_name or "",
+                    "file_name": fname or "",
+                    "date": p_date or "",
+                    "year": a_year or academic_year
                 }
 
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "photos": photo_dict
             }
 

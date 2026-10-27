@@ -46,7 +46,7 @@ def create_google_photos_tray_icon(size: int = 64) -> Image.Image:
 
 class SystemTrayManager:
     """
-    ตัวจัดการไอคอนในถาดระบบ Windows (System Tray / Show Hidden Icons) (v6.69)
+    ตัวจัดการไอคอนในถาดระบบ Windows (System Tray / Show Hidden Icons) (v6.70)
     - รองรับการดับเบิลคลิกเพื่อเปิดหน้าต่างโปรแกรมหลักขึ้นมาใช้งานทันที
     - รองรับเมนูคลิกขวาสำหรับสั่งรัน Task 1, 2, 3 ทันที, หยุดงาน, เปิดหน้าตั้งค่า, หรือปิดโปรแกรมสมบูรณ์
     """
@@ -80,7 +80,7 @@ class SystemTrayManager:
             self.icon = pystray.Icon(
                 "SchoolFaceFinder",
                 icon_image,
-                "School Face Finder v6.69 (กำลังทำงานเบื้องหลัง)",
+                "School Face Finder v6.70 (กำลังทำงานเบื้องหลัง)",
                 menu
             )
 

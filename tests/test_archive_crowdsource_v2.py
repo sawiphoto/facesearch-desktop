@@ -9,7 +9,14 @@ if project_root not in sys.path:
 
 from db_manager import DatabaseManager
 
-class TestArchiveCrowdsourceV2UltraMinimal(unittest.TestCase):
+class TestArchiveCrowdsourceV2GeneralInfo(unittest.TestCase):
+    """
+    ชุดทดสอบโครงสร้างข้อมูลทั่วไปของภาพกิจกรรมในอดีต (v6.70):
+    - ตัดข้อมูลตำแหน่งใบหน้า (box_pct / bbox) ออกทั้งหมด 100%
+    - ตัดการนับจำนวนใบหน้า (face_count) ออกทั้งหมด 100%
+    - ตรวจสอบขนาด JSON กะทัดรัดยิ่งขึ้น (<500 KB สำหรับ 845 ภาพ)
+    """
+
     @classmethod
     def setUpClass(cls):
         cls.db = DatabaseManager()
@@ -19,58 +26,34 @@ class TestArchiveCrowdsourceV2UltraMinimal(unittest.TestCase):
         """TC-160: ตรวจสอบว่า Root Level มีเฉพาะ schema_version และ photos เท่านั้น"""
         self.assertIn("schema_version", self.data)
         self.assertIn("photos", self.data)
-        self.assertEqual(self.data["schema_version"], 1)
+        self.assertEqual(self.data["schema_version"], 2)
         self.assertEqual(set(self.data.keys()), {"schema_version", "photos"},
                          "Root Level ต้องมีเฉพาะ schema_version และ photos")
 
-    def test_tc161_photo_structure(self):
-        """TC-161: ตรวจสอบโครงสร้างภาพว่ามีเฉพาะ drive_file_id, dimensions และ faces"""
+    def test_tc161_photo_general_structure(self):
+        """TC-161: ตรวจสอบโครงสร้างภาพว่ามีเฉพาะข้อมูลทั่วไป (ไม่มี dimensions, faces, face_count)"""
         photos = self.data["photos"]
         self.assertGreater(len(photos), 0, "ต้องพบรูปภาพใน 25xx")
         
         # ตรวจสอบภาพ P59508
         self.assertIn("P59508", photos)
         p = photos["P59508"]
-        self.assertEqual(set(p.keys()), {"drive_file_id", "dimensions", "faces"})
+        expected_keys = {"photo_id", "drive_file_id", "drive_link", "event", "file_name", "date", "year"}
+        self.assertEqual(set(p.keys()), expected_keys, f"โครงสร้างคีย์ไม่ตรง: {set(p.keys())}")
         self.assertTrue(isinstance(p["drive_file_id"], str))
-        self.assertIn("width", p["dimensions"])
-        self.assertIn("height", p["dimensions"])
-        self.assertGreater(p["dimensions"]["width"], 0)
-        self.assertGreater(p["dimensions"]["height"], 0)
-
-    def test_tc162_face_structure_and_id_format(self):
-        """TC-162: ตรวจสอบโครงสร้างใบหน้า face_id ในรูปแบบ P59508_F001 และ box_pct"""
-        p = self.data["photos"]["P59508"]
-        faces = p["faces"]
-        self.assertGreater(len(faces), 0)
-        f0 = faces[0]
-        self.assertEqual(set(f0.keys()), {"face_id", "box_pct"})
-        self.assertEqual(f0["face_id"], "P59508_F001")
+        self.assertTrue(p["drive_link"].startswith("https://drive.google.com/"))
         
-        box = f0["box_pct"]
-        self.assertEqual(set(box.keys()), {"left", "top", "width", "height"})
-        self.assertAlmostEqual(box["left"], 51.1, delta=0.5)
-        self.assertAlmostEqual(box["top"], 40.88, delta=0.5)
+        # ยืนยันว่าไม่มีคีย์เกี่ยวกับใบหน้า
+        self.assertNotIn("dimensions", p)
+        self.assertNotIn("faces", p)
+        self.assertNotIn("face_count", p)
+        self.assertNotIn("box_pct", p)
 
-    def test_tc163_all_coordinates_clamped(self):
-        """TC-163: ตรวจสอบว่าพิกัดทุกใบหน้าอยู่ในช่วง 0.0 - 100.0% ไม่มีค่าติดลบ"""
-        for pid, p in self.data["photos"].items():
-            for f in p["faces"]:
-                b = f["box_pct"]
-                self.assertGreaterEqual(b["left"], 0.0)
-                self.assertLessEqual(b["left"], 100.0)
-                self.assertGreaterEqual(b["top"], 0.0)
-                self.assertLessEqual(b["top"], 100.0)
-                self.assertGreater(b["width"], 0.0)
-                self.assertLessEqual(b["width"], 100.0)
-                self.assertGreater(b["height"], 0.0)
-                self.assertLessEqual(b["height"], 100.0)
-
-    def test_tc164_compact_json_size(self):
-        """TC-164: ตรวจสอบขนาด JSON แบบ Compact ต้องต่ำกว่า 2,000 KB สำหรับ 845 ภาพ (เป้าหมาย <4 MB)"""
+    def test_tc164_compact_json_size_extremely_small(self):
+        """TC-164: ตรวจสอบขนาด JSON แบบ Compact ต้องต่ำกว่า 500 KB สำหรับ 845 ภาพ (ลดลงจากเดิมที่เคยเกือบ 2 MB)"""
         raw_json = json.dumps(self.data, separators=(',', ':'), ensure_ascii=False)
         size_kb = len(raw_json.encode('utf-8')) / 1024.0
-        self.assertLess(size_kb, 2000.0, f"ขนาดไฟล์ {size_kb:.2f} KB เกินเกณฑ์ 2000 KB")
+        self.assertLess(size_kb, 500.0, f"ขนาดไฟล์ {size_kb:.2f} KB เกินเกณฑ์ 500 KB")
 
 if __name__ == "__main__":
     unittest.main()
