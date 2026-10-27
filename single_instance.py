@@ -14,7 +14,7 @@ TRAY_WAKEUP_SIGNAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)
 
 
 def send_tray_wakeup_signal():
-    """ส่งสัญญาณปลุกหน้าต่างโปรแกรมที่ซ่อนอยู่ในถาด System Tray ให้เด้งขึ้นมาแสดงผล (v6.68)"""
+    """ส่งสัญญาณปลุกหน้าต่างโปรแกรมที่ซ่อนอยู่ในถาด System Tray ให้เด้งขึ้นมาแสดงผล (v6.69)"""
     try:
         os.makedirs(os.path.dirname(TRAY_WAKEUP_SIGNAL_PATH), exist_ok=True)
         with open(TRAY_WAKEUP_SIGNAL_PATH, "w", encoding="utf-8") as f:

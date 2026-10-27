@@ -8,8 +8,8 @@
     "re_scan": 1,
     "fast_rescan": 0,
     "schedule_enabled": true,
-    "schedule_anchor_time": "11:00",
-    "schedule_interval_minutes": 30,
+    "schedule_anchor_time": "12:00",
+    "schedule_interval_minutes": 10,
     "auto_run_on_startup": false,
     "minimize_to_tray_on_close": true,
     "windows_autostart": true

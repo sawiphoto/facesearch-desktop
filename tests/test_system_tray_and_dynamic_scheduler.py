@@ -8,7 +8,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from scheduler_task import calculate_schedule_slots, get_next_run_info, INTERVAL_OPTIONS_MAP
+from scheduler_task import calculate_schedule_slots, get_next_run_info, INTERVAL_OPTIONS_MAP, get_anchor_time_choices
 from autostart_manager import (
     enable_autostart,
     disable_autostart,
@@ -270,6 +270,53 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
         self.assertEqual(len(notified_calls), 2)
         self.assertEqual(notified_calls[0][2], "start")
         self.assertIn("เสร็จสมบูรณ์", notified_calls[1][0])
+
+
+    def test_08_get_anchor_time_choices_and_dynamic_ui_sync_v669(self):
+        """TC-173: ทดสอบการคำนวณและปรับเปลี่ยนตัวเลือกเวลาเริ่มแรกแบบไดนามิก (v6.69)"""
+        # 1. ทดสอบฟังก์ชัน get_anchor_time_choices
+        choices_10m = get_anchor_time_choices(10)
+        self.assertEqual(len(choices_10m), 144)
+        self.assertIn("00:10", choices_10m)
+        self.assertIn("00:20", choices_10m)
+        self.assertIn("00:50", choices_10m)
+
+        choices_15m = get_anchor_time_choices(15)
+        self.assertEqual(len(choices_15m), 96)
+        self.assertIn("00:15", choices_15m)
+        self.assertIn("00:45", choices_15m)
+        self.assertNotIn("00:10", choices_15m)
+
+        choices_30m = get_anchor_time_choices(30)
+        self.assertEqual(len(choices_30m), 48)
+        self.assertIn("00:30", choices_30m)
+        self.assertNotIn("00:15", choices_30m)
+
+        # 2. ทดสอบการปรับเปลี่ยนตัวเลือกบน GUI (FaceSearchApp)
+        from app_gui import FaceSearchApp
+        mock_analyzer = MagicMock()
+        mock_analyzer.initialized = True
+        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False, save_on_destroy=False)
+        try:
+            # สลับเป็น 10 นาที: combo_sched_anchor ต้องมี 144 ตัวเลือก
+            app.combo_sched_interval.set("ทุกๆ 10 นาที (144 รอบ/วัน)")
+            app.on_schedule_option_change()
+            self.assertEqual(len(app.combo_sched_anchor.cget("values")), 144)
+            self.assertIn("00:10", app.combo_sched_anchor.cget("values"))
+
+            # สลับเป็น 15 นาที: combo_sched_anchor ต้องมี 96 ตัวเลือก
+            app.combo_sched_interval.set("ทุกๆ 15 นาที (96 รอบ/วัน)")
+            app.on_schedule_option_change()
+            self.assertEqual(len(app.combo_sched_anchor.cget("values")), 96)
+            self.assertIn("00:15", app.combo_sched_anchor.cget("values"))
+
+            # สลับกลับเป็น 30 นาที: combo_sched_anchor ต้องมี 48 ตัวเลือก
+            app.combo_sched_interval.set("ทุกๆ 30 นาที (48 รอบ/วัน)")
+            app.on_schedule_option_change()
+            self.assertEqual(len(app.combo_sched_anchor.cget("values")), 48)
+        finally:
+            app.face_search_worker_gen += 1
+            app.destroy()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,82 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.69 (Dynamic First Start Time Choices Suite)
+
+## 📋 Version 6.69 Changelog (Dynamic First Start Time Choices Suite)
+
+**Date:** 27 ตุลาคม 2026 (11:55 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.69 (Dynamic First Start Time Choices Suite)  
+**Core Technologies:** Dynamic First Start Time Generator (`get_anchor_time_choices`), Adaptive Dropdown Values Synchronization, Nearest-Time Safe Fallback, Unit Test Suite Passed 100% (8/8 tests), Desktop Shortcut (`School Face Finder v6.69.lnk`).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ตัวเลือก "เวลาเริ่มครั้งแรก" (First Start Time) ควรเปลี่ยนตามคาบเวลาอัตโนมัติ:**
+   - เมื่อผู้ใช้เลือกคาบเวลาความเร็วสูง เช่น ทุกๆ 10 นาที หรือ ทุกๆ 15 นาที รายการ Dropdown เวลาเริ่มครั้งแรกเดิมมีให้เลือกเฉพาะทุกๆ 30 นาที (`00:00, 00:30, 01:00, ...`) ทำให้ไม่สามารถเลือกเวลาเริ่มต้นตามรอบนาทีที่ต้องการได้ (เช่น 00:10, 00:20, 00:15 เป็นต้น)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาฟังก์ชัน `get_anchor_time_choices(interval_minutes)` ใน [`scheduler_task.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py):**
+   - คำนวณช่วงก้าวของนาทีอัตโนมัติ:
+     - คาบเวลา `<= 10 นาที` ➔ ก้าวทีละ 10 นาที (`00:00, 00:10, 00:20, 00:30, 00:40, 00:50, ...` รวม 144 ตัวเลือก)
+     - คาบเวลา `15 นาที` ➔ ก้าวทีละ 15 นาที (`00:00, 00:15, 00:30, 00:45, ...` รวม 96 ตัวเลือก)
+     - คาบเวลา `>= 30 นาที` ➔ ก้าวทีละ 30 นาที (`00:00, 00:30, 01:00, ...` รวม 48 ตัวเลือก)
+2. **ปรับแต่ง UI และระบบซิงค์ใน [`app_gui.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ใน `on_schedule_option_change()`: เมื่อผู้ใช้เปลี่ยนค่าคาบเวลาใน Dropdown ระบบจะอัปเดต `combo_sched_anchor` ทันทีแบบไดนามิก หากเวลาเดิมที่เลือกไว้เข้ากันได้จะคงไว้ตามเดิม แต่หากไม่เข้ากันจะปรับไปยังเวลาที่ใกล้เคียงที่สุดอัตโนมัติ
+   - ใน `load_settings()`: โหลดคาบเวลาและปรับชุดตัวเลือกให้ตรงกับค่าที่บันทึกไว้ใน `data/app_settings.json` ทันทีตอนเริ่มโปรแกรม
+3. **เพิ่มชุดทดสอบใน `tests/test_system_tray_and_dynamic_scheduler.py` (`test_08_get_anchor_time_choices_and_dynamic_ui_sync_v669`)**:
+   - ตรวจสอบความถูกต้องของการคำนวณ choices 10m (144 ค่า), 15m (96 ค่า), 30m (48 ค่า) และการทำงานบน GUI ผ่านฉลุย 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py` - เพิ่มฟังก์ชัน `get_anchor_time_choices`
+**ก่อนแก้ไข (Before):**
+```python
+# ไม่มีฟังก์ชันคำนวณตัวเลือกเวลาเริ่มแรกแบบไดนามิก
+```
+
+**หลังแก้ไข (After):**
+```python
+def get_anchor_time_choices(interval_minutes: int = 30) -> list:
+    """คำนวณตัวเลือกเวลาเริ่มครั้งแรกให้สอดคล้องกับคาบเวลาทำงาน (v6.69)"""
+    if interval_minutes <= 10:
+        step = 10
+    elif interval_minutes <= 15:
+        step = 15
+    else:
+        step = 30
+
+    choices = []
+    for h in range(24):
+        for m in range(0, 60, step):
+            choices.append(f"{h:02d}:{m:02d}")
+    return choices
+```
+
+#### 2. `app_gui.py` - ปรับเปลี่ยนตัวเลือก Dropdown เวลาเริ่มแรกแบบไดนามิก
+**ก่อนแก้ไข (Before):**
+```python
+        anchor_time_choices = []
+        for h in range(24):
+            anchor_time_choices.append(f"{h:02d}:00")
+            anchor_time_choices.append(f"{h:02d}:30") # <- คงที่ตายตัวแค่ 48 ตัวเลือก
+```
+
+**หลังแก้ไข (After):**
+```python
+        # ใน on_schedule_option_change
+        valid_choices = get_anchor_time_choices(interval_mins)
+        self.combo_sched_anchor.configure(values=valid_choices)
+        if current_anchor not in valid_choices:
+            # ปรับไปยังเวลาที่ใกล้เคียงที่สุดอัตโนมัติ
+            self.combo_sched_anchor.set(nearest_anchor)
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.68 (High-Frequency 10m & 15m Dynamic Scheduler Intervals Suite)
 
 ## 📋 Version 6.68 Changelog (High-Frequency 10m & 15m Dynamic Scheduler Intervals Suite)
