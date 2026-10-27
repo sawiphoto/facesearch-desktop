@@ -19,7 +19,9 @@ import requests
 from db_manager import DatabaseManager, RAW_EXTENSIONS_MAP, get_camera_brand_from_filename, SW_DEPARTMENTS, clean_department_name
 from face_analyzer import FaceAnalyzer, get_antelopev2_dir, get_project_root, decode_image_bytes, read_image_file
 from gdrive_sync import GoogleSyncManager, is_generic_folder_name
-from scheduler_task import SchedulerTask
+from scheduler_task import SchedulerTask, INTERVAL_OPTIONS_MAP, calculate_schedule_slots, get_next_run_info
+from system_tray import SystemTrayManager
+from autostart_manager import is_autostart_enabled, set_autostart
 
 # ==================== (v6.63) Google Photos Material Design 3 Theme Palette ====================
 GP_THEME = {
@@ -980,11 +982,17 @@ class StudentLifecycleDialog(ctk.CTkToplevel):
             messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถเลื่อนชั้นได้: {e}", parent=self)
 
 class FaceSearchApp(ctk.CTk):
-    def __init__(self, analyzer=None, splash=None, app_mutex=None):
+    def __init__(self, analyzer=None, splash=None, app_mutex=None, enable_tray=False, start_in_tray=False):
         super().__init__()
         import tkinter as tk
         tk._default_root = self  # v6.56: ผูก _default_root เข้ากับหน้าต่างหลักของโปรแกรมทันที
         self.app_mutex = app_mutex
+        self.enable_tray = bool(enable_tray)
+        self.start_in_tray = bool(start_in_tray)
+        self.tray_manager = SystemTrayManager(self) if self.enable_tray else None
+        self.minimize_to_tray_on_close = True
+        self.auto_run_on_startup = False
+        self._schedule_status_timer = None
         self.withdraw()  # v6.52: ซ่อนหน้าต่างหลักไว้ก่อน เพื่อให้ Splash Screen แสดงสถานะ 0-100% ต่อเนื่องแบบไร้รอยต่อ
 
         # --- การตั้งค่าธีมและหน้าต่างโปรแกรม (Google Photos Material Design 3 Theme) ---
@@ -992,7 +1000,7 @@ class FaceSearchApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=GP_THEME["bg_main"])
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.63 (Google Photos Material Design Theme Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.64 (System Tray & Dynamic Scheduler Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1088,25 +1096,42 @@ class FaceSearchApp(ctk.CTk):
         # โหลดการตั้งค่าเก่า (ถ้ามี)
         self.load_settings()
 
+        # เริ่มต้น System Tray Icon (เมื่อเปิดโหมดใช้งานจริง) (v6.64)
+        if self.enable_tray and self.tray_manager:
+            self.tray_manager.start()
+
+        # อัปเดตสถานะตารางเวลานับถอยหลังบน Sidebar & System Tray Tooltip
+        self.after(500, self._update_schedule_ui_status)
+
+        # ตรวจสอบการสั่งรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Safety Grace Period 5 วินาที) (v6.64)
+        self.after(5000, self._check_startup_auto_run)
+
         # เริ่มต้นกระบวนการ Pre-Warming ข้อมูลและสร้างแคชรูป Avatar ใน Background Daemon Thread (Zero-Lag v6.43)
         self.after(200, self._start_prewarm_caches)
 
-        # v6.55: ปลดล็อกสถานะ CustomTkinter ให้แสดงผลบนหน้าจอ 100% ไม่ติดค้าง Withdrawn
+        # v6.64: หากเปิดด้วยโหมด --tray (เช่น เปิดอัตโนมัติพร้อม Windows) ให้ซ่อนหน้าต่างไว้ใน System Tray ทันที
         if splash:
             splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
-        self._withdraw_called_before_window_exists = False
-        self._window_exists = True
-        self.update_idletasks()
-        self.deiconify()
-        self.lift()
-        self.focus_force()
-        if splash:
             splash.close()
         import tkinter as tk
         tk._default_root = self  # v6.56: กู้คืน _default_root ให้ชี้ที่หน้าต่างหลักอย่างถาวรหลังทำลาย splash
 
-        # รับประกันความมั่นใจว่าหน้าต่างจะปรากฏและไม่หลุดโฟกัสหลังเข้าสู่ Event Loop ของ mainloop()
-        self.after(50, self._ensure_window_visible)
+        if self.start_in_tray and self.enable_tray:
+            self.withdraw()
+            logger.info("[TRAY] 🔽 เปิดโปรแกรมในโหมด System Tray เบื้องหลัง (--tray) ดับเบิลคลิกที่ไอคอนถาดระบบเพื่อเปิดหน้าต่างหลัก")
+            if self.tray_manager:
+                self.after(1500, lambda: self.tray_manager.notify(
+                    "School Face Finder v6.64 พร้อมทำงาน",
+                    "โปรแกรมกำลังทำงานอยู่ใน System Tray และจะรัน Task อัตโนมัติตามตารางเวลา"
+                ))
+        else:
+            self._withdraw_called_before_window_exists = False
+            self._window_exists = True
+            self.update_idletasks()
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            self.after(50, self._ensure_window_visible)
 
     def _ensure_window_visible(self):
         """รับประกันว่าหน้าต่างหลักจะ deiconify และแสดงผลบนหน้าจอของผู้ใช้ 100% เสมอ (v6.56)"""
@@ -1125,6 +1150,98 @@ class FaceSearchApp(ctk.CTk):
         except Exception:
             pass
 
+    def show_from_tray(self):
+        """ดึงหน้าต่างโปรแกรมเต็มกลับมาจากถาด System Tray เมื่อผู้ใช้ดับเบิลคลิกไอคอน (v6.64)"""
+        try:
+            if not self.winfo_exists():
+                return
+            import tkinter as tk
+            tk._default_root = self
+            self._withdraw_called_before_window_exists = False
+            self._window_exists = True
+            self.deiconify()
+            try:
+                self.state("normal")
+            except Exception:
+                pass
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(150, lambda: self.attributes("-topmost", False) if self.winfo_exists() else None)
+            logger.info("[TRAY] 🪟 เปิดหน้าต่างโปรแกรมหลักกลับมาจาก System Tray เรียบร้อยแล้ว")
+        except Exception as e:
+            logger.debug(f"[TRAY] Error restoring window from tray: {e}")
+
+    def hide_to_tray(self):
+        """ย่อหน้าต่างโปรแกรมลงไปซ่อนในถาด System Tray (Show hidden icons) โดยไม่ปิดโปรเซสเบื้องหลัง (v6.64)"""
+        try:
+            self.withdraw()
+            logger.info("[TRAY] 🔽 ย่อหน้าต่างโปรแกรมลงใน System Tray เรียบร้อยแล้ว (ตารางเวลาอัตโนมัติยังทำงานต่อเนื่อง)")
+            if self.tray_manager and not getattr(self.tray_manager, "_notified_minimize_once", False):
+                self.tray_manager._notified_minimize_once = True
+                self.tray_manager.notify(
+                    "ทำงานต่อใน System Tray",
+                    "โปรแกรมยังคงรันตารางเวลาอัตโนมัติอยู่ในเบื้องหลัง ดับเบิลคลิกที่ไอคอนเพื่อเปิดหน้าต่างกลับมา"
+                )
+        except Exception as e:
+            logger.debug(f"[TRAY] Error hiding window to tray: {e}")
+
+    def _check_startup_auto_run(self):
+        """ตรวจสอบและสั่งรัน Task 1, 2, 3 อัตโนมัติหลังเปิดโปรแกรม 5 วินาที หากผู้ใช้เปิดตั้งค่าไว้ (v6.64)"""
+        try:
+            if not self.winfo_exists():
+                return
+            if getattr(self, "auto_run_on_startup", False) and hasattr(self, "scheduler") and self.scheduler:
+                if not self.scheduler.is_running:
+                    logger.info("[AUTO-RUN] 🚀 เริ่มรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Startup Auto-Run)...")
+                    self.scheduler.run_scheduled_tasks_manual()
+        except Exception as e:
+            logger.debug(f"[AUTO-RUN] Startup auto-run check error: {e}")
+
+    def _update_schedule_ui_status(self, reschedule=True):
+        """อัปเดตป้ายแสดงเวลารอบถัดไปบน Sidebar, หน้า Settings และ Tooltip ของ System Tray (v6.64)"""
+        try:
+            if not self.winfo_exists():
+                return
+            if hasattr(self, "scheduler") and self.scheduler:
+                status = self.scheduler.get_next_run_status()
+                slots = self.scheduler.schedule_slots
+                slots_preview = ", ".join(slots[:6]) + (f" ... ({len(slots)} รอบ/วัน)" if len(slots) > 6 else f" น. ({len(slots)} รอบ/วัน)")
+                if hasattr(self, "lbl_sidebar_schedule_status") and self.lbl_sidebar_schedule_status.winfo_exists():
+                    if self.scheduler.schedule_enabled:
+                        self.lbl_sidebar_schedule_status.configure(
+                            text=f"⏰ รอบเวลา: {', '.join(slots[:4])}{'...' if len(slots) > 4 else ''}\n{status['short_text']}",
+                            text_color="#8AB4F8"
+                        )
+                    else:
+                        self.lbl_sidebar_schedule_status.configure(
+                            text="⏸️ ปิดตารางเวลาอัตโนมัติ",
+                            text_color="#9AA0A6"
+                        )
+                if hasattr(self, "lbl_sched_slots_preview") and self.lbl_sched_slots_preview.winfo_exists():
+                    if self.scheduler.schedule_enabled:
+                        self.lbl_sched_slots_preview.configure(
+                            text=f"📊 รอบเวลาที่คำนวณได้: {slots_preview}   |   ⏳ รอบถัดไป: {status['display_text']}",
+                            text_color="#81C995"
+                        )
+                    else:
+                        self.lbl_sched_slots_preview.configure(
+                            text=f"⏸️ ปิดตารางเวลาอัตโนมัติชั่วคราว (รอบเวลาหากเปิด: {slots_preview})",
+                            text_color="#9AA0A6"
+                        )
+                if self.tray_manager and self.tray_manager.is_running:
+                    self.tray_manager.update_tooltip(f"School Face Finder v6.64 | {status['short_text']}")
+        except Exception:
+            pass
+        finally:
+            if reschedule:
+                try:
+                    if self._schedule_status_timer is not None:
+                        self.after_cancel(self._schedule_status_timer)
+                    self._schedule_status_timer = self.after(30000, self._update_schedule_ui_status)
+                except Exception:
+                    pass
+
     # --- ส่วนเมนูด้านซ้าย (Google Photos Navigation Rail) ---
     def create_sidebar(self):
         # พื้นหลัง Sidebar สไตล์ Google Photos Surface Container (Span 2 แถวเพื่อครอบคลุมไปถึง Console ด้านล่าง)
@@ -1135,7 +1252,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรมสไตล์ Google Photos
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.63",
+            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.64",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#8AB4F8"
         )
@@ -1229,7 +1346,21 @@ class FaceSearchApp(ctk.CTk):
             fg_color="#EA4335", text_color="white", hover_color="#D93025",
             anchor="w", command=lambda: self.scheduler.request_stop()
         )
-        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 12), sticky="ew")
+        self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 6), sticky="ew")
+
+        # ป้ายแสดงสถานะตารางเวลาอัตโนมัติและรอบถัดไป (v6.64)
+        self.lbl_sidebar_schedule_status = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="⏰ รอบเวลา: 05:00, 11:00, 17:00, 23:00\n⏳ กำลังคำนวณรอบถัดไป...",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#8AB4F8",
+            fg_color="#282A2D",
+            corner_radius=8,
+            padx=8,
+            pady=6,
+            justify="center"
+        )
+        self.lbl_sidebar_schedule_status.grid(row=13, column=0, padx=12, pady=(0, 8), sticky="ew")
 
         # เครดิตด้านล่าง
         self.credit_label = ctk.CTkLabel(
@@ -1238,8 +1369,8 @@ class FaceSearchApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#9AA0A6"
         )
-        self.credit_label.grid(row=13, column=0, pady=15, sticky="s")
-        self.sidebar_frame.grid_rowconfigure(13, weight=1)
+        self.credit_label.grid(row=14, column=0, pady=12, sticky="s")
+        self.sidebar_frame.grid_rowconfigure(14, weight=1)
 
     def select_menu(self, menu_name):
         # รีเซ็ตสีปุ่มทั้งหมด (Google Material Navigation Rail Inactive State)
@@ -5466,7 +5597,7 @@ class FaceSearchApp(ctk.CTk):
     # ==================== (4) หน้าตั้งค่าระบบ (Settings & Root Year Folders v6.27) ====================
     def setup_settings_ui(self):
         self.frame_settings.grid_columnconfigure(0, weight=1)
-        self.frame_settings.grid_rowconfigure(2, weight=1)
+        self.frame_settings.grid_rowconfigure(3, weight=1)
         
         lbl_title = ctk.CTkLabel(
             self.frame_settings, text="ตั้งค่าระบบและโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders)", 
@@ -5520,9 +5651,136 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_clear_history.grid(row=1, column=0, padx=15, pady=(2, 10), sticky="ew")
 
-        # แถวที่ 2: โซนจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders Management v6.27)
+        # แถวที่ 2: โซนตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Automated Scheduler & System Tray v6.64)
+        sched_tray_frame = ctk.CTkFrame(self.frame_settings, fg_color="#1E1F22", corner_radius=10)
+        sched_tray_frame.grid(row=2, column=0, sticky="ew", padx=2, pady=(0, 8))
+        sched_tray_frame.grid_columnconfigure(0, weight=1)
+
+        # แถวบนของการ์ดตารางเวลา: สวิตช์ System Tray, Windows Auto-Start, และ Startup Auto-Run
+        st_top_row = ctk.CTkFrame(sched_tray_frame, fg_color="transparent")
+        st_top_row.grid(row=0, column=0, sticky="ew", padx=15, pady=(8, 4))
+        st_top_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            st_top_row,
+            text="⏰ ตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Dynamic Scheduler & System Tray)",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#8AB4F8"
+        ).grid(row=0, column=0, sticky="w")
+
+        self.sw_win_autostart = ctk.CTkSwitch(
+            st_top_row,
+            text="🚀 เปิดพร้อม Windows (Auto-Start in Tray)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            progress_color="#34A853",
+            command=self.on_toggle_win_autostart
+        )
+        self.sw_win_autostart.grid(row=0, column=1, padx=10)
+        if is_autostart_enabled():
+            self.sw_win_autostart.select()
+
+        self.chk_minimize_to_tray = ctk.CTkCheckBox(
+            st_top_row,
+            text="🔽 ย่อลงถาด System Tray เมื่อกดปิด [X]",
+            font=ctk.CTkFont(size=12),
+            checkbox_width=20,
+            checkbox_height=20,
+            command=self.on_schedule_option_change
+        )
+        self.chk_minimize_to_tray.select()
+        self.chk_minimize_to_tray.grid(row=0, column=2, padx=10)
+
+        self.chk_auto_run_startup = ctk.CTkCheckBox(
+            st_top_row,
+            text="⚡ รัน Task 1-3 ทันทีเมื่อเปิดโปรแกรม",
+            font=ctk.CTkFont(size=12),
+            checkbox_width=20,
+            checkbox_height=20,
+            command=self.on_schedule_option_change
+        )
+        self.chk_auto_run_startup.grid(row=0, column=3, padx=(10, 0))
+
+        # แถวกลางของการ์ดตารางเวลา: เลือกเวลาเริ่มรอบแรก + เลือกคาบเวลา (ตั้งแต่ 30 นาทีขึ้นไป) + ปุ่มบันทึก
+        st_mid_row = ctk.CTkFrame(sched_tray_frame, fg_color="#282A2D", corner_radius=8)
+        st_mid_row.grid(row=1, column=0, sticky="ew", padx=15, pady=4)
+        st_mid_row.grid_columnconfigure(5, weight=1)
+
+        self.sw_schedule_enabled = ctk.CTkSwitch(
+            st_mid_row,
+            text="เปิดตารางเวลาอัตโนมัติ",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            progress_color="#1A73E8",
+            command=self.on_schedule_option_change
+        )
+        self.sw_schedule_enabled.select()
+        self.sw_schedule_enabled.grid(row=0, column=0, padx=(12, 10), pady=6)
+
+        ctk.CTkLabel(
+            st_mid_row,
+            text="🕒 เวลาเริ่มครั้งแรก:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#C4C7C5"
+        ).grid(row=0, column=1, padx=(6, 4), pady=6)
+
+        anchor_time_choices = []
+        for h in range(24):
+            anchor_time_choices.append(f"{h:02d}:00")
+            anchor_time_choices.append(f"{h:02d}:30")
+
+        self.combo_sched_anchor = ctk.CTkComboBox(
+            st_mid_row,
+            values=anchor_time_choices,
+            width=95,
+            height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_schedule_option_change
+        )
+        self.combo_sched_anchor.set("05:00")
+        self.combo_sched_anchor.grid(row=0, column=2, padx=(0, 12), pady=6)
+
+        ctk.CTkLabel(
+            st_mid_row,
+            text="⏱️ คาบเวลาทำงาน:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#C4C7C5"
+        ).grid(row=0, column=3, padx=(4, 4), pady=6)
+
+        self.combo_sched_interval = ctk.CTkComboBox(
+            st_mid_row,
+            values=list(INTERVAL_OPTIONS_MAP.keys()),
+            width=235,
+            height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.on_schedule_option_change
+        )
+        self.combo_sched_interval.set("ทุกๆ 6 ชั่วโมง (4 รอบ/วัน - แนะนำ)")
+        self.combo_sched_interval.grid(row=0, column=4, padx=(0, 10), pady=6)
+
+        self.lbl_sched_slots_preview = ctk.CTkLabel(
+            st_mid_row,
+            text="📊 รอบเวลาที่คำนวณได้: 05:00, 11:00, 17:00, 23:00 น. (4 รอบ/วัน)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#81C995",
+            anchor="w"
+        )
+        self.lbl_sched_slots_preview.grid(row=0, column=5, padx=6, pady=6, sticky="ew")
+
+        btn_save_sched = ctk.CTkButton(
+            st_mid_row,
+            text="💾 บันทึกตารางเวลา",
+            width=130,
+            height=28,
+            corner_radius=14,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#34A853",
+            hover_color="#2D9248",
+            command=self.on_save_schedule_settings_click
+        )
+        btn_save_sched.grid(row=0, column=6, padx=(6, 12), pady=6)
+
+        # แถวที่ 3: โซนจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders Management v6.27)
         root_mgr_frame = ctk.CTkFrame(self.frame_settings, fg_color="#1E1F22")
-        root_mgr_frame.grid(row=2, column=0, sticky="nsew", padx=2, pady=(0, 5))
+        root_mgr_frame.grid(row=3, column=0, sticky="nsew", padx=2, pady=(0, 5))
         root_mgr_frame.grid_columnconfigure(0, weight=1)
         root_mgr_frame.grid_rowconfigure(2, weight=1)
 
@@ -5978,11 +6236,59 @@ class FaceSearchApp(ctk.CTk):
             s = s[:len(s)//2]
         return s
 
+    def on_toggle_win_autostart(self):
+        """เปิด/ปิดการลงทะเบียนรันโปรแกรมอัตโนมัติเมื่อเปิด Windows (Start with Windows) (v6.64)"""
+        if hasattr(self, "sw_win_autostart"):
+            enabled = bool(self.sw_win_autostart.get())
+            set_autostart(enabled)
+            self.save_settings()
+
+    def on_schedule_option_change(self, _=None):
+        """คำนวณรอบเวลาอัตโนมัติทันทีเมื่อผู้ใช้เปลี่ยนเวลาเริ่มรอบแรกหรือคาบเวลาในหน้า Settings (v6.64)"""
+        try:
+            enabled = bool(self.sw_schedule_enabled.get()) if hasattr(self, "sw_schedule_enabled") else True
+            anchor = self.combo_sched_anchor.get().strip() if hasattr(self, "combo_sched_anchor") else "05:00"
+            interval_label = self.combo_sched_interval.get() if hasattr(self, "combo_sched_interval") else ""
+            interval_mins = INTERVAL_OPTIONS_MAP.get(interval_label, 360)
+
+            if hasattr(self, "chk_minimize_to_tray"):
+                self.minimize_to_tray_on_close = bool(self.chk_minimize_to_tray.get())
+            if hasattr(self, "chk_auto_run_startup"):
+                self.auto_run_on_startup = bool(self.chk_auto_run_startup.get())
+
+            if hasattr(self, "scheduler") and self.scheduler:
+                self.scheduler.configure_schedule(
+                    enabled=enabled,
+                    anchor_time=anchor,
+                    interval_minutes=interval_mins
+                )
+            self._update_schedule_ui_status(reschedule=False)
+        except Exception as e:
+            logger.debug(f"[SCHEDULE] Error updating schedule option preview: {e}")
+
+    def on_save_schedule_settings_click(self):
+        """บันทึกการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบลงไฟล์ app_settings.json (v6.64)"""
+        self.on_schedule_option_change()
+        self.save_settings()
+        slots = self.scheduler.schedule_slots if hasattr(self, "scheduler") and self.scheduler else []
+        status = self.scheduler.get_next_run_status() if hasattr(self, "scheduler") and self.scheduler else {}
+        messagebox.showinfo(
+            "บันทึกตารางเวลาสำเร็จ",
+            f"บันทึกการตั้งค่าตารางเวลาอัตโนมัติเรียบร้อยแล้ว!\n\n"
+            f"🕒 เวลาเริ่มครั้งแรก: {self.scheduler.anchor_time} น.\n"
+            f"⏱️ คาบเวลาทำงาน: ทุกๆ {self.scheduler.interval_minutes} นาที ({len(slots)} รอบ/วัน)\n"
+            f"📊 รอบเวลาทั้งหมด: {', '.join(slots[:8])}{' ...' if len(slots) > 8 else ''} น.\n"
+            f"⏳ รอบถัดไป: {status.get('display_text', '-')}"
+        )
+
     def save_settings(self):
         """บันทึกข้อมูลการตั้งค่าลงไฟล์เก็บสถานะ"""
         settings_file = os.path.join(get_project_root(), "data", "app_settings.json")
         os.makedirs(os.path.dirname(settings_file), exist_ok=True)
-        
+
+        interval_label = self.combo_sched_interval.get() if hasattr(self, "combo_sched_interval") else ""
+        interval_mins = int(INTERVAL_OPTIONS_MAP.get(interval_label, 360))
+
         settings = {
             "credentials_path": self.entry_cred_path.get().strip(),
             "drive_folder_id": self._sanitize_setting_id(self.entry_drive_folder_id.get()),
@@ -5991,7 +6297,12 @@ class FaceSearchApp(ctk.CTk):
             "threshold": self.slider_threshold.get(),
             "use_gpu": self.chk_use_gpu.get(),
             "re_scan": self.chk_re_scan.get(),
-            "fast_rescan": self.chk_fast_rescan.get() if hasattr(self, "chk_fast_rescan") else False
+            "fast_rescan": self.chk_fast_rescan.get() if hasattr(self, "chk_fast_rescan") else False,
+            "schedule_enabled": bool(self.sw_schedule_enabled.get()) if hasattr(self, "sw_schedule_enabled") else True,
+            "schedule_anchor_time": self.combo_sched_anchor.get().strip() if hasattr(self, "combo_sched_anchor") else "05:00",
+            "schedule_interval_minutes": interval_mins,
+            "auto_run_on_startup": bool(self.chk_auto_run_startup.get()) if hasattr(self, "chk_auto_run_startup") else False,
+            "minimize_to_tray_on_close": bool(self.chk_minimize_to_tray.get()) if hasattr(self, "chk_minimize_to_tray") else True,
         }
         
         try:
@@ -6063,7 +6374,55 @@ class FaceSearchApp(ctk.CTk):
                     self.chk_fast_rescan.select()
                 else:
                     self.chk_fast_rescan.deselect()
-                    
+
+            # โหลดการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบ (v6.64)
+            sched_enabled = bool(settings.get("schedule_enabled", True))
+            sched_anchor = str(settings.get("schedule_anchor_time", "05:00")).strip() or "05:00"
+            try:
+                sched_interval = int(settings.get("schedule_interval_minutes", 360))
+            except Exception:
+                sched_interval = 360
+
+            self.auto_run_on_startup = bool(settings.get("auto_run_on_startup", False))
+            self.minimize_to_tray_on_close = bool(settings.get("minimize_to_tray_on_close", True))
+
+            if hasattr(self, "sw_schedule_enabled"):
+                if sched_enabled:
+                    self.sw_schedule_enabled.select()
+                else:
+                    self.sw_schedule_enabled.deselect()
+
+            if hasattr(self, "combo_sched_anchor"):
+                self.combo_sched_anchor.set(sched_anchor)
+
+            if hasattr(self, "combo_sched_interval"):
+                matched_label = "ทุกๆ 6 ชั่วโมง (4 รอบ/วัน - แนะนำ)"
+                for lbl, mins in INTERVAL_OPTIONS_MAP.items():
+                    if mins == sched_interval:
+                        matched_label = lbl
+                        break
+                self.combo_sched_interval.set(matched_label)
+
+            if hasattr(self, "chk_auto_run_startup"):
+                if self.auto_run_on_startup:
+                    self.chk_auto_run_startup.select()
+                else:
+                    self.chk_auto_run_startup.deselect()
+
+            if hasattr(self, "chk_minimize_to_tray"):
+                if self.minimize_to_tray_on_close:
+                    self.chk_minimize_to_tray.select()
+                else:
+                    self.chk_minimize_to_tray.deselect()
+
+            if hasattr(self, "scheduler") and self.scheduler:
+                self.scheduler.configure_schedule(
+                    enabled=sched_enabled,
+                    anchor_time=sched_anchor,
+                    interval_minutes=sched_interval
+                )
+            self._update_schedule_ui_status(reschedule=False)
+
         except Exception as e:
             logger.error(f"Error loading settings file: {e}")
 
@@ -9193,10 +9552,26 @@ class FaceSearchApp(ctk.CTk):
             logger.info(f"[SCAN_INFO] ทุกโฟลเดอร์ที่เลือกยังไม่เคยทำการสแกนจับคู่ใบหน้ามาก่อน")
             return False
 
-    def on_app_close(self):
-        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.55)"""
+    def on_app_close(self, force_exit=False):
+        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.64)"""
+        if (
+            not force_exit
+            and getattr(self, "enable_tray", False)
+            and getattr(self, "minimize_to_tray_on_close", True)
+            and getattr(self, "tray_manager", None) is not None
+            and self.tray_manager.is_running
+        ):
+            self.save_settings()
+            self.hide_to_tray()
+            return
+
         try:
-            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.55)...")
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.64)...")
+            if hasattr(self, "tray_manager") and self.tray_manager:
+                try:
+                    self.tray_manager.stop()
+                except Exception:
+                    pass
             # 1. หยุดการทำงานของ Scheduler Task
             if hasattr(self, 'scheduler') and self.scheduler:
                 try:

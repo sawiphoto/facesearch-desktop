@@ -1,3 +1,90 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.64 (System Tray & Dynamic Scheduler Suite)
+
+## 📋 Version 6.64 Changelog (System Tray & Dynamic Scheduler Suite)
+
+**Date:** 27 ตุลาคม 2026 (09:54 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 4 Argon  
+**Version:** v6.64 (System Tray & Dynamic Scheduler Suite)  
+**Core Technologies:** Windows System Tray Integration (`pystray` + Google Photos 4-Color Pinwheel Icon), Double-Click Full GUI Restore (`show_from_tray` / `hide_to_tray`), Windows Startup Registry Manager (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with `--tray` Windowless Launch), Dynamic Interval Schedule Auto-Calculation (30 Minutes to 24 Hours from Anchor Start Time), Startup Auto-Run Option, Unit Test Suite Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความต้องการระบบตั้งคาบเวลาทำงานอัตโนมัติแบบยืดหยุ่นและคำนวณรอบเวลาให้เอง (Dynamic Interval & Anchor Time):**
+   - ผู้ใช้ต้องการให้มีหน้าตั้งค่าใน Settings เลือกได้ว่าจะให้รัน Task 1, 2, 3 ทุกๆ เท่าไหร่ (เริ่มตั้งแต่ทุกๆ 30 นาที, 1 ชม., 2 ชม., 3 ชม., 4 ชม., 6 ชม., 8 ชม., 12 ชม., ถึง 24 ชม.)
+   - เมื่อระบุเวลาเริ่มต้นครั้งแรก (เช่น `05:00` น.) ระบบจะต้องคำนวณรอบเวลาที่เหลือตลอดทั้งวันให้อัตโนมัติ (เช่น `05:00, 11:00, 17:00, 23:00` น.) พร้อมแสดงเวลานับถอยหลังสู่รอบถัดไป
+2. **ความต้องการเปิดโปรแกรมอัตโนมัติพร้อม Windows และซ่อนเป็นไอคอนในถาดระบบ (System Tray / Show Hidden Icons):**
+   - เมื่อเปิดเครื่องคอมพิวเตอร์ขึ้นมา ให้โปรแกรมเปิดตัวเองอัตโนมัติโดยซ่อนอยู่ในถาดแจ้งเตือนมุมขวาล่าง (Show hidden icons)
+   - เมื่อดับเบิลคลิกที่ไอคอนในถาดระบบ ให้ดึงหน้าต่างโปรแกรมเต็มขึ้นมาใช้งานได้ทันที และเมื่อกดกากบาทปิดหน้าต่าง `[X]` ให้ย่อกลับลงไปทำงานต่อในถาดระบบเพื่อรอรัน Task ตามคาบเวลาที่ตั้งไว้
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาโมดูลจัดการถาดระบบ [`system_tray.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/system_tray.py) (`SystemTrayManager`):**
+   - วาดไอคอน 4 สีสไตล์ Google Photos (`create_google_photos_tray_icon`) คมชัดระดับ 64x64 RGBA
+   - รองรับการ **ดับเบิลคลิก (Double Click)** ที่ไอคอนเพื่อเปิดหน้าต่างโปรแกรมเต็ม (`show_from_tray()`)
+   - รองรับเมนูคลิกขวา: `📸 เปิดหน้าต่างโปรแกรม`, `▶️ สั่งรัน Task 1, 2, 3 ตอนนี้ทันที`, `🛑 หยุดการทำงานชั่วคราว`, `⚙️ ตั้งค่าตารางเวลา`, และ `❌ ออกจากโปรแกรมโดยสมบูรณ์`
+2. **พัฒนาโมดูลลงทะเบียนเปิดพร้อม Windows [`autostart_manager.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/autostart_manager.py):**
+   - จัดการคีย์ `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`SchoolFaceFinderTray`) โดยสั่งรันผ่าน `pythonw.exe main.py --tray` ไร้หน้าต่างดำ 100%
+3. **พัฒนาระบบคำนวณรอบเวลาอัตโนมัติใน [`scheduler_task.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py):**
+   - เพิ่มฟังก์ชัน `calculate_schedule_slots(anchor_time_str, interval_minutes)` คำนวณรอบเวลาทำงานตลอด 24 ชั่วโมงจากเวลาเริ่มครั้งแรกและคาบเวลา (ตั้งแต่ 30 นาที ถึง 24 ชั่วโมง)
+   - เพิ่มฟังก์ชัน `get_next_run_info()` และเมธอด `configure_schedule()` รองรับการเปลี่ยนตารางเวลาแบบ Hot-Reload ทันทีโดยไม่ต้องรีสตาร์ตโปรแกรม
+4. **เพิ่มการ์ดตั้งค่าตารางเวลาและถาดระบบในหน้า Settings ของ [`app_gui.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - เพิ่มสวิตช์ `🚀 เปิดพร้อม Windows (Auto-Start in Tray)`, ตัวเลือก `🔽 ย่อลงถาด System Tray เมื่อกดปิด [X]`, ตัวเลือก `⚡ รัน Task 1-3 ทันทีเมื่อเปิดโปรแกรม`, ตัวเลือกเวลาเริ่มครั้งแรก และคาบเวลา พร้อมป้ายแสดงรอบเวลาที่คำนวณได้แบบเรียลไทม์
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py` - จากการตั้งเวลาตายตัว 00:00 น. สู่ระบบคำนวณรอบเวลาอัตโนมัติ (Dynamic Interval Engine)
+**ก่อนแก้ไข (Before):**
+```python
+        # Schedule midnight trigger
+        schedule.every().day.at("00:00").do(self.run_scheduled_tasks)
+```
+
+**หลังแก้ไข (After):**
+```python
+        # ค่าเริ่มต้นตารางเวลาอัตโนมัติ (v6.64: เริ่ม 05:00 น. ทุกๆ 6 ชั่วโมง -> 05:00, 11:00, 17:00, 23:00)
+        self.schedule_enabled = True
+        self.anchor_time = "05:00"
+        self.interval_minutes = 360
+        self.schedule_slots = []
+        self.configure_schedule(
+            enabled=self.schedule_enabled,
+            anchor_time=self.anchor_time,
+            interval_minutes=self.interval_minutes
+        )
+```
+
+#### 2. `app_gui.py` - การย่อหน้าต่างลงถาด System Tray เมื่อกดปุ่มปิด `[X]` และการกู้คืนหน้าต่างเมื่อดับเบิลคลิก
+**ก่อนแก้ไข (Before):**
+```python
+    def on_app_close(self):
+        """จัดการปิดโปรแกรมและเคลียร์เธรดเบื้องหลัง 100% ไร้ Process ซอมบี้ค้างในระบบ (v6.55)"""
+        try:
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร...")
+```
+
+**หลังแก้ไข (After):**
+```python
+    def on_app_close(self, force_exit=False):
+        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.64)"""
+        if (
+            not force_exit
+            and getattr(self, "enable_tray", False)
+            and getattr(self, "minimize_to_tray_on_close", True)
+            and getattr(self, "tray_manager", None) is not None
+            and self.tray_manager.is_running
+        ):
+            self.save_settings()
+            self.hide_to_tray()
+            return
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.63 (Google Photos Material Design Theme Suite)
 
 ## 📋 Version 6.63 Changelog (Google Photos Material Design Theme Suite)

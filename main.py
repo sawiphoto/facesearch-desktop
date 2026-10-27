@@ -17,6 +17,12 @@ def setup_directories():
 
 if __name__ == "__main__":
     project_root = os.path.dirname(os.path.abspath(__file__))
+    try:
+        os.chdir(project_root)
+    except Exception:
+        pass
+
+    start_in_tray = ("--tray" in sys.argv) or ("--minimized" in sys.argv)
 
     # ตั้งค่า handlers ให้รองรับทั้ง python.exe (Console) และ pythonw.exe (Windowless - sys.stdout is None)
     handlers = []
@@ -39,14 +45,17 @@ if __name__ == "__main__":
         bring_existing_window_to_front()
         sys.exit(0)
 
-    # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) พร้อม Progress Bar 0-100%
-    from splash_screen import SplashScreen
-    splash = SplashScreen(version="v6.63")
-    splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
+    # 2. เปิดหน้าต่าง Splash Screen ทันที (<0.15s) ยกเว้นกรณีเปิดแบบซ่อนลงถาด System Tray (--tray)
+    splash = None
+    if not start_in_tray:
+        from splash_screen import SplashScreen
+        splash = SplashScreen(version="v6.64")
+        splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
     setup_directories()
-    splash.update_progress(20, "กำลังเชื่อมต่อฐานข้อมูล SQLite และการตั้งค่า...")
+    if splash:
+        splash.update_progress(20, "กำลังเชื่อมต่อฐานข้อมูล SQLite และการตั้งค่า...")
 
     # 3. โหลด AI InsightFace & Components ใน Worker Thread แบบ Pre-warming
     worker_state = {
@@ -84,11 +93,13 @@ if __name__ == "__main__":
 
     # ลูปอัปเดตหน้าต่าง Splash Screen ขณะโหลดโมเดลในพื้นหลัง
     while not worker_state["done"]:
-        splash.update_progress(worker_state["progress"], worker_state["status"])
+        if splash:
+            splash.update_progress(worker_state["progress"], worker_state["status"])
         time.sleep(0.05)
 
     if worker_state["error"]:
-        splash.close()
+        if splash:
+            splash.close()
         logging.error(f"Failed to start GUI application during model pre-warm: {worker_state['error']}", exc_info=True)
         import tkinter as tk
         from tkinter import messagebox
@@ -104,7 +115,7 @@ if __name__ == "__main__":
     # แล้วสลับแสดงหน้าต่างหลักและปิด Splash Screen พร้อมกันทันทีในระดับมิลลิวินาที (Zero-Gap Seamless Transition v6.52)
     try:
         from app_gui import FaceSearchApp
-        app = FaceSearchApp(analyzer=worker_state["analyzer"], splash=splash, app_mutex=app_mutex)
+        app = FaceSearchApp(analyzer=worker_state["analyzer"], splash=splash, app_mutex=app_mutex, enable_tray=True, start_in_tray=start_in_tray)
         app.mainloop()
     except Exception as e:
         logging.error(f"Failed to start GUI application: {e}", exc_info=True)

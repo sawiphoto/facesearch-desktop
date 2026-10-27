@@ -247,6 +247,116 @@ class ScanSessionTracker:
         return md_path
 
 
+from datetime import timedelta
+
+INTERVAL_OPTIONS_MAP = {
+    "ทุกๆ 30 นาที (48 รอบ/วัน)": 30,
+    "ทุกๆ 1 ชั่วโมง (24 รอบ/วัน)": 60,
+    "ทุกๆ 2 ชั่วโมง (12 รอบ/วัน)": 120,
+    "ทุกๆ 3 ชั่วโมง (8 รอบ/วัน)": 180,
+    "ทุกๆ 4 ชั่วโมง (6 รอบ/วัน)": 240,
+    "ทุกๆ 6 ชั่วโมง (4 รอบ/วัน - แนะนำ)": 360,
+    "ทุกๆ 8 ชั่วโมง (3 รอบ/วัน)": 480,
+    "ทุกๆ 12 ชั่วโมง (2 รอบ/วัน)": 720,
+    "ทุกๆ 24 ชั่วโมง (1 รอบ/วัน)": 1440,
+}
+
+
+def calculate_schedule_slots(anchor_time_str: str = "05:00", interval_minutes: int = 360) -> list:
+    """
+    คำนวณรอบเวลาทำงานตลอด 24 ชั่วโมงโดยอัตโนมัติ จากเวลาเริ่มครั้งแรก (anchor_time_str) และคาบเวลา (interval_minutes)
+    ตัวอย่าง: anchor_time_str="05:00", interval_minutes=360 (6 ชม.) -> ["05:00", "11:00", "17:00", "23:00"]
+    """
+    try:
+        parts = str(anchor_time_str).strip().split(":")
+        hh = max(0, min(23, int(parts[0])))
+        mm = max(0, min(59, int(parts[1]))) if len(parts) > 1 else 0
+    except Exception:
+        hh, mm = 5, 0
+
+    try:
+        interval = max(30, min(1440, int(interval_minutes)))
+    except Exception:
+        interval = 360
+
+    base_minutes = hh * 60 + mm
+    slots = []
+    seen = set()
+    cur = base_minutes
+    max_steps = max(1, (1440 + interval - 1) // interval)
+    for _ in range(max_steps):
+        if cur - base_minutes >= 1440:
+            break
+        m_of_day = cur % 1440
+        if m_of_day not in seen:
+            seen.add(m_of_day)
+            s_hh, s_mm = divmod(m_of_day, 60)
+            slots.append(f"{s_hh:02d}:{s_mm:02d}")
+        cur += interval
+
+    return slots if slots else [f"{hh:02d}:{mm:02d}"]
+
+
+def get_next_run_info(slots: list, enabled: bool = True, now_dt: datetime = None) -> dict:
+    """
+    คำนวณเวลารอบถัดไปและระยะเวลานับถอยหลังจากรายการ slots ที่กำหนด
+    """
+    if not enabled or not slots:
+        return {
+            "next_time_str": "-",
+            "remaining_minutes": 0,
+            "is_tomorrow": False,
+            "display_text": "⏸️ ปิดการรันตามตารางเวลาอัตโนมัติ",
+            "short_text": "⏸️ ปิดตารางเวลาอัตโนมัติ",
+        }
+
+    now = now_dt or datetime.now()
+    candidates = []
+    for s in slots:
+        try:
+            p = str(s).strip().split(":")
+            sh, sm = int(p[0]), int(p[1])
+            dt_today = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+            if dt_today > now:
+                candidates.append((dt_today, s, False))
+            else:
+                dt_tomorrow = dt_today + timedelta(days=1)
+                candidates.append((dt_tomorrow, s, True))
+        except Exception:
+            continue
+
+    if not candidates:
+        return {
+            "next_time_str": "-",
+            "remaining_minutes": 0,
+            "is_tomorrow": False,
+            "display_text": "⏸️ ไม่มีตารางเวลา",
+            "short_text": "⏸️ ไม่มีตารางเวลา",
+        }
+
+    candidates.sort(key=lambda x: x[0])
+    next_dt, next_slot_str, is_tmr = candidates[0]
+    diff_secs = max(60, int((next_dt - now).total_seconds()))
+    total_mins = diff_secs // 60
+    rem_h, rem_m = divmod(total_mins, 60)
+
+    if rem_h > 0 and rem_m > 0:
+        countdown = f"{rem_h} ชม. {rem_m} นาที"
+    elif rem_h > 0:
+        countdown = f"{rem_h} ชั่วโมง"
+    else:
+        countdown = f"{rem_m} นาที"
+
+    day_str = "พรุ่งนี้" if is_tmr else "วันนี้"
+    return {
+        "next_time_str": next_slot_str,
+        "remaining_minutes": total_mins,
+        "is_tomorrow": is_tmr,
+        "display_text": f"{day_str} เวลา {next_slot_str} น. (อีก {countdown})",
+        "short_text": f"⏳ รอบถัดไป: {next_slot_str} น. (อีก {countdown})",
+    }
+
+
 class SchedulerTask:
     def __init__(self, db_manager, sync_manager, face_analyzer, app_gui):
         self.db = db_manager
@@ -258,13 +368,53 @@ class SchedulerTask:
         self._stopped_json_synced = False
         self.tracker = ScanSessionTracker()
         self.gpu_lock = threading.Lock()
-        
-        # Schedule midnight trigger
-        schedule.every().day.at("00:00").do(self.run_scheduled_tasks)
-        
+        self._schedule_lock = threading.Lock()
+
+        # ค่าเริ่มต้นตารางเวลาอัตโนมัติ (v6.64: เริ่ม 05:00 น. ทุกๆ 6 ชั่วโมง -> 05:00, 11:00, 17:00, 23:00)
+        self.schedule_enabled = True
+        self.anchor_time = "05:00"
+        self.interval_minutes = 360
+        self.schedule_slots = []
+        self.configure_schedule(
+            enabled=self.schedule_enabled,
+            anchor_time=self.anchor_time,
+            interval_minutes=self.interval_minutes
+        )
+
         # Start background thread
         self.thread = threading.Thread(target=self._scheduler_loop, daemon=True)
         self.thread.start()
+
+    def configure_schedule(self, enabled: bool = True, anchor_time: str = "05:00", interval_minutes: int = 360) -> list:
+        """
+        ตั้งค่าและคำนวณรอบเวลาทำงานอัตโนมัติใหม่แบบ Hot-Reload โดยไม่ต้องปิดโปรแกรม (v6.64)
+        """
+        with self._schedule_lock:
+            self.schedule_enabled = bool(enabled)
+            self.anchor_time = str(anchor_time).strip() or "05:00"
+            try:
+                self.interval_minutes = max(30, min(1440, int(interval_minutes)))
+            except Exception:
+                self.interval_minutes = 360
+
+            self.schedule_slots = calculate_schedule_slots(self.anchor_time, self.interval_minutes)
+            schedule.clear("auto_face_sync")
+
+            if self.schedule_enabled:
+                for slot in self.schedule_slots:
+                    schedule.every().day.at(slot).do(self.run_scheduled_tasks).tag("auto_face_sync")
+                logger.info(
+                    f"[SCHEDULE] ⏰ ตั้งตารางเวลาอัตโนมัติสำเร็จ (เริ่ม {self.anchor_time} น. ทุกๆ {self.interval_minutes} นาที) "
+                    f"-> รอบทำงาน: {', '.join(self.schedule_slots)} น. ({len(self.schedule_slots)} รอบ/วัน)"
+                )
+            else:
+                logger.info("[SCHEDULE] ⏸️ ปิดการทำงานตามตารางเวลาอัตโนมัติชั่วคราว")
+
+            return list(self.schedule_slots)
+
+    def get_next_run_status(self, now_dt: datetime = None) -> dict:
+        """ดึงข้อมูลเวลารอบถัดไปและเวลานับถอยหลังสำหรับแสดงผลบน GUI และ System Tray"""
+        return get_next_run_info(self.schedule_slots, enabled=self.schedule_enabled, now_dt=now_dt)
 
     def _safe_sync_json_on_stop(self):
         """ช่วยอัปเดตไฟล์ JSON บน Drive เมื่อหยุดทำงาน โดยป้องกันการรันซ้ำซ้อน (v6.47)"""
@@ -281,8 +431,13 @@ class SchedulerTask:
 
     def _scheduler_loop(self):
         while True:
-            schedule.run_pending()
-            time.sleep(60)
+            try:
+                with self._schedule_lock:
+                    if self.schedule_enabled:
+                        schedule.run_pending()
+            except Exception as e:
+                logger.debug(f"[SCHEDULE] Scheduler loop check error: {e}")
+            time.sleep(15)
             
     def run_scheduled_tasks_manual(self):
         if self.is_running:
