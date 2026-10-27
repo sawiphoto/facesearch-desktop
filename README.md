@@ -1,3 +1,67 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.68 (High-Frequency 10m & 15m Dynamic Scheduler Intervals Suite)
+
+## 📋 Version 6.68 Changelog (High-Frequency 10m & 15m Dynamic Scheduler Intervals Suite)
+
+**Date:** 27 ตุลาคม 2026 (11:47 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.68 (High-Frequency 10m & 15m Dynamic Scheduler Intervals Suite)  
+**Core Technologies:** High-Frequency Schedule Slots Calculation (10m - 144 runs/day, 15m - 96 runs/day), Dynamic Lower-Bound Clamp Adjustment (`max(10, ...)`), Unit Test Verification Passed 100%, Desktop Shortcut (`School Face Finder v6.68.lnk`).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ความต้องการเพิ่มคาบเวลาทำงานอัตโนมัติความเร็วสูง (High-Frequency Scheduling):**
+   - ผู้ใช้ต้องการให้สามารถตั้งความถี่ในการสแกนและซิงค์ข้อมูลได้เร็วขึ้น โดยเริ่มเร็วสุดที่:
+     1. **ทุกๆ 10 นาที (144 รอบ/วัน)**
+     2. **ทุกๆ 15 นาที (96 รอบ/วัน)**
+     3. **ทุกๆ 30 นาที (48 รอบ/วัน)** และตัวเลือกอื่นๆ ที่เหลือเหมือนเดิมทั้งหมด
+2. **การรองรับทั้งสองโปรเจกต์:**
+   - ให้อัปเดตทั้งในโปรเจกต์หลัก (`D:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน`) และโปรเจกต์แจกจ่าย (`D:\Projects\ระบบค้นหาใบหน้า GoogleDrive`)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **เพิ่มตัวเลือกใน `INTERVAL_OPTIONS_MAP` ใน [`scheduler_task.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py):**
+   - เพิ่มคู่ค่า `"ทุกๆ 10 นาที (144 รอบ/วัน)": 10` และ `"ทุกๆ 15 นาที (96 รอบ/วัน)": 15` ส่งผลให้หน้าจอ Dropdown ในแท็บการตั้งค่าแสดงตัวเลือกใหม่ทันที
+2. **ปรับแต่งตัว Clamp ช่วงเวลาในฟังก์ชัน `calculate_schedule_slots`:**
+   - ปรับเปลี่ยนจาก `interval = max(30, ...)` เป็น `interval = max(10, ...)` เพื่อให้รองรับการคำนวณคาบเวลา 10 นาที (144 รอบ/วัน) และ 15 นาที (96 รอบ/วัน) ได้อย่างสมบูรณ์แบบ
+3. **เพิ่มการทดสอบความถูกต้องใน `tests/test_system_tray_and_dynamic_scheduler.py`**:
+   - เพิ่มการทดสอบการคำนวณรอบเวลา 10 นาที และ 15 นาที ผ่านฉลุย 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py` - เพิ่มตัวเลือก 10 นาที และ 15 นาที พร้อมปรับ Clamp
+**ก่อนแก้ไข (Before):**
+```python
+INTERVAL_OPTIONS_MAP = {
+    "ทุกๆ 30 นาที (48 รอบ/วัน)": 30,
+    ...
+}
+
+def calculate_schedule_slots(anchor_time_str: str = "05:00", interval_minutes: int = 360) -> list:
+    ...
+    interval = max(30, min(1440, int(interval_minutes)))
+```
+
+**หลังแก้ไข (After):**
+```python
+INTERVAL_OPTIONS_MAP = {
+    "ทุกๆ 10 นาที (144 รอบ/วัน)": 10,
+    "ทุกๆ 15 นาที (96 รอบ/วัน)": 15,
+    "ทุกๆ 30 นาที (48 รอบ/วัน)": 30,
+    ...
+}
+
+def calculate_schedule_slots(anchor_time_str: str = "05:00", interval_minutes: int = 360) -> list:
+    ...
+    interval = max(10, min(1440, int(interval_minutes)))
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.67 (Hotfix Scheduler Scope & Settings Persistence Protection)
 
 ## 📋 Version 6.67 Changelog (Hotfix Scheduler Scope & Settings Persistence Protection)

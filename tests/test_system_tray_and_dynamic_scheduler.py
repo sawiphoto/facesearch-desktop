@@ -20,7 +20,19 @@ from system_tray import create_google_photos_tray_icon, SystemTrayManager
 
 class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
     def test_01_calculate_schedule_slots_30m_to_24h(self):
-        """ทดสอบการคำนวณรอบเวลาอัตโนมัติตั้งแต่คาบเวลา 30 นาที จนถึง 24 ชั่วโมง"""
+        """ทดสอบการคำนวณรอบเวลาอัตโนมัติตั้งแต่คาบเวลาความเร็วสูง 10 นาที, 15 นาที จนถึง 24 ชั่วโมง (v6.68)"""
+        # 0.1 ทดสอบเริ่ม 08:00 ทุกๆ 10 นาที (10 นาที) -> 144 รอบ/วัน (v6.68)
+        slots_10m = calculate_schedule_slots("08:00", 10)
+        self.assertEqual(len(slots_10m), 144)
+        self.assertEqual(slots_10m[:4], ["08:00", "08:10", "08:20", "08:30"])
+        self.assertEqual(INTERVAL_OPTIONS_MAP.get("ทุกๆ 10 นาที (144 รอบ/วัน)"), 10)
+
+        # 0.2 ทดสอบเริ่ม 08:00 ทุกๆ 15 นาที (15 นาที) -> 96 รอบ/วัน (v6.68)
+        slots_15m = calculate_schedule_slots("08:00", 15)
+        self.assertEqual(len(slots_15m), 96)
+        self.assertEqual(slots_15m[:4], ["08:00", "08:15", "08:30", "08:45"])
+        self.assertEqual(INTERVAL_OPTIONS_MAP.get("ทุกๆ 15 นาที (96 รอบ/วัน)"), 15)
+
         # 1. เริ่ม 05:00 ทุกๆ 6 ชั่วโมง (360 นาที) -> 05:00, 11:00, 17:00, 23:00
         slots_6h = calculate_schedule_slots("05:00", 360)
         self.assertEqual(slots_6h, ["05:00", "11:00", "17:00", "23:00"])
