@@ -1,3 +1,96 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.66 (Desktop Bottom-Right Toast Notification & Permanent Windows Auto-Start Suite)
+
+## 📋 Version 6.66 Changelog (Desktop Bottom-Right Toast Notification & Permanent Windows Auto-Start Suite)
+
+**Date:** 27 ตุลาคม 2026 (10:42 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 4 Argon  
+**Version:** v6.66 (Desktop Bottom-Right Toast Notification & Permanent Windows Auto-Start Suite)  
+**Core Technologies:** Custom Borderless Bottom-Right Desktop Toast Notification (`show_desktop_toast` via `tk.Toplevel` `-topmost` above System Tray/Clock), Automated Start & Finish Task Alerts (`_notify_desktop` in `SchedulerTask`), Permanent Windows Startup Registry Activation (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\SchoolFaceFinderTray` -> `"SchoolFaceFinder.exe" --tray`), Desktop Shortcut (`School Face Finder v6.66.lnk`), Unit Test Suite Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **การแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop เมื่อเริ่มทำงานอัตโนมัติและเมื่อเสร็จสิ้นรอบการทำงาน:**
+   - ผู้ใช้ต้องการให้มีกล่องแจ้งเตือนเด้งขึ้นมาบอกที่มุมขวาล่างของหน้าจอ Desktop (เหนือแถบนาฬิกา/System Tray) ทุกครั้งที่ **เริ่มรันงานอัตโนมัติ** และเมื่อ **ทำงานรอบนั้นเสร็จสมบูรณ์**
+   - ต้องแสดงผลให้เห็นชัดเจน 100% แม้หน้าต่างหลักจะซ่อนอยู่ในถาด System Tray หรือเปิดโหมด Focus Assist ของ Windows อยู่ และไม่แย่งโฟกัสคีย์บอร์ดขณะที่ผู้ใช้กำลังพิมพ์งานในโปรแกรมอื่น
+2. **การเปิดทำงานอัตโนมัติทุกครั้งหลัง Restart เครื่อง หรือปิด-เปิดคอมพิวเตอร์ใหม่:**
+   - ผู้ใช้ต้องการให้โปรแกรมเปิดทำงานอัตโนมัติในถาด System Tray ทุกครั้งที่มีการ Restart เครื่อง หรือเปิด-ปิดคอมพิวเตอร์ใหม่ทุกครั้งอย่างถาวรโดยไม่ต้องมากดเปิดเอง
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **พัฒนาระบบ Bottom-Right Desktop Toast Notification (`show_desktop_toast`) ใน [`app_gui.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - สร้างการ์ดแจ้งเตือนป๊อปอัปไร้ขอบ (`overrideredirect(True)`, `-topmost=True`, `-alpha=0.96`) ขนาด `390x116 px` แสดงที่พิกัดมุมขวาล่างของหน้าจอ Desktop (`x = screen_w - 406`, `y = screen_h - 172`) เหนือแถบ Taskbar/นาฬิกาพอดี
+   - แยกสีแถบสถานะตามประเภท: สีน้ำเงิน (`#1A73E8`) เมื่อ **เริ่มทำงาน (`start`)**, สีเขียว (`#34A853`) เมื่อ **ทำงานเสร็จสมบูรณ์ (`success`)**, และสีส้ม (`#FBBC04`) เมื่อ **หยุดทำงาน (`warning`)**
+   - สามารถคลิกที่การ์ดเพื่อเปิดหน้าต่างโปรแกรมหลักขึ้นมาดูรายละเอียดได้ทันที หรือปล่อยให้ปิดตัวเองอัตโนมัติภายใน 8–10 วินาที พร้อมปุ่ม **`🔔 ทดสอบแจ้งเตือน`** ในหน้า Settings
+2. **เชื่อมต่อการแจ้งเตือนอัตโนมัติเมื่อเริ่มและจบงานใน [`scheduler_task.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py):**
+   - เพิ่มเมธอด `_notify_desktop()` แจ้งเตือนทันทีเมื่อเริ่มรัน `run_scheduled_tasks()` (Task 1 ➔ 2 ➔ 3), `_run_task_2_only()`, และ `_run_task_3_only()`
+   - เมื่อจบการทำงานในบล็อก `finally:` จะแจ้งเตือนสรุปจำนวนรูปภาพที่สแกน จำนวนใบหน้าที่พบ เวลาที่ใช้ และเวลานัดหมายรอบถัดไปที่มุมขวาล่างของหน้าจอเสมอ (แม้รอบนั้นจะมีรูปใหม่ 0 รูปก็ตาม)
+3. **เปิดใช้งาน Windows Auto-Start ถาวรเป็นค่าเริ่มต้นใน [`autostart_manager.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/autostart_manager.py) และ [`app_gui.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - ลงทะเบียนคีย์ `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\SchoolFaceFinderTray` ชี้ไปยัง `"D:\Projects\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\SchoolFaceFinder.exe" --tray` และบันทึก `"windows_autostart": true` ลงใน `data/app_settings.json` ทันที เพื่อให้โปรแกรมเริ่มทำงานเองอัตโนมัติในถาด System Tray ทุกครั้งที่เปิดเครื่องหรือ Restart คอมพิวเตอร์
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - การ์ดแจ้งเตือนป๊อปอัปมุมขวาล่างของหน้าจอ (`show_desktop_toast`)
+**ก่อนแก้ไข (Before):**
+```python
+    def hide_to_tray(self):
+        self.withdraw()
+        if self.tray_manager and not getattr(self.tray_manager, "_notified_minimize_once", False):
+            self.tray_manager._notified_minimize_once = True
+            self.tray_manager.notify("ทำงานต่อใน System Tray", "...")
+```
+
+**หลังแก้ไข (After):**
+```python
+    def show_desktop_toast(self, title: str, message: str, status_type: str = "info", duration_ms: int = 8000):
+        """แสดงการ์ดแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (เหนือแถบนาฬิกา/System Tray) (v6.66)"""
+        toast = tk.Toplevel(self)
+        toast.withdraw()
+        toast.overrideredirect(True)
+        toast.attributes("-topmost", True)
+        toast.attributes("-alpha", 0.96)
+        toast_w, toast_h = 390, 116
+        pos_x = max(10, self.winfo_screenwidth() - toast_w - 16)
+        pos_y = max(10, self.winfo_screenheight() - toast_h - 56)
+        toast.geometry(f"{toast_w}x{toast_h}+{pos_x}+{pos_y}")
+        ...
+```
+
+#### 2. `scheduler_task.py` - แจ้งเตือนมุมขวาล่างเมื่อเริ่มรันและเมื่อเสร็จสิ้นรอบการทำงานอัตโนมัติ
+**ก่อนแก้ไข (Before):**
+```python
+        try:
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.24 - High Speed & Report Summary)")
+```
+
+**หลังแก้ไข (After):**
+```python
+        try:
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.66 - High Speed & Desktop Toast Notification)")
+            now_str_sched = datetime.now().strftime("%H:%M")
+            self._notify_desktop(
+                f"🚀 เริ่มทำงานอัตโนมัติ (รอบเวลา {now_str_sched} น.)",
+                "กำลังรัน Task 1 (สแกนภาพใหม่) ➔ Task 2 (นักเรียน) ➔ Task 3 (บุคลากรครู)",
+                status_type="start",
+                duration_ms=8000
+            )
+        ...
+        finally:
+            ...
+            self._notify_desktop(
+                f"✅ ทำงานอัตโนมัติเสร็จสมบูรณ์! ({end_str_sched} น.)",
+                f"สแกนภาพ {total_imgs:,} รูป | พบใบหน้า {total_faces:,} หน้า (ใช้เวลา {dur_str})\n{next_info_sched.get('short_text', '')}",
+                status_type="success",
+                duration_ms=10000
+            )
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.65 (Native EXE Launcher & Desktop Shortcut Suite)
 
 ## 📋 Version 6.65 Changelog (Native EXE Launcher & Desktop Shortcut Suite)

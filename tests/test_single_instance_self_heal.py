@@ -129,7 +129,7 @@ time.sleep(30)
             code = f.read()
 
         self.assertIn('self.protocol("WM_DELETE_WINDOW", self.on_app_close)', code)
-        self.assertIn('def on_app_close(self):', code)
+        self.assertIn('def on_app_close(self', code)
         self.assertIn('os._exit(0)', code)
 
     def test_06_customtkinter_window_reveal_state(self):

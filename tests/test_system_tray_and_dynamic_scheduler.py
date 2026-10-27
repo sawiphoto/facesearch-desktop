@@ -139,6 +139,67 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
         self.assertGreater(os.path.getsize(ico_file), 1024)
         self.assertIn("SchoolFaceFinder.exe", get_default_autostart_command())
 
+    def test_06_desktop_toast_notification_and_permanent_autostart_v666(self):
+        """ทดสอบการแสดงป๊อปอัปแจ้งเตือนมุมขวาล่าง Desktop (Start/Finish) และการเปิด Auto-Start ถาวรหลังรีสตาร์ท (v6.66)"""
+        # 1. ยืนยันว่า Windows Auto-Start ถูกเปิดใช้งานจริงใน Registry สำหรับการเปิด/ปิดคอมหรือ Restart ทุกครั้ง
+        self.assertTrue(is_autostart_enabled(), "Windows Auto-Start ต้องถูกเปิดใช้งานใน Registry เป็นค่าเริ่มต้น")
+        self.assertIn("--tray", get_default_autostart_command())
+
+        from app_gui import FaceSearchApp
+        mock_analyzer = MagicMock()
+        mock_analyzer.initialized = True
+
+        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False)
+        try:
+            # 2. ย่อหน้าต่างลงถาด System Tray แล้วทดสอบแสดงแจ้งเตือนเริ่มทำงาน (status_type='start')
+            app.hide_to_tray()
+            self.assertEqual(app.state(), "withdrawn")
+
+            toast_start = app.show_desktop_toast(
+                "🚀 เริ่มทำงานอัตโนมัติ (รอบเวลา 11:00 น.)",
+                "กำลังรัน Task 1 (สแกนภาพใหม่) ➔ Task 2 (นักเรียน) ➔ Task 3 (บุคลากรครู)",
+                status_type="start",
+                duration_ms=5000
+            )
+            self.assertIsNotNone(toast_start)
+            self.assertTrue(toast_start.winfo_exists())
+            self.assertEqual(toast_start._toast_status_type, "start")
+            self.assertIn("เริ่มทำงานอัตโนมัติ", toast_start._toast_title)
+
+            # ตรวจสอบพิกัดมุมขวาล่างของหน้าจอ (Bottom-Right Corner)
+            screen_w = app.winfo_screenwidth()
+            screen_h = app.winfo_screenheight()
+            expected_x = max(10, screen_w - 390 - 16)
+            expected_y = max(10, screen_h - 116 - 56)
+            self.assertEqual(toast_start._toast_geometry, f"390x116+{expected_x}+{expected_y}")
+
+            # 3. ทดสอบแสดงแจ้งเตือนเมื่อเสร็จสิ้นรอบการทำงาน (status_type='success') และตรวจสอบว่าอันเก่าถูกแทนที่ทันที
+            toast_done = app.show_desktop_toast(
+                "✅ ทำงานอัตโนมัติเสร็จสมบูรณ์! (11:04 น.)",
+                "สแกนภาพ 25 รูป | พบใบหน้า 42 หน้า (ใช้เวลา 4m 12s)\nรอบถัดไป: วันนี้ 17:00 น.",
+                status_type="success",
+                duration_ms=5000
+            )
+            self.assertIsNotNone(toast_done)
+            self.assertTrue(toast_done.winfo_exists())
+            self.assertFalse(toast_start.winfo_exists(), "Toast อันก่อนหน้าต้องถูกปิดอัตโนมัติเพื่อไม่ให้ซ้อนทับกัน")
+            self.assertEqual(toast_done._toast_status_type, "success")
+            self.assertIn("ทำงานอัตโนมัติเสร็จสมบูรณ์", toast_done._toast_title)
+
+            # 4. ทดสอบการเรียกผ่าน SchedulerTask._notify_desktop()
+            app.scheduler._notify_desktop(
+                "🚀 ทดสอบแจ้งเตือนจาก Scheduler",
+                "ข้อความจากเธรดตารางเวลาอัตโนมัติ",
+                status_type="info",
+                duration_ms=3000
+            )
+            app.update()
+            self.assertIsNotNone(app._active_desktop_toast)
+            self.assertIn("Scheduler", app._active_desktop_toast._toast_title)
+        finally:
+            app.face_search_worker_gen += 1
+            app.destroy()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

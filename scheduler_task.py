@@ -416,6 +416,19 @@ class SchedulerTask:
         """ดึงข้อมูลเวลารอบถัดไปและเวลานับถอยหลังสำหรับแสดงผลบน GUI และ System Tray"""
         return get_next_run_info(self.schedule_slots, enabled=self.schedule_enabled, now_dt=now_dt)
 
+    def _notify_desktop(self, title: str, message: str, status_type: str = "info", duration_ms: int = 8000):
+        """ส่งแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (Bottom-Right Toast Notification) (v6.66)"""
+        try:
+            if self.app_gui and hasattr(self.app_gui, "show_desktop_toast"):
+                self.app_gui.after(
+                    0,
+                    lambda t=title, m=message, st=status_type, d=duration_ms: self.app_gui.show_desktop_toast(
+                        t, m, status_type=st, duration_ms=d
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"[SCHEDULE] Desktop notification skipped: {e}")
+
     def _safe_sync_json_on_stop(self):
         """ช่วยอัปเดตไฟล์ JSON บน Drive เมื่อหยุดทำงาน โดยป้องกันการรันซ้ำซ้อน (v6.47)"""
         if not self._stopped_json_synced:
@@ -458,6 +471,13 @@ class SchedulerTask:
         try:
             logger.info("="*50)
             logger.info("[SCHEDULE] เริ่มทำงาน Task 2 เฉพาะกิจ (v4.0 - Bulk Sync)")
+            now_str_t2 = datetime.now().strftime("%H:%M")
+            self._notify_desktop(
+                f"🚀 เริ่มรัน Task 2 (เวลา {now_str_t2} น.)",
+                "กำลังซิงค์รายชื่อนักเรียนใหม่และจับคู่ภาพกิจกรรมย้อนหลัง...",
+                status_type="start",
+                duration_ms=7000
+            )
             if not self.sync_manager.connected:
                 self.sync_manager.connect()
             self._ensure_analyzer()
@@ -476,8 +496,28 @@ class SchedulerTask:
             if self.stop_requested:
                 self._safe_sync_json_on_stop()
         finally:
-            if self.stop_requested:
+            was_stopped_t2 = self.stop_requested
+            if was_stopped_t2:
                 self._safe_sync_json_on_stop()
+            try:
+                end_str_t2 = datetime.now().strftime("%H:%M")
+                next_info_t2 = self.get_next_run_status()
+                if was_stopped_t2:
+                    self._notify_desktop(
+                        f"🛑 หยุดทำงาน Task 2 ({end_str_t2} น.)",
+                        f"บันทึกและอัปเดตไฟล์ JSON เรียบร้อยแล้ว\n{next_info_t2.get('short_text', '')}",
+                        status_type="warning",
+                        duration_ms=8000
+                    )
+                else:
+                    self._notify_desktop(
+                        f"✅ Task 2 เสร็จสมบูรณ์! ({end_str_t2} น.)",
+                        f"ซิงค์ข้อมูลนักเรียนและอัปเดตไฟล์ JSON เรียบร้อยแล้ว\n{next_info_t2.get('short_text', '')}",
+                        status_type="success",
+                        duration_ms=9000
+                    )
+            except Exception:
+                pass
             self.is_running = False
             self.stop_requested = False
             self._stopped_json_synced = False
@@ -495,6 +535,13 @@ class SchedulerTask:
         try:
             logger.info("="*50)
             logger.info("[SCHEDULE] เริ่มทำงาน Task 3 เฉพาะกิจ (v5.30 - Sync New Teachers & Retroactive Matching)")
+            now_str_t3 = datetime.now().strftime("%H:%M")
+            self._notify_desktop(
+                f"🚀 เริ่มรัน Task 3 (เวลา {now_str_t3} น.)",
+                "กำลังซิงค์รายชื่อบุคลากรครูใหม่และจับคู่ภาพกิจกรรมย้อนหลัง...",
+                status_type="start",
+                duration_ms=7000
+            )
             if not self.sync_manager.connected:
                 self.sync_manager.connect()
             self._ensure_analyzer()
@@ -513,8 +560,28 @@ class SchedulerTask:
             if self.stop_requested:
                 self._safe_sync_json_on_stop()
         finally:
-            if self.stop_requested:
+            was_stopped_t3 = self.stop_requested
+            if was_stopped_t3:
                 self._safe_sync_json_on_stop()
+            try:
+                end_str_t3 = datetime.now().strftime("%H:%M")
+                next_info_t3 = self.get_next_run_status()
+                if was_stopped_t3:
+                    self._notify_desktop(
+                        f"🛑 หยุดทำงาน Task 3 ({end_str_t3} น.)",
+                        f"บันทึกและอัปเดตไฟล์ JSON เรียบร้อยแล้ว\n{next_info_t3.get('short_text', '')}",
+                        status_type="warning",
+                        duration_ms=8000
+                    )
+                else:
+                    self._notify_desktop(
+                        f"✅ Task 3 เสร็จสมบูรณ์! ({end_str_t3} น.)",
+                        f"ซิงค์ข้อมูลบุคลากรครูและอัปเดตไฟล์ JSON เรียบร้อยแล้ว\n{next_info_t3.get('short_text', '')}",
+                        status_type="success",
+                        duration_ms=9000
+                    )
+            except Exception:
+                pass
             self.is_running = False
             self.stop_requested = False
             self._stopped_json_synced = False
@@ -531,8 +598,15 @@ class SchedulerTask:
 
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.24 - High Speed & Report Summary)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.66 - High Speed & Desktop Toast Notification)")
             logger.info("="*50)
+            now_str_sched = datetime.now().strftime("%H:%M")
+            self._notify_desktop(
+                f"🚀 เริ่มทำงานอัตโนมัติ (รอบเวลา {now_str_sched} น.)",
+                "กำลังรัน Task 1 (สแกนภาพใหม่) ➔ Task 2 (นักเรียน) ➔ Task 3 (บุคลากรครู)",
+                status_type="start",
+                duration_ms=8000
+            )
             
             # Ensure Google API is connected
             if not self.sync_manager.connected:
@@ -605,16 +679,42 @@ class SchedulerTask:
             if was_stopped:
                 self._safe_sync_json_on_stop()
 
-            # สรุปผลและส่งออกรายงาน พร้อมแจ้งเตือน Popup สรุปผลบน GUI (v6.24)
-            if hasattr(self, 'tracker') and self.tracker and (self.tracker.has_scanned_items() or was_stopped):
+            summary = None
+            # สรุปผลและส่งออกรายงาน พร้อมแจ้งเตือน Popup สรุปผลบน GUI (v6.66)
+            if hasattr(self, 'tracker') and self.tracker:
                 try:
                     summary = self.tracker.finalize(stopped_by_user=was_stopped, json_synced=self._stopped_json_synced)
-                    project_root = get_project_root()
-                    saved_path = self.tracker.save_report_to_disk(project_root)
-                    if hasattr(self.app_gui, 'show_scan_report_popup'):
-                        self.app_gui.after(0, lambda s=summary, p=saved_path: self.app_gui.show_scan_report_popup(s, p))
+                    if self.tracker.has_scanned_items() or was_stopped:
+                        project_root = get_project_root()
+                        saved_path = self.tracker.save_report_to_disk(project_root)
+                        if hasattr(self.app_gui, 'show_scan_report_popup'):
+                            self.app_gui.after(0, lambda s=summary, p=saved_path: self.app_gui.show_scan_report_popup(s, p))
                 except Exception as rep_err:
                     logger.error(f"[SCHEDULE] ❌ Error generating scan report summary: {rep_err}", exc_info=True)
+
+            # v6.66: แจ้งเตือนมุมขวาล่างของ Desktop เมื่อเสร็จสิ้นรอบการทำงานอัตโนมัติเสมอ
+            try:
+                end_str_sched = datetime.now().strftime("%H:%M")
+                next_info_sched = self.get_next_run_status()
+                total_imgs = summary.get("total_all_images", 0) if summary else 0
+                total_faces = summary.get("total_faces_detected", 0) if summary else 0
+                dur_str = summary.get("duration_str", "-") if summary else "-"
+                if was_stopped:
+                    self._notify_desktop(
+                        f"🛑 หยุดรอบทำงานอัตโนมัติ ({end_str_sched} น.)",
+                        f"ประมวลผลไป {total_imgs:,} รูป ({dur_str}) • อัปเดต JSON แล้ว\n{next_info_sched.get('short_text', '')}",
+                        status_type="warning",
+                        duration_ms=9000
+                    )
+                else:
+                    self._notify_desktop(
+                        f"✅ ทำงานอัตโนมัติเสร็จสมบูรณ์! ({end_str_sched} น.)",
+                        f"สแกนภาพ {total_imgs:,} รูป | พบใบหน้า {total_faces:,} หน้า (ใช้เวลา {dur_str})\n{next_info_sched.get('short_text', '')}",
+                        status_type="success",
+                        duration_ms=10000
+                    )
+            except Exception as notify_err:
+                logger.debug(f"[SCHEDULE] Finish toast notification error: {notify_err}")
 
             self.is_running = False
             self.stop_requested = False

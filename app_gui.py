@@ -1000,7 +1000,7 @@ class FaceSearchApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=GP_THEME["bg_main"])
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.65 (System Tray & Dynamic Scheduler Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.66 (System Tray & Dynamic Scheduler Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
         try:
@@ -1102,20 +1102,20 @@ class FaceSearchApp(ctk.CTk):
         # โหลดการตั้งค่าเก่า (ถ้ามี)
         self.load_settings()
 
-        # เริ่มต้น System Tray Icon (เมื่อเปิดโหมดใช้งานจริง) (v6.65)
+        # เริ่มต้น System Tray Icon (เมื่อเปิดโหมดใช้งานจริง) (v6.66)
         if self.enable_tray and self.tray_manager:
             self.tray_manager.start()
 
         # อัปเดตสถานะตารางเวลานับถอยหลังบน Sidebar & System Tray Tooltip
         self.after(500, self._update_schedule_ui_status)
 
-        # ตรวจสอบการสั่งรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Safety Grace Period 5 วินาที) (v6.65)
+        # ตรวจสอบการสั่งรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Safety Grace Period 5 วินาที) (v6.66)
         self.after(5000, self._check_startup_auto_run)
 
         # เริ่มต้นกระบวนการ Pre-Warming ข้อมูลและสร้างแคชรูป Avatar ใน Background Daemon Thread (Zero-Lag v6.43)
         self.after(200, self._start_prewarm_caches)
 
-        # v6.65: หากเปิดด้วยโหมด --tray (เช่น เปิดอัตโนมัติพร้อม Windows) ให้ซ่อนหน้าต่างไว้ใน System Tray ทันที
+        # v6.66: หากเปิดด้วยโหมด --tray (เช่น เปิดอัตโนมัติพร้อม Windows) ให้ซ่อนหน้าต่างไว้ใน System Tray ทันที
         if splash:
             splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
             splash.close()
@@ -1125,11 +1125,13 @@ class FaceSearchApp(ctk.CTk):
         if self.start_in_tray and self.enable_tray:
             self.withdraw()
             logger.info("[TRAY] 🔽 เปิดโปรแกรมในโหมด System Tray เบื้องหลัง (--tray) ดับเบิลคลิกที่ไอคอนถาดระบบเพื่อเปิดหน้าต่างหลัก")
-            if self.tray_manager:
-                self.after(1500, lambda: self.tray_manager.notify(
-                    "School Face Finder v6.65 พร้อมทำงาน",
-                    "โปรแกรมกำลังทำงานอยู่ใน System Tray และจะรัน Task อัตโนมัติตามตารางเวลา"
-                ))
+            status_init = self.scheduler.get_next_run_status() if hasattr(self, "scheduler") and self.scheduler else {}
+            self.after(1200, lambda: self.show_desktop_toast(
+                "🟢 School Face Finder v6.66 พร้อมทำงานเบื้องหลัง",
+                f"เปิดระบบอัตโนมัติในถาด System Tray เรียบร้อยแล้ว\n{status_init.get('short_text', 'พร้อมรันตามตารางเวลาอัตโนมัติ')}",
+                status_type="info",
+                duration_ms=7000
+            ))
         else:
             self._withdraw_called_before_window_exists = False
             self._window_exists = True
@@ -1157,7 +1159,7 @@ class FaceSearchApp(ctk.CTk):
             pass
 
     def show_from_tray(self):
-        """ดึงหน้าต่างโปรแกรมเต็มกลับมาจากถาด System Tray เมื่อผู้ใช้ดับเบิลคลิกไอคอน (v6.65)"""
+        """ดึงหน้าต่างโปรแกรมเต็มกลับมาจากถาด System Tray เมื่อผู้ใช้ดับเบิลคลิกไอคอน (v6.66)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1178,22 +1180,176 @@ class FaceSearchApp(ctk.CTk):
         except Exception as e:
             logger.debug(f"[TRAY] Error restoring window from tray: {e}")
 
+    def show_desktop_toast(self, title: str, message: str, status_type: str = "info", duration_ms: int = 8000):
+        """
+        แสดงการ์ดแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (เหนือแถบนาฬิกา/System Tray) (v6.66)
+        - แสดงผลชัดเจน 100% แม้หน้าต่างโปรแกรมหลักจะซ่อนอยู่ในถาด System Tray หรือเปิดโหมด Focus Assist
+        - ไม่แย่งโฟกัสคีย์บอร์ดจากโปรแกรมอื่นที่ผู้ใช้กำลังพิมพ์งานอยู่
+        - คลิกที่การ์ดเพื่อเปิดหน้าต่างโปรแกรมหลัก หรือกด ✕ เพื่อปิดทันที
+        """
+        try:
+            if not self.winfo_exists():
+                return None
+
+            # ส่งแจ้งเตือนเข้า Windows System Tray Notification Center ควบคู่กัน
+            if getattr(self, "tray_manager", None) and self.tray_manager.is_running:
+                try:
+                    self.tray_manager.notify(title, message)
+                except Exception:
+                    pass
+
+            # ปิด Toast อันเก่าหากยังแสดงค้างอยู่ เพื่อไม่ให้ซ้อนทับกัน
+            old_toast = getattr(self, "_active_desktop_toast", None)
+            if old_toast is not None:
+                try:
+                    if old_toast.winfo_exists():
+                        old_toast.destroy()
+                except Exception:
+                    pass
+                self._active_desktop_toast = None
+
+            palette = {
+                "start":   {"accent": "#1A73E8", "title_fg": "#8AB4F8"},
+                "info":    {"accent": "#1A73E8", "title_fg": "#8AB4F8"},
+                "success": {"accent": "#34A853", "title_fg": "#81C995"},
+                "finish":  {"accent": "#34A853", "title_fg": "#81C995"},
+                "warning": {"accent": "#FBBC04", "title_fg": "#FDE293"},
+                "error":   {"accent": "#EA4335", "title_fg": "#F28B82"},
+            }
+            theme = palette.get(str(status_type).lower(), palette["info"])
+            accent_col = theme["accent"]
+            title_col = theme["title_fg"]
+
+            toast = tk.Toplevel(self)
+            toast.withdraw()
+            toast.overrideredirect(True)
+            try:
+                toast.attributes("-topmost", True)
+                toast.attributes("-alpha", 0.96)
+            except Exception:
+                pass
+
+            toast_w = 390
+            toast_h = 116
+            screen_w = self.winfo_screenwidth()
+            screen_h = self.winfo_screenheight()
+            pos_x = max(10, screen_w - toast_w - 16)
+            pos_y = max(10, screen_h - toast_h - 56)
+            toast.geometry(f"{toast_w}x{toast_h}+{pos_x}+{pos_y}")
+            toast.configure(bg=accent_col)
+
+            toast._toast_title = str(title)
+            toast._toast_message = str(message)
+            toast._toast_status_type = str(status_type)
+            toast._toast_geometry = f"{toast_w}x{toast_h}+{pos_x}+{pos_y}"
+
+            inner = tk.Frame(toast, bg="#1E1F22", bd=0, highlightthickness=0)
+            inner.pack(fill="both", expand=True, padx=2, pady=2)
+
+            left_strip = tk.Frame(inner, bg=accent_col, width=6)
+            left_strip.pack(side="left", fill="y")
+
+            content = tk.Frame(inner, bg="#1E1F22")
+            content.pack(side="left", fill="both", expand=True, padx=(10, 8), pady=8)
+
+            hdr = tk.Frame(content, bg="#1E1F22")
+            hdr.pack(fill="x")
+
+            lbl_app = tk.Label(
+                hdr,
+                text="✦ SCHOOL FACE FINDER v6.66",
+                font=("Segoe UI", 8, "bold"),
+                fg="#9AA0A6",
+                bg="#1E1F22",
+                anchor="w"
+            )
+            lbl_app.pack(side="left")
+
+            def _close_toast(_event=None):
+                try:
+                    if getattr(self, "_active_desktop_toast", None) == toast:
+                        self._active_desktop_toast = None
+                    if toast.winfo_exists():
+                        toast.destroy()
+                except Exception:
+                    pass
+
+            def _on_click_open(_event=None):
+                _close_toast()
+                self.show_from_tray()
+
+            btn_close = tk.Label(
+                hdr,
+                text="✕",
+                font=("Segoe UI", 9, "bold"),
+                fg="#9AA0A6",
+                bg="#1E1F22",
+                cursor="hand2",
+                padx=4
+            )
+            btn_close.pack(side="right")
+            btn_close.bind("<Button-1>", _close_toast)
+
+            lbl_title = tk.Label(
+                content,
+                text=str(title),
+                font=("Segoe UI", 10, "bold"),
+                fg=title_col,
+                bg="#1E1F22",
+                anchor="w",
+                justify="left",
+                cursor="hand2"
+            )
+            lbl_title.pack(fill="x", pady=(2, 2))
+
+            lbl_msg = tk.Label(
+                content,
+                text=str(message),
+                font=("Segoe UI", 9),
+                fg="#E8EAED",
+                bg="#1E1F22",
+                anchor="w",
+                justify="left",
+                wraplength=350,
+                cursor="hand2"
+            )
+            lbl_msg.pack(fill="x")
+
+            for w in (content, lbl_app, lbl_title, lbl_msg):
+                w.bind("<Button-1>", _on_click_open)
+
+            self._active_desktop_toast = toast
+            toast.deiconify()
+            toast.lift()
+
+            if duration_ms and duration_ms > 0:
+                toast.after(int(duration_ms), _close_toast)
+
+            logger.info(f"[TOAST] 🔔 แสดงแจ้งเตือนมุมขวาล่าง Desktop: {title} | {message.replace(chr(10), ' ')}")
+            return toast
+        except Exception as e:
+            logger.debug(f"[TOAST] Error showing desktop toast: {e}")
+            return None
+
     def hide_to_tray(self):
-        """ย่อหน้าต่างโปรแกรมลงไปซ่อนในถาด System Tray (Show hidden icons) โดยไม่ปิดโปรเซสเบื้องหลัง (v6.65)"""
+        """ย่อหน้าต่างโปรแกรมลงไปซ่อนในถาด System Tray (Show hidden icons) โดยไม่ปิดโปรเซสเบื้องหลัง (v6.66)"""
         try:
             self.withdraw()
             logger.info("[TRAY] 🔽 ย่อหน้าต่างโปรแกรมลงใน System Tray เรียบร้อยแล้ว (ตารางเวลาอัตโนมัติยังทำงานต่อเนื่อง)")
-            if self.tray_manager and not getattr(self.tray_manager, "_notified_minimize_once", False):
-                self.tray_manager._notified_minimize_once = True
-                self.tray_manager.notify(
-                    "ทำงานต่อใน System Tray",
-                    "โปรแกรมยังคงรันตารางเวลาอัตโนมัติอยู่ในเบื้องหลัง ดับเบิลคลิกที่ไอคอนเพื่อเปิดหน้าต่างกลับมา"
+            if not getattr(self, "_notified_minimize_once", False):
+                self._notified_minimize_once = True
+                status = self.scheduler.get_next_run_status() if hasattr(self, "scheduler") and self.scheduler else {}
+                self.show_desktop_toast(
+                    "🔽 ย่อลงถาด System Tray แล้ว",
+                    f"โปรแกรมยังคงทำงานเบื้องหลังตามปกติ (ดับเบิลคลิกไอคอนเพื่อเปิด)\n{status.get('short_text', '')}",
+                    status_type="info",
+                    duration_ms=6000
                 )
         except Exception as e:
             logger.debug(f"[TRAY] Error hiding window to tray: {e}")
 
     def _check_startup_auto_run(self):
-        """ตรวจสอบและสั่งรัน Task 1, 2, 3 อัตโนมัติหลังเปิดโปรแกรม 5 วินาที หากผู้ใช้เปิดตั้งค่าไว้ (v6.65)"""
+        """ตรวจสอบและสั่งรัน Task 1, 2, 3 อัตโนมัติหลังเปิดโปรแกรม 5 วินาที หากผู้ใช้เปิดตั้งค่าไว้ (v6.66)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1205,7 +1361,7 @@ class FaceSearchApp(ctk.CTk):
             logger.debug(f"[AUTO-RUN] Startup auto-run check error: {e}")
 
     def _update_schedule_ui_status(self, reschedule=True):
-        """อัปเดตป้ายแสดงเวลารอบถัดไปบน Sidebar, หน้า Settings และ Tooltip ของ System Tray (v6.65)"""
+        """อัปเดตป้ายแสดงเวลารอบถัดไปบน Sidebar, หน้า Settings และ Tooltip ของ System Tray (v6.66)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1236,7 +1392,7 @@ class FaceSearchApp(ctk.CTk):
                             text_color="#9AA0A6"
                         )
                 if self.tray_manager and self.tray_manager.is_running:
-                    self.tray_manager.update_tooltip(f"School Face Finder v6.65 | {status['short_text']}")
+                    self.tray_manager.update_tooltip(f"School Face Finder v6.66 | {status['short_text']}")
         except Exception:
             pass
         finally:
@@ -1258,7 +1414,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรมสไตล์ Google Photos
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.65",
+            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.66",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#8AB4F8"
         )
@@ -1354,7 +1510,7 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 6), sticky="ew")
 
-        # ป้ายแสดงสถานะตารางเวลาอัตโนมัติและรอบถัดไป (v6.65)
+        # ป้ายแสดงสถานะตารางเวลาอัตโนมัติและรอบถัดไป (v6.66)
         self.lbl_sidebar_schedule_status = ctk.CTkLabel(
             self.sidebar_frame,
             text="⏰ รอบเวลา: 05:00, 11:00, 17:00, 23:00\n⏳ กำลังคำนวณรอบถัดไป...",
@@ -5663,7 +5819,7 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_clear_history.grid(row=1, column=0, padx=15, pady=(2, 10), sticky="ew")
 
-        # แถวที่ 2: โซนตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Automated Scheduler & System Tray v6.65)
+        # แถวที่ 2: โซนตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Automated Scheduler & System Tray v6.66)
         sched_tray_frame = ctk.CTkFrame(self.frame_settings, fg_color="#1E1F22", corner_radius=10)
         sched_tray_frame.grid(row=2, column=0, sticky="ew", padx=2, pady=(0, 8))
         sched_tray_frame.grid_columnconfigure(0, weight=1)
@@ -5688,7 +5844,9 @@ class FaceSearchApp(ctk.CTk):
             command=self.on_toggle_win_autostart
         )
         self.sw_win_autostart.grid(row=0, column=1, padx=10)
-        if is_autostart_enabled():
+        if not is_autostart_enabled() and getattr(self, "enable_tray", False):
+            set_autostart(True)
+        if is_autostart_enabled() or getattr(self, "windows_autostart", True):
             self.sw_win_autostart.select()
 
         self.chk_minimize_to_tray = ctk.CTkCheckBox(
@@ -5777,6 +5935,24 @@ class FaceSearchApp(ctk.CTk):
         )
         self.lbl_sched_slots_preview.grid(row=0, column=5, padx=6, pady=6, sticky="ew")
 
+        btn_test_toast = ctk.CTkButton(
+            st_mid_row,
+            text="🔔 ทดสอบแจ้งเตือน",
+            width=120,
+            height=28,
+            corner_radius=14,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#1A73E8",
+            hover_color="#1765CC",
+            command=lambda: self.show_desktop_toast(
+                "🔔 ทดสอบการแจ้งเตือนมุมขวาล่าง Desktop",
+                f"ระบบจะแจ้งเตือนมุมขวาล่างเมื่อเริ่มรันและเมื่อทำงานเสร็จสิ้น\n{(self.scheduler.get_next_run_status().get('short_text', '') if hasattr(self, 'scheduler') and self.scheduler else '')}",
+                status_type="start",
+                duration_ms=7000
+            )
+        )
+        btn_test_toast.grid(row=0, column=6, padx=(4, 4), pady=6)
+
         btn_save_sched = ctk.CTkButton(
             st_mid_row,
             text="💾 บันทึกตารางเวลา",
@@ -5788,7 +5964,7 @@ class FaceSearchApp(ctk.CTk):
             hover_color="#2D9248",
             command=self.on_save_schedule_settings_click
         )
-        btn_save_sched.grid(row=0, column=6, padx=(6, 12), pady=6)
+        btn_save_sched.grid(row=0, column=7, padx=(4, 12), pady=6)
 
         # แถวที่ 3: โซนจัดการโฟลเดอร์หลักประจำปีการศึกษา (Root Year Folders Management v6.27)
         root_mgr_frame = ctk.CTkFrame(self.frame_settings, fg_color="#1E1F22")
@@ -6249,14 +6425,14 @@ class FaceSearchApp(ctk.CTk):
         return s
 
     def on_toggle_win_autostart(self):
-        """เปิด/ปิดการลงทะเบียนรันโปรแกรมอัตโนมัติเมื่อเปิด Windows (Start with Windows) (v6.65)"""
+        """เปิด/ปิดการลงทะเบียนรันโปรแกรมอัตโนมัติเมื่อเปิด Windows (Start with Windows) (v6.66)"""
         if hasattr(self, "sw_win_autostart"):
             enabled = bool(self.sw_win_autostart.get())
             set_autostart(enabled)
             self.save_settings()
 
     def on_schedule_option_change(self, _=None):
-        """คำนวณรอบเวลาอัตโนมัติทันทีเมื่อผู้ใช้เปลี่ยนเวลาเริ่มรอบแรกหรือคาบเวลาในหน้า Settings (v6.65)"""
+        """คำนวณรอบเวลาอัตโนมัติทันทีเมื่อผู้ใช้เปลี่ยนเวลาเริ่มรอบแรกหรือคาบเวลาในหน้า Settings (v6.66)"""
         try:
             enabled = bool(self.sw_schedule_enabled.get()) if hasattr(self, "sw_schedule_enabled") else True
             anchor = self.combo_sched_anchor.get().strip() if hasattr(self, "combo_sched_anchor") else "05:00"
@@ -6279,7 +6455,7 @@ class FaceSearchApp(ctk.CTk):
             logger.debug(f"[SCHEDULE] Error updating schedule option preview: {e}")
 
     def on_save_schedule_settings_click(self):
-        """บันทึกการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบลงไฟล์ app_settings.json (v6.65)"""
+        """บันทึกการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบลงไฟล์ app_settings.json (v6.66)"""
         self.on_schedule_option_change()
         self.save_settings()
         slots = self.scheduler.schedule_slots if hasattr(self, "scheduler") and self.scheduler else []
@@ -6315,6 +6491,7 @@ class FaceSearchApp(ctk.CTk):
             "schedule_interval_minutes": interval_mins,
             "auto_run_on_startup": bool(self.chk_auto_run_startup.get()) if hasattr(self, "chk_auto_run_startup") else False,
             "minimize_to_tray_on_close": bool(self.chk_minimize_to_tray.get()) if hasattr(self, "chk_minimize_to_tray") else True,
+            "windows_autostart": bool(self.sw_win_autostart.get()) if hasattr(self, "sw_win_autostart") else True,
         }
         
         try:
@@ -6387,7 +6564,7 @@ class FaceSearchApp(ctk.CTk):
                 else:
                     self.chk_fast_rescan.deselect()
 
-            # โหลดการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบ (v6.65)
+            # โหลดการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบ (v6.66)
             sched_enabled = bool(settings.get("schedule_enabled", True))
             sched_anchor = str(settings.get("schedule_anchor_time", "05:00")).strip() or "05:00"
             try:
@@ -6397,6 +6574,14 @@ class FaceSearchApp(ctk.CTk):
 
             self.auto_run_on_startup = bool(settings.get("auto_run_on_startup", False))
             self.minimize_to_tray_on_close = bool(settings.get("minimize_to_tray_on_close", True))
+            self.windows_autostart = bool(settings.get("windows_autostart", True))
+            if hasattr(self, "sw_win_autostart"):
+                if self.windows_autostart:
+                    self.sw_win_autostart.select()
+                    if getattr(self, "enable_tray", False) and not is_autostart_enabled():
+                        set_autostart(True)
+                else:
+                    self.sw_win_autostart.deselect()
 
             if hasattr(self, "sw_schedule_enabled"):
                 if sched_enabled:
@@ -9565,7 +9750,7 @@ class FaceSearchApp(ctk.CTk):
             return False
 
     def on_app_close(self, force_exit=False):
-        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.65)"""
+        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.66)"""
         if (
             not force_exit
             and getattr(self, "enable_tray", False)
@@ -9578,7 +9763,7 @@ class FaceSearchApp(ctk.CTk):
             return
 
         try:
-            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.65)...")
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.66)...")
             if hasattr(self, "tray_manager") and self.tray_manager:
                 try:
                     self.tray_manager.stop()

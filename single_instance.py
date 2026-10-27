@@ -14,7 +14,7 @@ TRAY_WAKEUP_SIGNAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)
 
 
 def send_tray_wakeup_signal():
-    """ส่งสัญญาณปลุกหน้าต่างโปรแกรมที่ซ่อนอยู่ในถาด System Tray ให้เด้งขึ้นมาแสดงผล (v6.65)"""
+    """ส่งสัญญาณปลุกหน้าต่างโปรแกรมที่ซ่อนอยู่ในถาด System Tray ให้เด้งขึ้นมาแสดงผล (v6.66)"""
     try:
         os.makedirs(os.path.dirname(TRAY_WAKEUP_SIGNAL_PATH), exist_ok=True)
         with open(TRAY_WAKEUP_SIGNAL_PATH, "w", encoding="utf-8") as f:
@@ -117,8 +117,8 @@ def terminate_process_by_pid(pid: int) -> bool:
         logger.error(f"[SINGLE_INSTANCE] เกิดข้อผิดพลาดในการ Terminate PID {pid}: {e}")
     return False
 
-def find_active_gui_windows(title_keywords=("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร", "FACE MATCHING")):
-    """ค้นหา Handle ของหน้าต่าง GUI ที่กำลังเปิดใช้งานและตอบสนองอยู่จริง"""
+def find_active_gui_windows(title_keywords=("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร", "FACE MATCHING"), include_tray_hidden=True):
+    """ค้นหา Handle ของหน้าต่าง GUI ที่กำลังเปิดใช้งาน (รวมถึงกรณีซ่อนอยู่ในถาด System Tray) และไม่ค้าง"""
     found_hwnds = []
     try:
         user32 = ctypes.windll.user32
@@ -126,7 +126,7 @@ def find_active_gui_windows(title_keywords=("ระบบค้นหาแล�
         EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         
         def foreach_window(hwnd, lParam):
-            if user32.IsWindowVisible(hwnd):
+            if include_tray_hidden or user32.IsWindowVisible(hwnd):
                 length = user32.GetWindowTextLengthW(hwnd)
                 if length > 0:
                     buff = ctypes.create_unicode_buffer(length + 1)
@@ -134,7 +134,11 @@ def find_active_gui_windows(title_keywords=("ระบบค้นหาแล�
                     title = buff.value
                     for kw in title_keywords:
                         if kw.lower() in title.lower():
-                            found_hwnds.append(hwnd)
+                            try:
+                                if not user32.IsHungAppWindow(hwnd):
+                                    found_hwnds.append(hwnd)
+                            except Exception:
+                                found_hwnds.append(hwnd)
                             break
             return True
 
@@ -219,8 +223,9 @@ def acquire_mutex(mutex_name=DEFAULT_MUTEX_NAME, auto_heal=True):
             # ตรวจสอบว่ามีหน้าต่างโปรแกรมที่ตอบสนองอยู่จริงหรือไม่
             active_windows = find_active_gui_windows()
             if active_windows:
-                # มีหน้าต่างอยู่จริง -> นำหน้าต่างเดิมขึ้นมาข้างหน้า และคืนค่า None เพื่อปิดตัวใหม่
-                logger.info("[SINGLE_INSTANCE] พบหน้าต่างโปรแกรมเดิมกำลังเปิดใช้งานอยู่จริง นำขึ้นมาแสดงข้างหน้า")
+                # มีหน้าต่างอยู่จริง (หรือซ่อนอยู่ใน System Tray) -> ส่งสัญญาณปลุกและนำขึ้นมาข้างหน้า
+                logger.info("[SINGLE_INSTANCE] พบโปรแกรมเดิมกำลังทำงานอยู่ (GUI/System Tray) ส่งสัญญาณปลุกหน้าต่างขึ้นมาแสดงข้างหน้า")
+                send_tray_wakeup_signal()
                 bring_existing_window_to_front()
                 return None
 

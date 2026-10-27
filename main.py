@@ -38,10 +38,11 @@ if __name__ == "__main__":
     )
 
     # 1. ป้องกันการเปิดโปรแกรมซ้ำซ้อน และระบบกู้คืนโปรเซสซอมบี้อัตโนมัติ (Self-Healing Single Instance v6.55)
-    from single_instance import acquire_mutex, release_mutex, bring_existing_window_to_front, cleanup_pid_file
+    from single_instance import acquire_mutex, release_mutex, bring_existing_window_to_front, cleanup_pid_file, send_tray_wakeup_signal
     app_mutex = acquire_mutex(auto_heal=True)
     if app_mutex is None:
-        logging.warning("⚠️ มีโปรแกรม FaceSearchApp กำลังทำงานอยู่แล้ว ทำการสลับไปหน้าต่างเดิมและปิดตัวจำลองซ้ำ")
+        logging.warning("⚠️ มีโปรแกรม FaceSearchApp กำลังทำงานอยู่แล้ว ทำการปลุกจาก System Tray / สลับไปหน้าต่างเดิม")
+        send_tray_wakeup_signal()
         bring_existing_window_to_front()
         sys.exit(0)
 
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     splash = None
     if not start_in_tray:
         from splash_screen import SplashScreen
-        splash = SplashScreen(version="v6.65")
+        splash = SplashScreen(version="v6.66")
         splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น
