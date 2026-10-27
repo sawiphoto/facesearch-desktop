@@ -965,7 +965,7 @@ class FaceSearchApp(ctk.CTk):
         # เราใช้ธีมสีน้ำเงินพื้นฐานของ CTk เป็นฐาน และตกแต่งด้วยสี Navy เฉพาะตัว
         ctk.set_default_color_theme("blue")
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.61 (1-to-N Face Search & Quick Register Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.62 (Minimal 3-Step Face Search Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
 
@@ -1108,7 +1108,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรม
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="FACE MATCHING\nSYSTEM v6.61",
+            text="FACE MATCHING\nSYSTEM v6.62",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color="#6CA6CD"
         )
@@ -9577,9 +9577,9 @@ class FaceSearchApp(ctk.CTk):
             self.clipboard_append(text)
             logger.info("[UI] คัดลอกข้อความ Log ทั้งหมดไปยัง Clipboard เรียบร้อยแล้ว")
 
-    # ==================== (8) หน้าค้นหาบุคคลจากภาพ 1-ต่อ-N & ขึ้นทะเบียนด่วน (v6.61) ====================
+    # ==================== (8) หน้าค้นหาบุคคลจากภาพ 1-ต่อ-N & ขึ้นทะเบียนด่วน (v6.62 Minimal 3-Step) ====================
     def setup_face_search_ui(self):
-        """สร้างส่วนติดต่อผู้ใช้สำหรับฟีเจอร์ค้นหาใบหน้า 1-ต่อ-N ความเร็วสูง และบันทึกขึ้นทะเบียนด่วน (v6.61)"""
+        """สร้างส่วนติดต่อผู้ใช้สไตล์ Minimal ตรงไปตรงมาแบบ 3 ขั้นตอน (v6.62)"""
         self.face_search_img_path = None
         self.face_search_cv_img = None
         self.face_search_detected_faces = []
@@ -9602,22 +9602,22 @@ class FaceSearchApp(ctk.CTk):
         self.frame_face_search.grid_columnconfigure(1, weight=1)
         self.frame_face_search.grid_rowconfigure(1, weight=1)
 
-        # --- แถบหัวข้อด้านบน ---
+        # --- แถบหัวข้อด้านบน (Clean Minimal Header) ---
         header_bar = ctk.CTkFrame(self.frame_face_search, fg_color="transparent")
-        header_bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        header_bar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         header_bar.grid_columnconfigure(0, weight=1)
 
         lbl_title = ctk.CTkLabel(
             header_bar,
-            text="🎯 ค้นหาบุคคลจากภาพ 1-ต่อ-N & ขึ้นทะเบียนด่วน (Face Search Suite)",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            text="🎯 ค้นหาบุคคลจากภาพถ่ายกิจกรรม (Face Search)",
+            font=ctk.CTkFont(size=20, weight="bold"),
             text_color="white"
         )
         lbl_title.grid(row=0, column=0, sticky="w")
 
         self.lbl_fs_db_badge = ctk.CTkLabel(
             header_bar,
-            text="⚡ พร้อมสแกนเปรียบเทียบเวกเตอร์ใบหน้าในคลังข้อมูล SQLite",
+            text="⚡ ค้นหาในคลังภาพกิจกรรมทั้งหมด (>1,000,000 ใบหน้า)",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color="#5CACEE",
             fg_color="#152336",
@@ -9627,399 +9627,404 @@ class FaceSearchApp(ctk.CTk):
         )
         self.lbl_fs_db_badge.grid(row=0, column=1, sticky="e")
 
-        # ==================== โซนซ้าย: อัปโหลดภาพใบหน้า & ตั้งค่าการค้นหา ====================
-        self.fs_left_panel = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", width=330, corner_radius=10)
-        self.fs_left_panel.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 8))
-        self.fs_left_panel.grid_propagate(False)
+        # ==================== โซนซ้าย: แผงควบคุมขั้นตอน 1 และขั้นตอน 3 (กว้าง 340px) ====================
+        self.fs_left_panel = ctk.CTkScrollableFrame(self.frame_face_search, fg_color="#162436", width=340, corner_radius=10)
+        self.fs_left_panel.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 4))
         self.fs_left_panel.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            self.fs_left_panel,
-            text="1️⃣ อัปโหลดภาพใบหน้าต้นแบบ",
-            font=ctk.CTkFont(size=15, weight="bold"),
+        # ----- การ์ดขั้นตอนที่ 1: เลือกภาพใบหน้าบุคคล -----
+        card_step1 = ctk.CTkFrame(self.fs_left_panel, fg_color="#101B2B", corner_radius=8, border_width=1, border_color="#1F334D")
+        card_step1.pack(fill="x", padx=6, pady=(4, 8))
+        card_step1.grid_columnconfigure(0, weight=1)
+
+        lbl_s1 = ctk.CTkLabel(
+            card_step1,
+            text="ขั้นตอนที่ 1: เลือกภาพใบหน้าบุคคล",
+            font=ctk.CTkFont(size=13, weight="bold"),
             text_color="#6CA6CD"
-        ).grid(row=0, column=0, padx=14, pady=(12, 6), sticky="w")
+        )
+        lbl_s1.pack(anchor="w", padx=12, pady=(10, 6))
 
         self.btn_fs_upload = ctk.CTkButton(
-            self.fs_left_panel,
-            text="📂 เลือกรูปภาพใบหน้า (JPG/PNG/HEIC/WEBP)",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            card_step1,
+            text="📂 เลือกรูปภาพใบหน้า (Upload Face)",
+            font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#2980B9",
             hover_color="#1F618D",
-            height=36,
+            height=32,
             command=self.on_upload_query_image
         )
-        self.btn_fs_upload.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="ew")
+        self.btn_fs_upload.pack(fill="x", padx=12, pady=(0, 6))
 
-        # กล่องแสดงภาพต้นฉบับคู่กับภาพใบหน้าที่ครอป
-        preview_box = ctk.CTkFrame(self.fs_left_panel, fg_color="#0E1724", corner_radius=8)
-        preview_box.grid(row=2, column=0, padx=14, pady=(0, 6), sticky="ew")
-        preview_box.grid_columnconfigure((0, 1), weight=1)
-
-        self.lbl_fs_orig_preview = ctk.CTkLabel(
-            preview_box,
-            text="🖼️ ภาพต้นฉบับ",
-            width=135,
-            height=120,
-            fg_color="#101B2B",
-            corner_radius=6,
-            font=ctk.CTkFont(size=11),
-            text_color="#7F8C8D"
-        )
-        self.lbl_fs_orig_preview.grid(row=0, column=0, padx=(8, 4), pady=8)
+        # กรอบแสดงอวาตาร์ใบหน้าเดี่ยวแบบ Minimal
+        avatar_box = ctk.CTkFrame(card_step1, fg_color="#0E1724", corner_radius=8)
+        avatar_box.pack(padx=12, pady=(0, 6), fill="x")
+        avatar_box.grid_columnconfigure(0, weight=1)
 
         self.lbl_fs_crop_preview = ctk.CTkLabel(
-            preview_box,
-            text="👤 ใบหน้าที่ใช้ค้นหา",
-            width=135,
-            height=120,
+            avatar_box,
+            text="👤 ใบหน้าที่เลือก",
+            width=120,
+            height=110,
             fg_color="#101B2B",
             corner_radius=6,
             font=ctk.CTkFont(size=11),
             text_color="#7F8C8D"
         )
-        self.lbl_fs_crop_preview.grid(row=0, column=1, padx=(4, 8), pady=8)
+        self.lbl_fs_crop_preview.pack(pady=8)
+
+        # เก็บพรีวิวภาพต้นฉบับไว้เป็น reference
+        self.lbl_fs_orig_preview = ctk.CTkLabel(
+            avatar_box,
+            text="",
+            width=1,
+            height=1
+        )
 
         self.lbl_fs_face_status = ctk.CTkLabel(
-            self.fs_left_panel,
-            text="สถานะ: ยังไม่ได้เลือกรูปภาพ",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            card_step1,
+            text="ยังไม่ได้เลือกรูปภาพ",
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#A2B5CD"
         )
-        self.lbl_fs_face_status.grid(row=3, column=0, padx=14, pady=(0, 4), sticky="w")
+        self.lbl_fs_face_status.pack(padx=12, pady=(0, 4))
 
-        # ตัวเลือกใบหน้า (กรณีในภาพมีหลายคน)
-        face_sel_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
-        face_sel_row.grid(row=4, column=0, padx=14, pady=(0, 8), sticky="ew")
-        face_sel_row.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(face_sel_row, text="เลือกใบหน้า:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").grid(row=0, column=0, padx=(0, 6), sticky="w")
+        # ตัวเลือกใบหน้ากรณีมีหลายคน
         self.combo_fs_face_selector = ctk.CTkComboBox(
-            face_sel_row,
+            card_step1,
             values=["- ไม่มีข้อมูลใบหน้า -"],
             state="disabled",
-            height=28,
+            height=26,
+            font=ctk.CTkFont(size=11),
             command=self.on_select_query_face_index
         )
-        self.combo_fs_face_selector.grid(row=0, column=1, sticky="ew")
+        self.combo_fs_face_selector.pack(fill="x", padx=12, pady=(0, 6))
 
-        # เส้นคั่น
-        ctk.CTkFrame(self.fs_left_panel, height=2, fg_color="#22354D").grid(row=5, column=0, padx=14, pady=6, sticky="ew")
-
-        ctk.CTkLabel(
-            self.fs_left_panel,
-            text="2️⃣ ตั้งค่าความแม่นยำ & ขอบเขตการค้นหา",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            text_color="#6CA6CD"
-        ).grid(row=6, column=0, padx=14, pady=(4, 4), sticky="w")
+        # ตัวเลือกตั้งค่าแบบกะทัดรัด (Threshold + Scope Year)
+        settings_grid = ctk.CTkFrame(card_step1, fg_color="transparent")
+        settings_grid.pack(fill="x", padx=12, pady=(0, 6))
+        settings_grid.grid_columnconfigure((0, 1), weight=1)
 
         self.lbl_fs_threshold_val = ctk.CTkLabel(
-            self.fs_left_panel,
-            text="ความเหมือนขั้นต่ำ (Threshold): 45% (0.45)",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            settings_grid,
+            text="ความเหมือน: 45%",
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#F1C40F"
         )
-        self.lbl_fs_threshold_val.grid(row=7, column=0, padx=14, pady=(0, 2), sticky="w")
+        self.lbl_fs_threshold_val.grid(row=0, column=0, sticky="w", padx=2)
+
+        ctk.CTkLabel(
+            settings_grid,
+            text="ปีการศึกษา:",
+            font=ctk.CTkFont(size=11),
+            text_color="#A2B5CD"
+        ).grid(row=0, column=1, sticky="w", padx=2)
 
         self.slider_fs_threshold = ctk.CTkSlider(
-            self.fs_left_panel,
+            settings_grid,
             from_=0.35,
             to=0.75,
             number_of_steps=40,
+            height=16,
             command=self.on_fs_threshold_slide
         )
         self.slider_fs_threshold.set(0.45)
-        self.slider_fs_threshold.grid(row=8, column=0, padx=14, pady=(0, 8), sticky="ew")
+        self.slider_fs_threshold.grid(row=1, column=0, sticky="ew", padx=2, pady=2)
 
-        scope_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
-        scope_row.grid(row=9, column=0, padx=14, pady=(0, 8), sticky="ew")
-        scope_row.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(scope_row, text="ปีการศึกษาที่ค้นหา:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").grid(row=0, column=0, padx=(0, 8), sticky="w")
         self.combo_fs_year_scope = ctk.CTkComboBox(
-            scope_row,
+            settings_grid,
             values=["ทั้งหมด"],
-            height=28
+            height=26,
+            font=ctk.CTkFont(size=11)
         )
         self.combo_fs_year_scope.set("ทั้งหมด")
-        self.combo_fs_year_scope.grid(row=0, column=1, sticky="ew")
+        self.combo_fs_year_scope.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
 
-        btn_action_row = ctk.CTkFrame(self.fs_left_panel, fg_color="transparent")
-        btn_action_row.grid(row=10, column=0, padx=14, pady=(2, 6), sticky="ew")
-        btn_action_row.grid_columnconfigure(0, weight=3)
-        btn_action_row.grid_columnconfigure(1, weight=1)
+        # ปุ่มเริ่มค้นหา
+        btn_action_box = ctk.CTkFrame(card_step1, fg_color="transparent")
+        btn_action_box.pack(fill="x", padx=12, pady=(4, 6))
+        btn_action_box.grid_columnconfigure(0, weight=3)
+        btn_action_box.grid_columnconfigure(1, weight=1)
 
         self.btn_fs_start_search = ctk.CTkButton(
-            btn_action_row,
-            text="🚀 เริ่มค้นหาในคลังภาพทั้งหมด",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            btn_action_box,
+            text="🔍 เริ่มค้นหาภาพกิจกรรม",
+            font=ctk.CTkFont(size=13, weight="bold"),
             fg_color="#27AE60",
             hover_color="#219150",
-            height=38,
+            height=34,
             command=self.start_one_to_n_face_search
         )
-        self.btn_fs_start_search.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+        self.btn_fs_start_search.grid(row=0, column=0, padx=(0, 4), sticky="ew")
 
         self.btn_fs_stop_search = ctk.CTkButton(
-            btn_action_row,
+            btn_action_box,
             text="🛑 หยุด",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#E74C3C",
             hover_color="#C0392B",
-            height=38,
-             width=65,
+            height=34,
+            width=50,
             state="disabled",
             command=self.stop_one_to_n_face_search
         )
         self.btn_fs_stop_search.grid(row=0, column=1, sticky="ew")
 
-        self.prog_fs_search = ctk.CTkProgressBar(self.fs_left_panel, height=10)
+        self.prog_fs_search = ctk.CTkProgressBar(card_step1, height=8)
         self.prog_fs_search.set(0)
-        self.prog_fs_search.grid(row=11, column=0, padx=14, pady=(4, 2), sticky="ew")
+        self.prog_fs_search.pack(fill="x", padx=12, pady=(2, 2))
 
         self.lbl_fs_progress = ctk.CTkLabel(
-            self.fs_left_panel,
-            text="อัปโหลดภาพใบหน้าเพื่อเริ่มต้นค้นหา",
+            card_step1,
+            text="เลือกภาพเพื่อเริ่มค้นหา",
             font=ctk.CTkFont(size=11),
-            text_color="#95A5A6",
-            wraplength=300,
-            justify="left"
+            text_color="#95A5A6"
         )
-        self.lbl_fs_progress.grid(row=12, column=0, padx=14, pady=(0, 8), sticky="w")
+        self.lbl_fs_progress.pack(padx=12, pady=(0, 8))
 
-        # ==================== โซนขวา: แกลเลอรีผลลัพธ์ + ตัวกรอง + Pagination ความเร็วสูง ====================
+        # ----- การ์ดขั้นตอนที่ 3: บันทึกขึ้นทะเบียนบุคคล -----
+        card_step3 = ctk.CTkFrame(self.fs_left_panel, fg_color="#101B2B", corner_radius=8, border_width=1, border_color="#1F334D")
+        card_step3.pack(fill="x", padx=6, pady=(4, 8))
+        card_step3.grid_columnconfigure(0, weight=1)
+
+        lbl_s3 = ctk.CTkLabel(
+            card_step3,
+            text="ขั้นตอนที่ 3: บันทึกขึ้นทะเบียนบุคคล",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#2ECC71"
+        )
+        lbl_s3.pack(anchor="w", padx=12, pady=(10, 4))
+
+        # ตัวเลือกประเภทบุคคล
+        ctk.CTkLabel(
+            card_step3,
+            text="ประเภทบุคคล:",
+            font=ctk.CTkFont(size=11),
+            text_color="#A2B5CD"
+        ).pack(anchor="w", padx=12, pady=(0, 2))
+
+        self.combo_fs_reg_role = ctk.CTkComboBox(
+            card_step3,
+            values=["ครู/บุคลากร (Teacher)", "นักเรียน (Student)"],
+            height=28,
+            font=ctk.CTkFont(size=12),
+            command=self.on_fs_reg_role_change
+        )
+        self.combo_fs_reg_role.set("ครู/บุคลากร (Teacher)")
+        self.combo_fs_reg_role.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            card_step3,
+            text="ชื่อ-นามสกุล:",
+            font=ctk.CTkFont(size=11),
+            text_color="#A2B5CD"
+        ).pack(anchor="w", padx=12, pady=(0, 2))
+
+        self.entry_fs_reg_name = ctk.CTkEntry(
+            card_step3,
+            placeholder_text="ระบุชื่อ-นามสกุล...",
+            height=30,
+            font=ctk.CTkFont(size=12)
+        )
+        self.entry_fs_reg_name.pack(fill="x", padx=12, pady=(0, 6))
+
+        self.lbl_fs_reg_dept_title = ctk.CTkLabel(
+            card_step3,
+            text="กลุ่มสาระ / ตำแหน่ง:",
+            font=ctk.CTkFont(size=11),
+            text_color="#A2B5CD"
+        )
+        self.lbl_fs_reg_dept_title.pack(anchor="w", padx=12, pady=(0, 2))
+
+        self.entry_fs_reg_dept = ctk.CTkEntry(
+            card_step3,
+            placeholder_text="เช่น วิทยาศาสตร์ หรือ ห้องเรียน...",
+            height=30,
+            font=ctk.CTkFont(size=12)
+        )
+        self.entry_fs_reg_dept.pack(fill="x", padx=12, pady=(0, 6))
+
+        self.lbl_fs_reg_code_title = ctk.CTkLabel(
+            card_step3,
+            text="รหัสประจำตัว (ถ้ามี):",
+            font=ctk.CTkFont(size=11),
+            text_color="#A2B5CD"
+        )
+        self.lbl_fs_reg_code_title.pack(anchor="w", padx=12, pady=(0, 2))
+
+        self.entry_fs_reg_code = ctk.CTkEntry(
+            card_step3,
+            placeholder_text="รหัสนักเรียน / รหัสอ้างอิง...",
+            height=28,
+            font=ctk.CTkFont(size=12)
+        )
+        self.entry_fs_reg_code.pack(fill="x", padx=12, pady=(0, 6))
+
+        self.var_fs_save_emb = tk.BooleanVar(value=True)
+        self.chk_fs_save_face_emb = ctk.CTkCheckBox(
+            card_step3,
+            text="บันทึกภาพนี้เป็นใบหน้าต้นแบบ",
+            variable=self.var_fs_save_emb,
+            font=ctk.CTkFont(size=11)
+        )
+        self.chk_fs_save_face_emb.pack(anchor="w", padx=12, pady=(2, 8))
+
+        self.btn_fs_save_register = ctk.CTkButton(
+            card_step3,
+            text="💾 บันทึกขึ้นทะเบียนบุคคล",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#27AE60",
+            hover_color="#1E8449",
+            height=36,
+            command=self.save_and_register_matched_person
+        )
+        self.btn_fs_save_register.pack(fill="x", padx=12, pady=(0, 4))
+
+        self.btn_fs_discard = ctk.CTkButton(
+            card_step3,
+            text="✕ ล้างข้อมูล / เริ่มใหม่",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#34495E",
+            hover_color="#C0392B",
+            height=28,
+            command=self.discard_face_search_results
+        )
+        self.btn_fs_discard.pack(fill="x", padx=12, pady=(0, 10))
+
+        # ==================== โซนขวา: แกลเลอรีผลลัพธ์ขั้นตอนที่ 2 ====================
         self.fs_right_panel = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", corner_radius=10)
-        self.fs_right_panel.grid(row=1, column=1, sticky="nsew", pady=(0, 8))
+        self.fs_right_panel.grid(row=1, column=1, sticky="nsew", pady=(0, 4))
         self.fs_right_panel.grid_columnconfigure(0, weight=1)
-        self.fs_right_panel.grid_rowconfigure(2, weight=1)
+        self.fs_right_panel.grid_rowconfigure(1, weight=1)
 
-        # 1. แถบตัวกรองย่อยในหน่วยความจำ (Instant 0ms In-Memory Sub-Filters)
+        # 1. แถบหัวเรื่อง & ตัวกรองแถวเดียว (Minimal 1-Row Toolbar)
         filter_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="#101B2B", corner_radius=8)
-        filter_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
-        filter_bar.grid_columnconfigure(3, weight=1)
+        filter_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        filter_bar.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(filter_bar, text="กรองปี:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#A2B5CD").grid(row=0, column=0, padx=(10, 4), pady=6)
+        self.lbl_fs_match_summary = ctk.CTkLabel(
+            filter_bar,
+            text="ขั้นตอนที่ 2: ผลการค้นหา (0 รูป)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#5CACEE"
+        )
+        self.lbl_fs_match_summary.grid(row=0, column=0, padx=(10, 8), pady=6, sticky="w")
+
+        self.entry_fs_sub_keyword = ctk.CTkEntry(
+            filter_bar,
+            placeholder_text="🔍 ค้นหาชื่องานกิจกรรม / อัลบั้ม...",
+            height=28
+        )
+        self.entry_fs_sub_keyword.grid(row=0, column=1, padx=4, pady=6, sticky="ew")
+        self.entry_fs_sub_keyword.bind("<KeyRelease>", self.on_fs_keyword_debounced)
+
         self.combo_fs_sub_year = ctk.CTkComboBox(
             filter_bar,
             values=["ทุกปีการศึกษา"],
-            width=115,
-            height=28,
-            command=lambda _: self.apply_face_search_subfilters()
-        )
-        self.combo_fs_sub_year.set("ทุกปีการศึกษา")
-        self.combo_fs_sub_year.grid(row=0, column=1, padx=(0, 8), pady=6)
-
-        self.combo_fs_sub_conf = ctk.CTkComboBox(
-            filter_bar,
-            values=["ทุกระดับ %", ">= 50%", ">= 60%", ">= 70%", ">= 80%"],
             width=110,
             height=28,
             command=lambda _: self.apply_face_search_subfilters()
         )
-        self.combo_fs_sub_conf.set("ทุกระดับ %")
-        self.combo_fs_sub_conf.grid(row=0, column=2, padx=(0, 8), pady=6)
+        self.combo_fs_sub_year.set("ทุกปีการศึกษา")
+        self.combo_fs_sub_year.grid(row=0, column=2, padx=4, pady=6)
 
-        self.entry_fs_sub_keyword = ctk.CTkEntry(
+        self.combo_fs_sub_conf = ctk.CTkComboBox(
             filter_bar,
-            placeholder_text="🔍 ค้นหาชื่อกิจกรรม / อัลบั้ม / รหัสภาพ...",
-            height=28
+            values=["ทุกระดับ %", ">= 60%", ">= 70%", ">= 80%"],
+            width=100,
+            height=28,
+            command=lambda _: self.apply_face_search_subfilters()
         )
-        self.entry_fs_sub_keyword.grid(row=0, column=3, padx=(0, 8), pady=6, sticky="ew")
-        self.entry_fs_sub_keyword.bind("<KeyRelease>", self.on_fs_keyword_debounced)
+        self.combo_fs_sub_conf.set("ทุกระดับ %")
+        self.combo_fs_sub_conf.grid(row=0, column=3, padx=4, pady=6)
 
         self.combo_fs_sort = ctk.CTkComboBox(
             filter_bar,
-            values=["ความเหมือนสูงสุด", "วันที่ถ่ายล่าสุด", "วันที่ถ่ายเก่าสุด"],
-            width=145,
+            values=["ความเหมือนสูงสุด", "วันที่ถ่ายล่าสุด"],
+            width=125,
             height=28,
             command=lambda _: self.apply_face_search_subfilters()
         )
         self.combo_fs_sort.set("ความเหมือนสูงสุด")
-        self.combo_fs_sort.grid(row=0, column=4, padx=(0, 10), pady=6)
-
-        # 2. แถบเครื่องมือเลือกภาพแบบกลุ่ม (Smart Batch Selection Toolbar)
-        sel_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="transparent")
-        sel_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
-        sel_bar.grid_columnconfigure(0, weight=1)
-
-        self.lbl_fs_match_summary = ctk.CTkLabel(
-            sel_bar,
-            text="📊 พบทั้งหมด: 0 รูป | แสดงตามตัวกรอง: 0 รูป | ☑️ เลือกไว้: 0 รูป",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#5CACEE"
-        )
-        self.lbl_fs_match_summary.grid(row=0, column=0, sticky="w", padx=4)
-
-        btn_sel_group = ctk.CTkFrame(sel_bar, fg_color="transparent")
-        btn_sel_group.grid(row=0, column=1, sticky="e")
+        self.combo_fs_sort.grid(row=0, column=4, padx=4, pady=6)
 
         ctk.CTkButton(
-            btn_sel_group, text="☑️ เลือกทั้งหมด", width=95, height=26,
+            filter_bar, text="☑️ ทั้งหมด", width=70, height=26,
             font=ctk.CTkFont(size=11, weight="bold"), fg_color="#2980B9", hover_color="#1F618D",
             command=self.fs_select_all_filtered
-        ).pack(side="left", padx=3)
+        ).grid(row=0, column=5, padx=3, pady=6)
 
         ctk.CTkButton(
-            btn_sel_group, text="📄 เลือกหน้านี้", width=90, height=26,
-            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#34495E", hover_color="#2C3E50",
-            command=self.fs_select_current_page
-        ).pack(side="left", padx=3)
-
-        ctk.CTkButton(
-            btn_sel_group, text="🎯 เลือก >= 60%", width=95, height=26,
-            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#16A085", hover_color="#1ABC9C",
-            command=lambda: self.fs_select_high_confidence(0.60)
-        ).pack(side="left", padx=3)
-
-        ctk.CTkButton(
-            btn_sel_group, text="⬜ ไม่เลือกเลย", width=85, height=26,
-            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#7F8C8D", hover_color="#95A5A6",
+            filter_bar, text="⬜ ล้าง", width=55, height=26,
+            font=ctk.CTkFont(size=11, weight="bold"), fg_color="#5D6D7E", hover_color="#7F8C8D",
             command=self.fs_deselect_all
-        ).pack(side="left", padx=3)
+        ).grid(row=0, column=6, padx=(3, 8), pady=6)
 
-        # 3. พื้นที่แสดงการ์ดรูปภาพแบบแบ่งหน้า (Virtualized 24-Cards Grid)
+        # 2. พื้นที่แสดงการ์ดรูปภาพแบบแบ่งหน้า (Virtualized 24-Cards Grid)
         self.scr_face_search_results = ctk.CTkScrollableFrame(self.fs_right_panel, fg_color="#0E1724", corner_radius=8)
-        self.scr_face_search_results.grid(row=2, column=0, sticky="nsew", padx=10, pady=4)
+        self.scr_face_search_results.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         for c in range(4):
             self.scr_face_search_results.grid_columnconfigure(c, weight=1)
 
         self.lbl_fs_empty_hint = ctk.CTkLabel(
             self.scr_face_search_results,
-            text="🎯 อัปโหลดรูปภาพใบหน้าทางด้านซ้าย แล้วกด 'เริ่มค้นหาในคลังภาพทั้งหมด'\nระบบรองรับการแสดงผลระดับ 10,000+ ภาพอย่างรวดเร็วด้วยระบบแบ่งหน้าอัจฉริยะ (24 ภาพ/หน้า)",
-            font=ctk.CTkFont(size=14),
+            text="🔍 อัปโหลดรูปภาพใบหน้าทางด้านซ้าย แล้วกด 'เริ่มค้นหาภาพกิจกรรม'\nระบบรองรับการแสดงผลรูปภาพจำนวนมากด้วยระบบแบ่งหน้าความเร็วสูง (24 ภาพ/หน้า)",
+            font=ctk.CTkFont(size=13),
             text_color="#7F8C8D",
             justify="center"
         )
-        self.lbl_fs_empty_hint.grid(row=0, column=0, columnspan=4, pady=90)
+        self.lbl_fs_empty_hint.grid(row=0, column=0, columnspan=4, pady=80)
 
-        # 4. แถบเปลี่ยนหน้า (Fast Pagination Bar)
+        # 3. แถบแบ่งหน้ามินิมอล (Minimal Fast Pagination)
         self.fs_pagination_bar = ctk.CTkFrame(self.fs_right_panel, fg_color="#101B2B", corner_radius=8)
-        self.fs_pagination_bar.grid(row=3, column=0, sticky="ew", padx=10, pady=(2, 10))
+        self.fs_pagination_bar.grid(row=2, column=0, sticky="ew", padx=8, pady=(2, 8))
         self.fs_pagination_bar.grid_columnconfigure(2, weight=1)
 
         self.btn_fs_first_page = ctk.CTkButton(
-            self.fs_pagination_bar, text="⏮ หน้าแรก", width=75, height=28,
+            self.fs_pagination_bar, text="⏮ หน้าแรก", width=70, height=26,
             fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(1)
         )
-        self.btn_fs_first_page.grid(row=0, column=0, padx=(8, 4), pady=6)
+        self.btn_fs_first_page.grid(row=0, column=0, padx=(8, 3), pady=4)
 
         self.btn_fs_prev_page = ctk.CTkButton(
-            self.fs_pagination_bar, text="◀ ก่อนหน้า", width=80, height=28,
+            self.fs_pagination_bar, text="◀ ก่อนหน้า", width=75, height=26,
             fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self.face_search_current_page - 1)
         )
-        self.btn_fs_prev_page.grid(row=0, column=1, padx=4, pady=6)
+        self.btn_fs_prev_page.grid(row=0, column=1, padx=3, pady=4)
 
         self.lbl_fs_page_info = ctk.CTkLabel(
             self.fs_pagination_bar,
             text="หน้า 1 / 1 (0 รูปภาพ)",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             text_color="#E0E6ED"
         )
-        self.lbl_fs_page_info.grid(row=0, column=2, padx=10, pady=6)
+        self.lbl_fs_page_info.grid(row=0, column=2, padx=10, pady=4)
 
         self.btn_fs_next_page = ctk.CTkButton(
-            self.fs_pagination_bar, text="ถัดไป ▶", width=80, height=28,
+            self.fs_pagination_bar, text="ถัดไป ▶", width=75, height=26,
             fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self.face_search_current_page + 1)
         )
-        self.btn_fs_next_page.grid(row=0, column=3, padx=4, pady=6)
+        self.btn_fs_next_page.grid(row=0, column=3, padx=3, pady=4)
 
         self.btn_fs_last_page = ctk.CTkButton(
-            self.fs_pagination_bar, text="สุดท้าย ⏭", width=75, height=28,
+            self.fs_pagination_bar, text="สุดท้าย ⏭", width=70, height=26,
             fg_color="#1F3A60", hover_color="#2980B9", command=lambda: self.go_to_face_search_page(self._get_fs_total_pages())
         )
-        self.btn_fs_last_page.grid(row=0, column=4, padx=4, pady=6)
+        self.btn_fs_last_page.grid(row=0, column=4, padx=3, pady=4)
 
         jump_frame = ctk.CTkFrame(self.fs_pagination_bar, fg_color="transparent")
-        jump_frame.grid(row=0, column=5, padx=(8, 8), pady=6)
-        ctk.CTkLabel(jump_frame, text="ไปหน้า:", font=ctk.CTkFont(size=12), text_color="#A2B5CD").pack(side="left", padx=(0, 4))
-        self.entry_fs_jump_page = ctk.CTkEntry(jump_frame, width=55, height=26, justify="center")
-        self.entry_fs_jump_page.pack(side="left", padx=(0, 4))
+        jump_frame.grid(row=0, column=5, padx=(6, 8), pady=4)
+        ctk.CTkLabel(jump_frame, text="ไปหน้า:", font=ctk.CTkFont(size=11), text_color="#A2B5CD").pack(side="left", padx=(0, 2))
+        self.entry_fs_jump_page = ctk.CTkEntry(jump_frame, width=45, height=24, justify="center")
+        self.entry_fs_jump_page.pack(side="left", padx=(0, 2))
         self.entry_fs_jump_page.bind("<Return>", lambda _: self.on_fs_jump_page())
         ctk.CTkButton(
-            jump_frame, text="ไป", width=40, height=26,
+            jump_frame, text="ไป", width=35, height=24,
             fg_color="#2980B9", hover_color="#1F618D", command=self.on_fs_jump_page
         ).pack(side="left")
 
-        # ==================== โซนล่าง: แถบกรอกชื่อบันทึกขึ้นทะเบียนด่วน หรือ กดปฏิเสธ ====================
-        self.fs_bottom_bar = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", corner_radius=10, border_width=1, border_color="#26384D")
-        self.fs_bottom_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
-        self.fs_bottom_bar.grid_columnconfigure(2, weight=1)
-        self.fs_bottom_bar.grid_columnconfigure(4, weight=1)
-
-        ctk.CTkLabel(
-            self.fs_bottom_bar,
-            text="3️⃣ บันทึกขึ้นทะเบียน:",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#2ECC71"
-        ).grid(row=0, column=0, padx=(12, 6), pady=10, sticky="w")
-
-        self.combo_fs_reg_role = ctk.CTkComboBox(
-            self.fs_bottom_bar,
-            values=["ครู/บุคลากร (Teacher)", "นักเรียน (Student)"],
-            width=165,
-            height=32,
-            command=self.on_fs_reg_role_change
-        )
-        self.combo_fs_reg_role.set("ครู/บุคลากร (Teacher)")
-        self.combo_fs_reg_role.grid(row=0, column=1, padx=4, pady=10)
-
-        self.entry_fs_reg_name = ctk.CTkEntry(
-            self.fs_bottom_bar,
-            placeholder_text="ระบุชื่อ-นามสกุล (เช่น นายสมชาย ใจดี)...",
-            height=32
-        )
-        self.entry_fs_reg_name.grid(row=0, column=2, padx=4, pady=10, sticky="ew")
-
-        self.entry_fs_reg_code = ctk.CTkEntry(
-            self.fs_bottom_bar,
-            placeholder_text="รหัสนักเรียน (ถ้ามี)",
-            width=135,
-            height=32
-        )
-        self.entry_fs_reg_code.grid(row=0, column=3, padx=4, pady=10)
-
-        self.entry_fs_reg_dept = ctk.CTkEntry(
-            self.fs_bottom_bar,
-            placeholder_text="กลุ่มสาระ/ตำแหน่ง หรือ ห้องเรียน (เช่น ม.1/1)",
-            height=32
-        )
-        self.entry_fs_reg_dept.grid(row=0, column=4, padx=4, pady=10, sticky="ew")
-
-        self.var_fs_save_emb = tk.BooleanVar(value=True)
-        self.chk_fs_save_face_emb = ctk.CTkCheckBox(
-            self.fs_bottom_bar,
-            text="บันทึกใบหน้าต้นแบบ",
-            variable=self.var_fs_save_emb,
-            font=ctk.CTkFont(size=12)
-        )
-        self.chk_fs_save_face_emb.grid(row=0, column=5, padx=6, pady=10)
-
-        self.btn_fs_discard = ctk.CTkButton(
-            self.fs_bottom_bar,
-            text="❌ ปฏิเสธ / ล้างผลลัพธ์",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#C0392B",
-            hover_color="#922B21",
-            width=150,
-            height=34,
-            command=self.discard_face_search_results
-        )
-        self.btn_fs_discard.grid(row=0, column=6, padx=4, pady=10)
-
-        self.btn_fs_save_register = ctk.CTkButton(
-            self.fs_bottom_bar,
-            text="💾 บันทึกขึ้นทะเบียน & ผูกภาพที่เลือก",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#27AE60",
-            hover_color="#1E8449",
-            width=235,
-            height=34,
-            command=self.save_and_register_matched_person
-        )
-        self.btn_fs_save_register.grid(row=0, column=7, padx=(4, 12), pady=10)
-
     def refresh_face_search_years(self):
-        """อัปเดตรายการปีการศึกษาในหน้าค้นหาบุคคลจากภาพ (v6.61)"""
+        """อัปเดตรายการปีการศึกษาในหน้าค้นหาบุคคลจากภาพ (v6.62)"""
         try:
             years = self.db.get_available_academic_years() if hasattr(self.db, "get_available_academic_years") else []
             scope_vals = ["ทั้งหมด"] + years
@@ -10038,15 +10043,23 @@ class FaceSearchApp(ctk.CTk):
 
     def on_fs_threshold_slide(self, value):
         val = float(value)
-        self.lbl_fs_threshold_val.configure(text=f"ความเหมือนขั้นต่ำ (Threshold): {int(round(val * 100))}% ({val:.2f})")
+        self.lbl_fs_threshold_val.configure(text=f"ความเหมือน: {int(round(val * 100))}%")
 
     def on_fs_reg_role_change(self, choice):
         if "นักเรียน" in str(choice):
-            self.entry_fs_reg_code.configure(placeholder_text="รหัสนักเรียน (เช่น 66001)")
-            self.entry_fs_reg_dept.configure(placeholder_text="ห้องเรียน (เช่น ม.1/1)")
+            if hasattr(self, "lbl_fs_reg_code_title"):
+                self.lbl_fs_reg_code_title.configure(text="รหัสนักเรียน:")
+            if hasattr(self, "lbl_fs_reg_dept_title"):
+                self.lbl_fs_reg_dept_title.configure(text="ห้องเรียน (เช่น ม.1/1):")
+            self.entry_fs_reg_code.configure(placeholder_text="เช่น 66001")
+            self.entry_fs_reg_dept.configure(placeholder_text="เช่น ม.1/1")
         else:
+            if hasattr(self, "lbl_fs_reg_code_title"):
+                self.lbl_fs_reg_code_title.configure(text="รหัสอ้างอิง (ถ้ามี):")
+            if hasattr(self, "lbl_fs_reg_dept_title"):
+                self.lbl_fs_reg_dept_title.configure(text="กลุ่มสาระ / ตำแหน่ง:")
             self.entry_fs_reg_code.configure(placeholder_text="รหัสอ้างอิง (เว้นว่างได้)")
-            self.entry_fs_reg_dept.configure(placeholder_text="กลุ่มสาระ/ตำแหน่ง (เช่น วิทยาศาสตร์)")
+            self.entry_fs_reg_dept.configure(placeholder_text="เช่น วิทยาศาสตร์")
 
     def on_upload_query_image(self):
         """เปิดหน้าต่างเลือกไฟล์รูปภาพต้นแบบและสกัดใบหน้าด้วย InsightFace ทันที (v6.61)"""
@@ -10331,8 +10344,13 @@ class FaceSearchApp(ctk.CTk):
         total_filt = len(self.face_search_filtered_matches)
         total_sel = len(self.face_search_selected_pids)
         self.lbl_fs_match_summary.configure(
-            text=f"📊 พบทั้งหมด: {total_all:,} รูป | แสดงตามตัวกรอง: {total_filt:,} รูป | ☑️ เลือกไว้: {total_sel:,} รูป"
+            text=f"ขั้นตอนที่ 2: พบ {total_all:,} รูป (เลือกไว้ {total_sel:,} รูป)"
         )
+        if hasattr(self, "btn_fs_save_register"):
+            if total_sel > 0:
+                self.btn_fs_save_register.configure(text=f"💾 บันทึกขึ้นทะเบียน & ผูกภาพ ({total_sel:,} รูป)")
+            else:
+                self.btn_fs_save_register.configure(text="💾 บันทึกขึ้นทะเบียนบุคคล")
 
     def go_to_face_search_page(self, page_num):
         total_pages = self._get_fs_total_pages()
@@ -10676,13 +10694,14 @@ class FaceSearchApp(ctk.CTk):
         self.face_search_selected_pids.clear()
         self.face_search_current_page = 1
 
-        self.lbl_fs_orig_preview.configure(image=None, text="🖼️ ภาพต้นฉบับ")
-        self.lbl_fs_crop_preview.configure(image=None, text="👤 ใบหน้าที่ใช้ค้นหา")
-        self.lbl_fs_face_status.configure(text="สถานะ: ล้างข้อมูลแล้ว พร้อมเลือกรูปภาพใหม่", text_color="#A2B5CD")
+        self.lbl_fs_orig_preview.configure(text="")
+        self.lbl_fs_crop_preview.configure(text="👤 ใบหน้าที่เลือก")
+        self.lbl_fs_face_status.configure(text="ยังไม่ได้เลือกรูปภาพ", text_color="#A2B5CD")
         self.combo_fs_face_selector.configure(values=["- ไม่มีข้อมูลใบหน้า -"], state="disabled")
         self.combo_fs_face_selector.set("- ไม่มีข้อมูลใบหน้า -")
         self.prog_fs_search.set(0)
-        self.lbl_fs_progress.configure(text="ล้างผลลัพธ์เรียบร้อยแล้ว", text_color="#95A5A6")
+        self.lbl_fs_progress.configure(text="เลือกภาพเพื่อเริ่มค้นหา", text_color="#95A5A6")
+        self.btn_fs_save_register.configure(text="💾 บันทึกขึ้นทะเบียนบุคคล")
 
         self.entry_fs_reg_name.delete(0, "end")
         self.entry_fs_reg_code.delete(0, "end")

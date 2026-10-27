@@ -1,4 +1,88 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.61 (1-to-N Face Search & Quick Register Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.62 (Minimal 3-Step Face Search Suite)
+
+## 📋 Version 6.62 Changelog (Minimal 3-Step Face Search Suite)
+
+**Date:** 27 ตุลาคม 2026 (08:56 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.62 (Minimal 3-Step Face Search Suite)  
+**Core Technologies:** Minimal 3-Step Workflow UX/UI, Dedicated Dual-Panel Layout (Left: Step Controller & Profile Card | Right: Full Gallery), Zero Font Glyphs Corruption (Removed broken `󰄱` Unicode characters), Unconstrained Full-Width Input Fields, Dynamic Button Labeling (`บันทึกขึ้นทะเบียน & ผูกภาพ (X รูป)`), Unit Test Suite Passed 100%.
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **UX/UI มีความซับซ้อนและแน่นเกินไป (Cognitive Overload):**
+   - ผู้ใช้แจ้งว่าหน้าจอค้นหาบุคคลจากภาพใน `v6.61` ใช้งานค่อนข้างยากและมีคอนโทรลวางเบียดเสียดกันมากเกินไป
+   - แถบด้านล่างสุด (Bottom Bar) ถูกบีบอัดในแนวนอนถึง 8 วิดเจ็ตในแถวเดียว ทำให้ช่องกรอกชื่อ-นามสกุล, สังกัด และปุ่มต่างๆ แคบจนตัวหนังสือตกขอบ และข้อความ Checkbox ถูกตัดทอน (`บันทึกใบหน้าต้นแ...`)
+2. **ตัวอักษรและไอคอนแสดงผลเป็นกล่องสี่เหลี่ยมว่างเปล่า (`󰄱` Font Glyphs):**
+   - บนระบบปฏิบัติการ Windows ฟอนต์มาตรฐานของ Tkinter/CTk ไม่รองรับอีโมจิบางประเภท เช่น `1️⃣`, `2️⃣`, `3️⃣` ทำให้กลายเป็นกล่องสี่เหลี่ยมหลุด (`1 󰄱`, `2 󰄱`, `3 󰄱`)
+3. **ความต้องการของผู้ใช้:**
+   - ต้องการดีไซน์แบบ **Minimal เรียบง่าย สะอาดตา** มีเฉพาะสิ่งที่สำคัญ
+   - นำทางสายตาและขั้นตอนการทำงานอย่างตรงไปตรงมาเป็น 3 ขั้นตอน (Step-by-step: เลือกภาพ -> ค้นหาในคลัง -> ตรวจสอบและบันทึก)
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **จัดวาง Layout ใหม่เป็น 2 โซนอิสระ (Left: Step Controller | Right: Dedicated Photo Gallery):**
+   - **ยกเลิกแถบก้นจอด้านล่าง (Bottom Bar) ทั้งหมด:** ย้ายฟอร์มบันทึกขึ้นทะเบียนบุคคลมาไว้ที่แผงควบคุมฝั่งซ้าย ช่องกรอกข้อความจึงกว้างเต็มที่ ไม่เบียดเสียด ไม่หลุดขอบ
+   - **ขจัดปัญหาตัวอักษรกล่องสี่เหลี่ยมหลุด (`󰄱`):** ปรับใช้ข้อความภาษาไทยมาตรฐาน คมชัด สวยงาม (`ขั้นตอนที่ 1: เลือกภาพใบหน้าบุคคล`, `ขั้นตอนที่ 2: ผลการค้นหาภาพกิจกรรม`, `ขั้นตอนที่ 3: บันทึกขึ้นทะเบียนบุคคล`)
+2. **ปรับปรุงส่วนแผงควบคุมฝั่งซ้าย (Left Panel - กว้าง 340px):**
+   - **ขั้นตอนที่ 1 (ภาพต้นแบบ & ค้นหา):** ปุ่มเลือกภาพขนาดมินิมอล, แสดงอวาตาร์ใบหน้าเดี่ยว (120x110) สะอาดตา, แถบตัวปรับความเหมือนและปีการศึกษาแถวคู่กะทัดรัด, ปุ่มสีเขียวเด่นชัด `🔍 เริ่มค้นหาภาพกิจกรรม`
+   - **ขั้นตอนที่ 3 (บันทึกขึ้นทะเบียนบุคคล):** ตัวเลือกประเภทบุคคล (`ครู/บุคลากร` หรือ `นักเรียน`), ช่องกรอกชื่อ-นามสกุล, สังกัด/ห้องเรียน, รหัสประจำตัว, Checkbox บันทึกใบหน้าต้นแบบ, ปุ่ม `💾 บันทึกขึ้นทะเบียน & ผูกภาพ` และปุ่ม `✕ ล้างข้อมูล / เริ่มใหม่`
+3. **ปรับปรุงแกลเลอรีภาพกิจกรรมฝั่งขวา (Right Panel):**
+   - **ขยายพื้นที่แสดงผล 100%:** ให้ความสูงเต็มพื้นที่ ไร้แถบก้นจอมาบดบัง
+   - **แถบเครื่องมือแถวเดียว (Minimal 1-Row Toolbar):** ป้ายสรุปจำนวนภาพ, ช่องค้นหาชื่องานกิจกรรม, ตัวกรองปี, ตัวกรองความเหมือน, และปุ่ม `☑️ ทั้งหมด` / `⬜ ล้าง`
+   - **ปุ่มบันทึกไดนามิก:** ปุ่มบันทึกในฝั่งซ้ายจะอัปเดตตัวเลขจำนวนภาพที่เลือกแบบเรียลไทม์ เช่น `💾 บันทึกขึ้นทะเบียน & ผูกภาพ (142 รูป)`
+4. **อัปเดตเวอร์ชัน `v6.62` ครบทุกจุด (Zero-Omission):**
+   - [app_gui.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py), [db_manager.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/db_manager.py), [main.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/main.py), [splash_screen.py](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/splash_screen.py), [run_app.bat](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/run_app.bat), และชุดทดสอบทั้งหมด
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `app_gui.py` - ปรับเปลี่ยน Layout จาก 3 แถวอัดแน่น เป็น 2 คอลัมน์อิสระแบบ Minimal
+**ก่อนแก้ไข (Before):**
+```python
+        # โซนซ้าย: มีทั้งภาพต้นฉบับและภาพครอปเบียดกัน พร้อมตัวเลือกใบหน้า
+        preview_box = ctk.CTkFrame(self.fs_left_panel, fg_color="#0E1724", corner_radius=8)
+        self.lbl_fs_orig_preview = ctk.CTkLabel(preview_box, text="🖼️ ภาพต้นฉบับ", width=135, height=120)
+        self.lbl_fs_crop_preview = ctk.CTkLabel(preview_box, text="👤 ใบหน้าที่ใช้ค้นหา", width=135, height=120)
+        
+        # แถบด้านล่าง: อัดแน่น 8 วิดเจ็ตในแถวเดียว ช่องกรอกแคบและข้อความตกขอบ
+        self.fs_bottom_bar = ctk.CTkFrame(self.frame_face_search, fg_color="#162436", corner_radius=10)
+        self.fs_bottom_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.combo_fs_reg_role.grid(row=0, column=1, padx=4, pady=10)
+        self.entry_fs_reg_name.grid(row=0, column=2, padx=4, pady=10)
+        self.entry_fs_reg_code.grid(row=0, column=3, padx=4, pady=10)
+        self.entry_fs_reg_dept.grid(row=0, column=4, padx=4, pady=10)
+        self.chk_fs_save_face_emb.grid(row=0, column=5, padx=6, pady=10)
+        self.btn_fs_discard.grid(row=0, column=6, padx=4, pady=10)
+        self.btn_fs_save_register.grid(row=0, column=7, padx=(4, 12), pady=10)
+```
+
+**หลังแก้ไข (After):**
+```python
+        # ยกเลิก fs_bottom_bar ทั้งหมด ย้ายขั้นตอนที่ 3 มาไว้ที่แผงควบคุมฝั่งซ้ายแบบเต็มความกว้าง
+        # ฝั่งซ้ายจัดเป็นขั้นตอน 1 และ 3 แบบ Minimal สะอาดตา
+        card_step1 = ctk.CTkFrame(self.fs_left_panel, fg_color="#101B2B", corner_radius=8)
+        card_step1.pack(fill="x", padx=6, pady=(4, 8))
+        self.lbl_fs_crop_preview = ctk.CTkLabel(avatar_box, text="👤 ใบหน้าที่เลือก", width=120, height=110)
+        self.btn_fs_start_search = ctk.CTkButton(btn_action_box, text="🔍 เริ่มค้นหาภาพกิจกรรม", height=34, fg_color="#27AE60")
+
+        card_step3 = ctk.CTkFrame(self.fs_left_panel, fg_color="#101B2B", corner_radius=8)
+        card_step3.pack(fill="x", padx=6, pady=(4, 8))
+        self.combo_fs_reg_role.pack(fill="x", padx=12, pady=(0, 6))
+        self.entry_fs_reg_name.pack(fill="x", padx=12, pady=(0, 6))
+        self.entry_fs_reg_dept.pack(fill="x", padx=12, pady=(0, 6))
+        self.entry_fs_reg_code.pack(fill="x", padx=12, pady=(0, 6))
+        self.btn_fs_save_register = ctk.CTkButton(card_step3, text="💾 บันทึกขึ้นทะเบียนบุคคล", height=36, fg_color="#27AE60")
+        self.btn_fs_discard = ctk.CTkButton(card_step3, text="✕ ล้างข้อมูล / เริ่มใหม่", height=28, fg_color="#34495E")
+
+        # ฝั่งขวาขยายเต็มความสูง 100% พร้อมแถบเครื่องมือแถวเดียว
+        self.fs_right_panel.grid(row=1, column=1, sticky="nsew", pady=(0, 4))
+```
+
+---
 
 ## 📋 Version 6.61 Changelog (1-to-N Face Search & Quick Register Suite)
 
