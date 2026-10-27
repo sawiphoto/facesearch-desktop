@@ -20,7 +20,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-CURRENT_VERSION = "v6.64"
+CURRENT_VERSION = "v6.65"
 
 from db_manager import DatabaseManager
 from gdrive_sync import GoogleSyncManager

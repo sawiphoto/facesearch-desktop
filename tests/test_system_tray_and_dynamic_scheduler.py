@@ -117,9 +117,27 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
             self.assertEqual(app.state(), "withdrawn")
             app.show_from_tray()
             self.assertEqual(app.state(), "normal")
+
+            # ทดสอบปลุกหน้าต่างที่ซ่อนอยู่ในถาด System Tray ผ่านสัญญาณ Tray Wakeup Signal (เมื่อกดเปิด Shortcut บน Desktop ซ้ำ)
+            from single_instance import send_tray_wakeup_signal
+            app.hide_to_tray()
+            self.assertEqual(app.state(), "withdrawn")
+            self.assertTrue(send_tray_wakeup_signal())
+            app.check_log_queue()
+            self.assertEqual(app.state(), "normal")
         finally:
             app.face_search_worker_gen += 1
             app.destroy()
+
+    def test_05_exe_launcher_and_icon_artifacts(self):
+        """ตรวจสอบว่าไฟล์ SchoolFaceFinder.exe และ app_icon.ico ถูกสร้างครบถ้วนสมบูรณ์"""
+        exe_file = os.path.join(project_root, "SchoolFaceFinder.exe")
+        ico_file = os.path.join(project_root, "app_icon.ico")
+        self.assertTrue(os.path.exists(exe_file), "SchoolFaceFinder.exe ต้องมีอยู่ในโฟลเดอร์โปรเจกต์")
+        self.assertGreater(os.path.getsize(exe_file), 4096)
+        self.assertTrue(os.path.exists(ico_file), "app_icon.ico ต้องมีอยู่ในโฟลเดอร์โปรเจกต์")
+        self.assertGreater(os.path.getsize(ico_file), 1024)
+        self.assertIn("SchoolFaceFinder.exe", get_default_autostart_command())
 
 
 if __name__ == "__main__":

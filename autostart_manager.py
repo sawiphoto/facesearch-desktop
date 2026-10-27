@@ -13,6 +13,9 @@ def get_default_autostart_command() -> str:
     สร้างคำสั่งมาตรฐานสำหรับเปิดโปรแกรมแบบไร้หน้าต่างดำและซ่อนลง System Tray ทันทีเมื่อเปิดเครื่อง (--tray)
     """
     project_root = os.path.dirname(os.path.abspath(__file__))
+    exe_launcher = os.path.join(project_root, "SchoolFaceFinder.exe")
+    if os.path.exists(exe_launcher):
+        return f'"{exe_launcher}" --tray'
     main_script = os.path.join(project_root, "main.py")
 
     venv_pythonw = os.path.join(project_root, "venv", "Scripts", "pythonw.exe")

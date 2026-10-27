@@ -10,6 +10,29 @@ logger = logging.getLogger(__name__)
 ERROR_ALREADY_EXISTS = 183
 DEFAULT_MUTEX_NAME = "Local\\FaceSearchApp_SingleInstance_Mutex_2026"
 PID_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app.pid")
+TRAY_WAKEUP_SIGNAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tray_wakeup.signal")
+
+
+def send_tray_wakeup_signal():
+    """ส่งสัญญาณปลุกหน้าต่างโปรแกรมที่ซ่อนอยู่ในถาด System Tray ให้เด้งขึ้นมาแสดงผล (v6.65)"""
+    try:
+        os.makedirs(os.path.dirname(TRAY_WAKEUP_SIGNAL_PATH), exist_ok=True)
+        with open(TRAY_WAKEUP_SIGNAL_PATH, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+        return True
+    except Exception:
+        return False
+
+
+def check_and_consume_tray_wakeup_signal() -> bool:
+    """ตรวจสอบและรับสัญญาณปลุกหน้าต่างจาก System Tray (คืนค่า True หากมีคำสั่งปลุก)"""
+    try:
+        if os.path.exists(TRAY_WAKEUP_SIGNAL_PATH):
+            os.remove(TRAY_WAKEUP_SIGNAL_PATH)
+            return True
+    except Exception:
+        pass
+    return False
 
 # Win32 Constants
 PROCESS_TERMINATE = 0x0001
