@@ -93,7 +93,7 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
         mock_analyzer = MagicMock()
         mock_analyzer.initialized = True
 
-        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False)
+        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False, save_on_destroy=False)
         try:
             # ตรวจสอบค่าเริ่มต้นตารางเวลา (05:00 ทุก 6 ชม. -> 4 รอบ)
             app.combo_sched_anchor.set("05:00")
@@ -149,7 +149,7 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
         mock_analyzer = MagicMock()
         mock_analyzer.initialized = True
 
-        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False)
+        app = FaceSearchApp(analyzer=mock_analyzer, enable_tray=False, start_in_tray=False, save_on_destroy=False)
         try:
             # 2. ย่อหน้าต่างลงถาด System Tray แล้วทดสอบแสดงแจ้งเตือนเริ่มทำงาน (status_type='start')
             app.hide_to_tray()
@@ -199,6 +199,65 @@ class TestSystemTrayAndDynamicScheduler(unittest.TestCase):
         finally:
             app.face_search_worker_gen += 1
             app.destroy()
+
+    def test_07_run_scheduled_tasks_and_task2_task3_execution_paths_v667(self):
+        """TC-172: ทดสอบ Execution Paths ของ SchedulerTask ป้องกัน UnboundLocalError datetime (v6.67)"""
+        from scheduler_task import SchedulerTask
+
+        mock_db = MagicMock()
+        mock_sync = MagicMock()
+        mock_sync.connected = True
+        mock_analyzer = MagicMock()
+        mock_analyzer.initialized = True
+        mock_gui = MagicMock()
+
+        notified_calls = []
+        def fake_notify(title, message, status_type="info", duration_ms=8000):
+            notified_calls.append((title, message, status_type, duration_ms))
+
+        scheduler = SchedulerTask(mock_db, mock_sync, mock_analyzer, mock_gui)
+        scheduler._notify_desktop = fake_notify
+
+        # 1. ทดสอบ _run_task_2_only: ต้องไม่มี UnboundLocalError และมีแจ้งเตือน start + finish
+        notified_calls.clear()
+        scheduler._ensure_analyzer = MagicMock()
+        scheduler._task_2_sync_new_students_bulk = MagicMock()
+        scheduler._sync_all_json_to_drive = MagicMock()
+        scheduler._safe_sync_json_on_stop = MagicMock()
+
+        scheduler._run_task_2_only()
+        self.assertFalse(scheduler.is_running)
+        self.assertEqual(len(notified_calls), 2)
+        self.assertEqual(notified_calls[0][2], "start")
+        self.assertEqual(notified_calls[1][2], "success")
+
+        # 2. ทดสอบ _run_task_3_only: ต้องไม่มี UnboundLocalError และมีแจ้งเตือน start + finish
+        notified_calls.clear()
+        scheduler._task_3_sync_new_teachers_bulk = MagicMock()
+        scheduler._run_task_3_only()
+        self.assertFalse(scheduler.is_running)
+        self.assertEqual(len(notified_calls), 2)
+        self.assertEqual(notified_calls[0][2], "start")
+        self.assertEqual(notified_calls[1][2], "success")
+
+        # 3. ทดสอบ run_scheduled_tasks: ต้องไม่มี UnboundLocalError และมีแจ้งเตือน start + finish
+        notified_calls.clear()
+        scheduler._task_1_scan_new_photos_fast = MagicMock()
+        scheduler.run_scheduled_tasks()
+        self.assertFalse(scheduler.is_running)
+        self.assertEqual(len(notified_calls), 2)
+        self.assertEqual(notified_calls[0][2], "start")
+        self.assertEqual(notified_calls[1][2], "success")
+        self.assertIn("เสร็จสมบูรณ์", notified_calls[1][0])
+
+        # 4. ทดสอบกรณีเกิด Exception ใน run_scheduled_tasks: ต้องจับข้อผิดพลาดและยังคงแจ้งเตือน finish ใน finally ได้
+        notified_calls.clear()
+        scheduler._task_1_scan_new_photos_fast = MagicMock(side_effect=RuntimeError("Simulated network drop"))
+        scheduler.run_scheduled_tasks()
+        self.assertFalse(scheduler.is_running)
+        self.assertEqual(len(notified_calls), 2)
+        self.assertEqual(notified_calls[0][2], "start")
+        self.assertIn("เสร็จสมบูรณ์", notified_calls[1][0])
 
 
 if __name__ == "__main__":

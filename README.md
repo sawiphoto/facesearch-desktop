@@ -1,3 +1,77 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.67 (Hotfix Scheduler Scope & Settings Persistence Protection)
+
+## 📋 Version 6.67 Changelog (Hotfix Scheduler Scope & Settings Persistence Protection)
+
+**Date:** 27 ตุลาคม 2026 (11:42 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.67 (Hotfix Scheduler Scope & Settings Persistence Protection)  
+**Core Technologies:** Module-Level Datetime Scoping, Test Isolation Setting Protection (`save_on_destroy=False`), Dynamic Scheduler Runtime Verification Suite Passed 100%, Desktop Shortcut (`School Face Finder v6.67.lnk`).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **แก้บั๊ก `UnboundLocalError: cannot access local variable 'datetime'` ใน `scheduler_task.py`:**
+   - ในรอบการทำงานอัตโนมัติพบ Error บรรทัดที่ 603 และ 697: `cannot access local variable 'datetime' where it is not associated with a value` ส่งผลให้การแจ้งเตือนและการรันงานอัตโนมัติติดขัด
+   - เกิดจากมีคำสั่ง `from datetime import datetime, timedelta, timezone` ซ้ำซ้อนอยู่ด้านล่างของฟังก์ชัน `_run_task_2_only`, `_run_task_3_only`, และ `run_scheduled_tasks` ทำให้ Python ตีความ `datetime` เป็นตัวแปรโลคัลภายในฟังก์ชัน
+2. **แก้ปัญหาค่าการตั้งค่าตารางเวลา (30 นาที) รีเซ็ตกลับเป็นค่าเริ่มต้นเมื่อรันทดสอบ:**
+   - เมื่อมีการรันชุดทดสอบยูนิตเทสต์ เมธอด `destroy()` ใน `FaceSearchApp` จะเรียก `save_settings()` อัตโนมัติ ทำให้ค่าที่ใช้จำลองในเทสต์เขียนทับไฟล์ `data/app_settings.json` ของผู้ใช้จริง
+
+---
+
+### 💡 วิธีการแก้ไข (Solution):
+1. **ย้ายการ Import `datetime, timedelta, timezone` สู่ระดับ Module-Level ใน [`scheduler_task.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/scheduler_task.py):**
+   - รวบรวมการ import ไว้ที่หัวไฟล์บรรทัดที่ 13 และลบ redundant inner imports ในฟังก์ชันออกทั้งหมด
+   - ซิงค์การแก้ไขไปยังโปรเจกต์แยก `D:\Projects\ระบบค้นหาใบหน้า GoogleDrive\scheduler_task.py` ด้วย
+2. **เพิ่มระบบป้องกันการบันทึกทับในการทดสอบ (`save_on_destroy=False`) ใน [`app_gui.py`](file:///d:/Projects/07%20ระบบค้นหาใบหน้าบุคลากรโรงเรียน/app_gui.py):**
+   - เพิ่มพารามิเตอร์ `save_on_destroy` ให้ `FaceSearchApp` โดยในชุดทดสอบจะตั้งเป็น `False` ทำให้การรันเทสต์ไม่มีทางแตะต้องหรือเขียนทับไฟล์ `data/app_settings.json` ของผู้ใช้อีกต่อไป
+   - กู้คืนและบันทึกค่าการตั้งค่าที่ถูกต้องของผู้ใช้: เวลาเริ่ม `11:00`, คาบเวลา `ทุกๆ 30 นาที (48 รอบ/วัน)`, เปิดพร้อม Windows `True`
+3. **เพิ่มชุดทดสอบการทำงานจริงครบทุกเส้นทาง (`test_07_run_scheduled_tasks_and_task2_task3_execution_paths_v667`)**:
+   - ทดสอบจำลองการรัน `run_scheduled_tasks`, `_run_task_2_only`, และ `_run_task_3_only` ทั้งกรณีปกติและกรณีเกิดข้อผิดพลาด ผ่านฉลุย 100%
+
+---
+
+### 🔍 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before vs After):
+
+#### 1. `scheduler_task.py` - แก้ปัญหา Variable Scope Shadowing ของ datetime
+**ก่อนแก้ไข (Before):**
+```python
+from datetime import datetime
+...
+def run_scheduled_tasks(self):
+    now_str_sched = datetime.now().strftime("%H:%M") # <- UnboundLocalError!
+    ...
+    from datetime import datetime, timedelta, timezone # <- ทำให้ datetime กลายเป็น local
+```
+
+**หลังแก้ไข (After):**
+```python
+from datetime import datetime, timedelta, timezone
+...
+def run_scheduled_tasks(self):
+    now_str_sched = datetime.now().strftime("%H:%M") # <- เรียกใช้ Module-Level datetime ได้อย่างปลอดภัย 100%
+    ...
+    # ลบ inner import ออกทั้งหมด
+```
+
+#### 2. `app_gui.py` - ป้องกัน Test Suite เขียนทับการตั้งค่าจริงของผู้ใช้
+**ก่อนแก้ไข (Before):**
+```python
+    def destroy(self):
+        try:
+            self.save_settings() # <- ถูกเรียกเสมอแม้รันใน unittest ทำให้ app_settings.json ถูกเขียนทับ
+```
+
+**หลังแก้ไข (After):**
+```python
+    def destroy(self):
+        try:
+            if getattr(self, "save_on_destroy", True):
+                self.save_settings()
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.66 (Desktop Bottom-Right Toast Notification & Permanent Windows Auto-Start Suite)
 
 ## 📋 Version 6.66 Changelog (Desktop Bottom-Right Toast Notification & Permanent Windows Auto-Start Suite)

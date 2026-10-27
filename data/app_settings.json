@@ -1,5 +1,5 @@
 {
-    "credentials_path": "D:\\Projects\\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\\config\\service_account.json",
+    "credentials_path": "d:\\Projects\\07 ระบบค้นหาใบหน้าบุคลากรโรงเรียน\\config\\service_account.json",
     "drive_folder_id": "1X1o6-BXNoNBFJ6_qDlWTbd2JUuoIMHEA",
     "sheets_id": "17iyjgTVb4t9pupQMfHQnNSrxoURUYrCKNJ_8bnMlMCc",
     "json_folder_id": "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L",
@@ -8,8 +8,8 @@
     "re_scan": 1,
     "fast_rescan": 0,
     "schedule_enabled": true,
-    "schedule_anchor_time": "06:00",
-    "schedule_interval_minutes": 180,
+    "schedule_anchor_time": "11:00",
+    "schedule_interval_minutes": 30,
     "auto_run_on_startup": false,
     "minimize_to_tray_on_close": true,
     "windows_autostart": true
