@@ -50,7 +50,7 @@ if __name__ == "__main__":
     splash = None
     if not start_in_tray:
         from splash_screen import SplashScreen
-        splash = SplashScreen(version="v6.72")
+        splash = SplashScreen(version="v6.73")
         splash.update_progress(10, "กำลังตรวจสอบไดเรกทอรีและสภาพแวดล้อมระบบ...")
 
     # ดำเนินการสร้างไดเรกทอรีที่จำเป็น

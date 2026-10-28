@@ -9,7 +9,7 @@ class SplashScreen:
     เปิดได้ทันทีใน <0.15 วินาที พร้อมแถบ Progress Bar (0% - 100%)
     และป้ายข้อความแสดงสถานะการโหลดแบบเรียลไทม์ (v6.72)
     """
-    def __init__(self, title="GOOGLE PHOTOS FACE FINDER", version="v6.72"):
+    def __init__(self, title="GOOGLE PHOTOS FACE FINDER", version="v6.73"):
         self.root = tk.Tk()
         self.root.title(title)
         self.root.overrideredirect(True)  # ไร้กรอบขอบหน้าต่างแบบโมเดิร์น

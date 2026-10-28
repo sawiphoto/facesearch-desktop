@@ -1001,7 +1001,7 @@ class FaceSearchApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=GP_THEME["bg_main"])
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.72 (System Tray & Dynamic Scheduler Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.73 (User OAuth & Zero Quota Sync Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
         try:
@@ -1128,7 +1128,7 @@ class FaceSearchApp(ctk.CTk):
             logger.info("[TRAY] 🔽 เปิดโปรแกรมในโหมด System Tray เบื้องหลัง (--tray) ดับเบิลคลิกที่ไอคอนถาดระบบเพื่อเปิดหน้าต่างหลัก")
             status_init = self.scheduler.get_next_run_status() if hasattr(self, "scheduler") and self.scheduler else {}
             self.after(1200, lambda: self.show_desktop_toast(
-                "🟢 School Face Finder v6.71 พร้อมทำงานเบื้องหลัง",
+                "🟢 School Face Finder v6.73 พร้อมทำงานเบื้องหลัง",
                 f"เปิดระบบอัตโนมัติในถาด System Tray เรียบร้อยแล้ว\n{status_init.get('short_text', 'พร้อมรันตามตารางเวลาอัตโนมัติ')}",
                 status_type="info",
                 duration_ms=7000
@@ -1258,7 +1258,7 @@ class FaceSearchApp(ctk.CTk):
 
             lbl_app = tk.Label(
                 hdr,
-                text="✦ SCHOOL FACE FINDER v6.71",
+                text="✦ SCHOOL FACE FINDER v6.73",
                 font=("Segoe UI", 8, "bold"),
                 fg="#9AA0A6",
                 bg="#1E1F22",
@@ -1393,7 +1393,7 @@ class FaceSearchApp(ctk.CTk):
                             text_color="#9AA0A6"
                         )
                 if self.tray_manager and self.tray_manager.is_running:
-                    self.tray_manager.update_tooltip(f"School Face Finder v6.71 | {status['short_text']}")
+                    self.tray_manager.update_tooltip(f"School Face Finder v6.73 | {status['short_text']}")
         except Exception:
             pass
         finally:
@@ -1415,7 +1415,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรมสไตล์ Google Photos
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.71",
+            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.73",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#8AB4F8"
         )

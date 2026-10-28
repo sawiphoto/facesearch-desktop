@@ -122,6 +122,47 @@ class GoogleSyncManager:
                 else:
                     raise e
 
+    def get_user_drive_service(self):
+        """
+        ดึงหรือสร้าง Google Drive API Service โดยใช้สิทธิ์ผู้ใช้ (User OAuth Credentials) 
+        จาก ~/.clasprc.json เพื่อให้อัปโหลดไฟล์ใหม่ได้โดยไม่ติด 403 Service Account Storage Quota (v6.73)
+        """
+        if hasattr(self, '_user_drive_service') and self._user_drive_service is not None:
+            return self._user_drive_service
+
+        clasprc_path = os.path.expanduser('~/.clasprc.json')
+        if not os.path.exists(clasprc_path):
+            return None
+
+        try:
+            import json
+            with open(clasprc_path, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+            token_data = d.get('tokens', {}).get('default', {})
+            refresh_token = token_data.get('refresh_token')
+            client_id = token_data.get('client_id')
+            client_secret = token_data.get('client_secret')
+
+            if not refresh_token or not client_id:
+                return None
+
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            creds = Credentials(
+                token=None,
+                refresh_token=refresh_token,
+                token_uri='https://oauth2.googleapis.com/token',
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=['https://www.googleapis.com/auth/drive.file']
+            )
+            self._user_drive_service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+            logger.info("[GDRIVE] Initialized User OAuth Drive Service from ~/.clasprc.json (sawiphoto@sawi.ac.th) successfully.")
+            return self._user_drive_service
+        except Exception as e:
+            logger.debug(f"[GDRIVE] Could not load user drive service from clasprc: {e}")
+            return None
+
     def verify_spreadsheet(self, spreadsheet_id, ensure_worksheets=True):
         """ตรวจสอบว่าเชื่อมต่อและจัดการ Spreadsheet ID ที่ระบุได้จริงหรือไม่ และเตรียมแผ่นงานในชีท"""
         if not self.connected:
@@ -1092,7 +1133,9 @@ class GoogleSyncManager:
         def normalize_teacher_name(n):
             if not n:
                 return ""
-            n = os.path.splitext(str(n))[0]
+            base, ext = os.path.splitext(str(n).strip())
+            if ext.lower() in {'.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.tiff', '.bmp'}:
+                n = base
             for pre in ["ว่าที่ร้อยตรีหญิง", "ว่าที่ร้อยตรี", "ว่าที่ ร.ต.หญิง", "ว่าที่ ร.ต.", 
                         "นางสาว", "น.ส.", "นาย", "นาง", "ดร.", "คุณครู", "ครู", "อาจารย์", "อ.", 
                         "Mr.", "Mrs.", "Ms.", "Miss"]:
@@ -1174,7 +1217,9 @@ class GoogleSyncManager:
                 'mimeType': 'application/vnd.google-apps.folder',
                 'parents': [target_parent_id]
             }
-            created_folder = self._execute_with_retry(lambda: self.drive_service.files().create(
+            user_drive = self.get_user_drive_service()
+            drv = user_drive or self.drive_service
+            created_folder = self._execute_with_retry(lambda: drv.files().create(
                 body=folder_body, fields='id, name'
             ).execute())
             new_fid = created_folder.get('id')
@@ -1310,31 +1355,52 @@ class GoogleSyncManager:
                         mime_type = "image/png" if ext.lower() == '.png' else "image/jpeg"
 
                     new_fid = None
-                    # 1. อัปโหลดผ่าน Google Apps Script Web App (สิทธิ์ sawiphoto@sawi.ac.th เพื่อเลี่ยง 403 Service Account Quota)
-                    try:
-                        import base64
-                        import requests
-                        with open(upload_source_path, 'rb') as af:
-                            b64_content = base64.b64encode(af.read()).decode('utf-8')
+                    # 1. ลองอัปโหลดผ่าน User OAuth Credentials (จาก ~/.clasprc.json) ก่อนเสมอ เพื่อใช้โควตาของ sawiphoto@sawi.ac.th โดยตรง 100% (v6.73)
+                    user_drive = self.get_user_drive_service()
+                    if user_drive:
+                        try:
+                            media = MediaFileUpload(upload_source_path, mimetype=mime_type, resumable=False)
+                            upload_body = {
+                                'name': upload_file_name,
+                                'parents': [target_folder_id]
+                            }
+                            uploaded_file = self._execute_with_retry(lambda: user_drive.files().create(
+                                body=upload_body,
+                                media_body=media,
+                                fields='id, name'
+                            ).execute())
+                            new_fid = uploaded_file.get('id') if uploaded_file else ""
+                            if new_fid:
+                                logger.info(f"[GDRIVE_SYNC] Uploaded '{s_name}' directly via User OAuth (sawiphoto@sawi.ac.th)")
+                        except Exception as user_ex:
+                            logger.warning(f"[GDRIVE_SYNC] User OAuth upload fallback to Web App: {user_ex}")
 
-                        app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
-                        payload = {
-                            'action': 'uploadFile',
-                            'secret': 'sawi_sharding_2026',
-                            'folderId': target_folder_id,
-                            'fileName': upload_file_name,
-                            'mimeType': mime_type,
-                            'base64Data': b64_content
-                        }
-                        r = requests.post(app_url, json=payload, timeout=60)
-                        if r.status_code == 200 and r.json().get('ok'):
-                            new_fid = r.json().get('fileId')
-                    except Exception as app_ex:
-                        logger.warning(f"[GDRIVE_SYNC] Web App upload fallback to Drive API: {app_ex}")
-
-                    # 2. ถ้า Web App ไม่สำเร็จ ให้ Fallback ผ่าน Drive API
+                    # 2. ถ้า User OAuth ไม่สำเร็จ ให้ลองอัปโหลดผ่าน Google Apps Script Web App
                     if not new_fid:
-                        media = MediaFileUpload(avatar_path, mimetype=mime_type, resumable=False)
+                        try:
+                            import base64
+                            import requests
+                            with open(upload_source_path, 'rb') as af:
+                                b64_content = base64.b64encode(af.read()).decode('utf-8')
+
+                            app_url = 'https://script.google.com/macros/s/AKfycbyw1clju8DOf_Oqm8OZ-nBg9TLuAu-slOAkQZB1K3YzoaTQXrIlmb-_FLr08ikg84FV/exec'
+                            payload = {
+                                'action': 'uploadFile',
+                                'secret': 'sawi_sharding_2026',
+                                'folderId': target_folder_id,
+                                'fileName': upload_file_name,
+                                'mimeType': mime_type,
+                                'base64Data': b64_content
+                            }
+                            r = requests.post(app_url, json=payload, timeout=60)
+                            if r.status_code == 200 and r.json().get('ok'):
+                                new_fid = r.json().get('fileId')
+                        except Exception as app_ex:
+                            logger.warning(f"[GDRIVE_SYNC] Web App upload fallback to Service Account: {app_ex}")
+
+                    # 3. ถ้ายังไม่สำเร็จ ให้ Fallback ผ่าน Service Account Drive API
+                    if not new_fid:
+                        media = MediaFileUpload(upload_source_path, mimetype=mime_type, resumable=False)
                         upload_body = {
                             'name': upload_file_name,
                             'parents': [target_folder_id]

@@ -80,7 +80,7 @@ class SystemTrayManager:
             self.icon = pystray.Icon(
                 "SchoolFaceFinder",
                 icon_image,
-                "School Face Finder v6.72 (กำลังทำงานเบื้องหลัง)",
+                "School Face Finder v6.73 (กำลังทำงานเบื้องหลัง)",
                 menu
             )
 
