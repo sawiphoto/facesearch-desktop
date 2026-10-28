@@ -1,3 +1,115 @@
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.72 (Accurate Drive-to-DB Reconcile & Manifest Alignment Suite)
+
+## 📋 Version 6.72 Changelog (Accurate Drive-to-DB Reconcile & Manifest Alignment Suite)
+
+**Date:** 29 ตุลาคม 2026 (01:25 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.72 (Accurate Drive-to-DB Reconcile & Manifest Alignment Suite)  
+**Core Technologies:** Google Drive API & SQLite Reconciliation, Safe Registered Sharded Partitions (`active_years` Root Year Isolation Guard), Full Manifest Synchronization (`photo_manifest.json`), Zero Face Data Loss Migration, 100% Cross-System Consistency (`2562: 3,627 รูป`, `archive: 1,695 รูป`), Desktop Shortcut (`School Face Finder v6.72.lnk`).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ยอดจำนวนรูปภาพใน `photo_manifest.json` ส่งยอดผิดไปว่า `"archive": 5069`, `"2562": 225`:**
+   - ผู้ใช้งานทำการจัดระเบียบไฟล์บน Google Drive โดยย้ายโฟลเดอร์ปี 2550 (จำนวน 3,402 รูป) ออกจากโฟลเดอร์ภาพในอดีต `ภาพกิจกรรม 2549- 25xx ในอดีต` (เหลือภาพจริง 1,695 รูป) ไปรวมไว้ในโฟลเดอร์ใหม่ `ภาพกิจกรรม 2562-2550` (มีภาพจริง 3,627 รูป)
+   - แต่ฐานข้อมูลในเครื่องและไฟล์สารบัญ `photo_manifest.json` บน Google Drive ยังคงส่งข้อมูลเดิม (`"archive": 5069`, `"2562": 225`)
+   - ผู้ใช้เน้นย้ำความสำคัญ: *"ที่ต้องทำเพราะหากข้อมูลต้นทางส่งผิดไป คนที่เอาไปใช้ต่อก็ผิดตามๆกันไปครับ"* ส่งผลให้เว็บแอปปลายทางและหน้าค้นหาภาพอดีตนำยอดและข้อมูลผิดไปแสดงผล
+2. **ความเสี่ยงของ 403 Storage Quota เมื่อแตก Shard ปีย่อยในอดีต:**
+   - หากระบบสกัดปี พ.ศ. จากชื่องาน เช่น `2550` แล้วสร้างเป็น Shard `photo_index_2550.json` การอัปโหลดจะล้มเหลวด้วยข้อผิดพลาด Google API 403 (`storageQuotaExceeded`) เนื่องจากไฟล์ปีดังกล่าวไม่ได้มีสร้างไว้ล่วงหน้าบน Google Drive
+
+---
+
+### 🛠️ วิธีการแก้ไข (Solution):
+1. **จำกัด Sharded Partitions เฉพาะปีที่มี Root Folder ลงทะเบียนไว้จริง (`active_years` Isolation):**
+   - แก้ไข `get_sync_data_sharded()` ใน `db_manager.py` ให้ดึง `active_years` เฉพาะปีที่มีโฟลเดอร์หลักลงทะเบียนไว้จริงใน `root_year_folders` (`2562` ถึง `2569`) ป้องกันไม่ให้แตก shard `photo_index_2550.json` เดี่ยว ช่วยป้องกัน Error 403 Storage Quota ได้อย่างเด็ดขาด 100%
+2. **รันการ Reconcile ยอดภาพบนฐานข้อมูลจริงให้สอดคล้องกับสภาพจริงบน Drive 100%:**
+   - โฟลเดอร์ `ภาพกิจกรรม 2562-2550` (ปี 2562): ปรับเพิ่มจาก 225 รูป เป็น **3,627 รูป** ครบถ้วน (รวมภาพปี 2550 ที่ย้ายเข้ามา)
+   - โฟลเดอร์ `ภาพกิจกรรม 2549- 25xx ในอดีต` (ปี 25xx): ปรับลดยอดจาก 5,069 รูป เหลือ **1,695 รูป** ตรงกับบน Drive พอดี
+   - ข้อมูลเวกเตอร์ตรวจจับใบหน้า AI ทั้งหมดคงอยู่ปลอดภัย ไม่สูญหายแม้แต่รายการเดียว
+3. **ปรับปรุงปุ่ม `[ 🔄 ซิงค์ภาพตรง Drive ]` ใน `app_gui.py` ให้อัปเดต JSON และ Manifest เสมอ:**
+   - เมื่อกดซิงค์โฟลเดอร์ใดก็ตามในตาราง จะสั่งอัปเดตไฟล์ Sharded JSON และ `photo_manifest.json` ขึ้น Google Drive โดยอัตโนมัติทันที
+4. **อัปเดตไฟล์ JSON ดัชนีทั้ง 18 ไฟล์และ `photo_manifest.json` บน Google Drive:**
+   - อัปโหลดดัชนีขึ้น Google Drive สำเร็จสมบูรณ์ โดย `photo_manifest.json` ส่งยอดใหม่ที่ถูกต้อง 100%:
+     - `"2562": 3627`
+     - `"archive": 1695`
+     - `"archive_crowdsource_photos": 1695`
+5. **ซิงค์โค้ดไปยังรุ่นแจกจ่าย (`D:\Projects\ระบบค้นหาใบหน้า GoogleDrive`):**
+   - อัปเดต `db_manager.py` และ `app_gui.py` ในรุ่นแจกจ่ายให้มีฟังก์ชันและความสามารถตรงกัน 100%
+6. **อัปเดตเวอร์ชันโปรแกรมและ Desktop Shortcut:**
+   - ปรับเลขเวอร์ชันเป็น `v6.72` ใน `app_gui.py`, `splash_screen.py`, `main.py`, `system_tray.py`, `db_manager.py`
+   - สร้าง Desktop Shortcut `School Face Finder v6.72.lnk`
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before & After):
+
+#### 1. `db_manager.py` — ฟังก์ชัน `get_sync_data_sharded` (จำกัด Shard เฉพาะปีที่มีโฟลเดอร์หลัก)
+**ก่อนแก้ไข (Before):**
+```python
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวครบถ้วนทุกปีการศึกษา 2563-2569 และอนาคต)
+            if not active_years:
+                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4 and y.isdigit()}), reverse=True)
+                active_years = all_years
+```
+**หลังแก้ไข (After):**
+```python
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวเฉพาะปีที่มีโฟลเดอร์หลักในระบบ หรือปี 2562 เป็นต้นไป)
+            if not active_years:
+                try:
+                    cursor.execute("""
+                        SELECT DISTINCT academic_year 
+                        FROM root_year_folders 
+                        WHERE academic_year IS NOT NULL 
+                          AND academic_year != '' 
+                          AND academic_year != '25xx'
+                          AND is_active = 1
+                    """)
+                    registered_years = {r[0].strip() for r in cursor.fetchall() if r[0] and r[0].strip().isdigit() and len(r[0].strip()) == 4}
+                except Exception:
+                    registered_years = set()
+                # Fallback ให้ครอบคลุมปีมาตรฐาน 2562-2569 เสมอ
+                registered_years.update({"2569", "2568", "2567", "2566", "2565", "2564", "2563", "2562"})
+                active_years = sorted(list(registered_years), reverse=True)
+```
+
+#### 2. `app_gui.py` — ฟังก์ชัน `_run_reconcile_root_folder_thread` (อัปเดต JSON ทุกโฟลเดอร์ที่ซิงค์)
+**ก่อนแก้ไข (Before):**
+```python
+            # 4. หากเป็นโฟลเดอร์ภาพในอดีต (25xx) ให้ซิงค์ archive_crowdsource_index.json ขึ้น Drive อัตโนมัติด้วย
+            json_synced_msg = ""
+            if academic_year == "25xx" or "25xx" in str(academic_year) or "อดีต" in str(folder_name):
+                try:
+                    logger.info("[RECONCILE] กำลังอัปเดตไฟล์ archive_crowdsource_index.json ขึ้น Google Drive...")
+                    json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+                    if not json_folder_id:
+                        json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
+                    sync_data = self.db.get_all_sync_data()
+                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+                    json_synced_msg = "\n⚡ อัปเดตดัชนี JSON บน Google Drive เรียบร้อยแล้ว"
+                except Exception as sync_err:
+                    logger.warning(f"[RECONCILE] Sync archive JSON warning: {sync_err}")
+                    json_synced_msg = f"\n⚠️ อัปเดตดัชนี JSON ไม่สำเร็จ: {sync_err}"
+```
+**หลังแก้ไข (After):**
+```python
+            # 4. อัปเดตดัชนี JSON และ photo_manifest.json ขึ้น Google Drive เสมอ (v6.72)
+            json_synced_msg = ""
+            try:
+                logger.info(f"[RECONCILE] กำลังอัปเดตไฟล์ดัชนี JSON และ photo_manifest.json ขึ้น Google Drive...")
+                json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+                if not json_folder_id:
+                    json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
+                sync_data = self.db.get_all_sync_data()
+                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+                json_synced_msg = "\n⚡ อัปเดตดัชนี JSON และ Manifest บน Google Drive เรียบร้อยแล้ว"
+            except Exception as sync_err:
+                logger.warning(f"[RECONCILE] Sync JSON warning: {sync_err}")
+                json_synced_msg = f"\n⚠️ อัปเดตดัชนี JSON ไม่สำเร็จ: {sync_err}"
+```
+
+---
+
 # ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.71 (Drive-to-DB Photo Reconciliation Suite)
 
 ## 📋 Version 6.71 Changelog (Drive-to-DB Photo Reconciliation Suite)

@@ -2043,10 +2043,23 @@ class DatabaseManager:
                 photo_entries.append(entry)
                 photo_year_map[p[0]] = year_val
 
-            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวครบถ้วนทุกปีการศึกษา 2563-2569 และอนาคต)
+            # กำหนดรายชื่อปีที่จะแยกเป็นไฟล์ Shard เดี่ยว (สร้างไฟล์แยกเดี่ยวเฉพาะปีที่มีโฟลเดอร์หลักในระบบ หรือปี 2562 เป็นต้นไป)
             if not active_years:
-                all_years = sorted(list({y for y in photo_year_map.values() if y and y.startswith('25') and len(y) == 4 and y.isdigit()}), reverse=True)
-                active_years = all_years
+                try:
+                    cursor.execute("""
+                        SELECT DISTINCT academic_year 
+                        FROM root_year_folders 
+                        WHERE academic_year IS NOT NULL 
+                          AND academic_year != '' 
+                          AND academic_year != '25xx'
+                          AND is_active = 1
+                    """)
+                    registered_years = {r[0].strip() for r in cursor.fetchall() if r[0] and r[0].strip().isdigit() and len(r[0].strip()) == 4}
+                except Exception:
+                    registered_years = set()
+                # Fallback ให้ครอบคลุมปีมาตรฐาน 2562-2569 เสมอ
+                registered_years.update({"2569", "2568", "2567", "2566", "2565", "2564", "2563", "2562"})
+                active_years = sorted(list(registered_years), reverse=True)
 
             photos_by_shard = {y: {} for y in active_years}
             photos_by_shard["archive"] = {}
@@ -2142,7 +2155,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.71",
+                "version": "v6.72",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,

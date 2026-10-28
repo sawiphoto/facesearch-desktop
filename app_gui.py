@@ -1001,7 +1001,7 @@ class FaceSearchApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=GP_THEME["bg_main"])
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.71 (System Tray & Dynamic Scheduler Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.72 (System Tray & Dynamic Scheduler Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
         try:
@@ -6455,20 +6455,19 @@ class FaceSearchApp(ctk.CTk):
             # 3. สั่ง DatabaseManager ทำการปรับยอดและสกัดปีใหม่ให้ภาพที่ย้ายออก
             res = self.db.reconcile_root_year_folder_with_drive(folder_id, academic_year, live_file_ids)
 
-            # 4. หากเป็นโฟลเดอร์ภาพในอดีต (25xx) ให้ซิงค์ archive_crowdsource_index.json ขึ้น Drive อัตโนมัติด้วย
+            # 4. อัปเดตดัชนี JSON และ photo_manifest.json ขึ้น Google Drive เสมอ (v6.72)
             json_synced_msg = ""
-            if academic_year == "25xx" or "25xx" in str(academic_year) or "อดีต" in str(folder_name):
-                try:
-                    logger.info("[RECONCILE] กำลังอัปเดตไฟล์ archive_crowdsource_index.json ขึ้น Google Drive...")
-                    json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
-                    if not json_folder_id:
-                        json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
-                    sync_data = self.db.get_all_sync_data()
-                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
-                    json_synced_msg = "\n⚡ อัปเดตดัชนี JSON บน Google Drive เรียบร้อยแล้ว"
-                except Exception as sync_err:
-                    logger.warning(f"[RECONCILE] Sync archive JSON warning: {sync_err}")
-                    json_synced_msg = f"\n⚠️ อัปเดตดัชนี JSON ไม่สำเร็จ: {sync_err}"
+            try:
+                logger.info(f"[RECONCILE] กำลังอัปเดตไฟล์ดัชนี JSON และ photo_manifest.json ขึ้น Google Drive...")
+                json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+                if not json_folder_id:
+                    json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
+                sync_data = self.db.get_all_sync_data()
+                self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+                json_synced_msg = "\n⚡ อัปเดตดัชนี JSON และ Manifest บน Google Drive เรียบร้อยแล้ว"
+            except Exception as sync_err:
+                logger.warning(f"[RECONCILE] Sync JSON warning: {sync_err}")
+                json_synced_msg = f"\n⚠️ อัปเดตดัชนี JSON ไม่สำเร็จ: {sync_err}"
 
             # 5. รีเฟรชหน้าจอ UI
             self.after(0, self.refresh_root_folders_table)
