@@ -1001,7 +1001,7 @@ class FaceSearchApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=GP_THEME["bg_main"])
         
-        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.70 (System Tray & Dynamic Scheduler Suite)")
+        self.title("ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.71 (System Tray & Dynamic Scheduler Suite)")
         self.geometry("1400x880")
         self.minsize(1250, 760)
         try:
@@ -1103,20 +1103,20 @@ class FaceSearchApp(ctk.CTk):
         # โหลดการตั้งค่าเก่า (ถ้ามี)
         self.load_settings()
 
-        # เริ่มต้น System Tray Icon (เมื่อเปิดโหมดใช้งานจริง) (v6.70)
+        # เริ่มต้น System Tray Icon (เมื่อเปิดโหมดใช้งานจริง) (v6.71)
         if self.enable_tray and self.tray_manager:
             self.tray_manager.start()
 
         # อัปเดตสถานะตารางเวลานับถอยหลังบน Sidebar & System Tray Tooltip
         self.after(500, self._update_schedule_ui_status)
 
-        # ตรวจสอบการสั่งรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Safety Grace Period 5 วินาที) (v6.70)
+        # ตรวจสอบการสั่งรัน Task 1, 2, 3 อัตโนมัติเมื่อเปิดโปรแกรม (Safety Grace Period 5 วินาที) (v6.71)
         self.after(5000, self._check_startup_auto_run)
 
         # เริ่มต้นกระบวนการ Pre-Warming ข้อมูลและสร้างแคชรูป Avatar ใน Background Daemon Thread (Zero-Lag v6.43)
         self.after(200, self._start_prewarm_caches)
 
-        # v6.70: หากเปิดด้วยโหมด --tray (เช่น เปิดอัตโนมัติพร้อม Windows) ให้ซ่อนหน้าต่างไว้ใน System Tray ทันที
+        # v6.71: หากเปิดด้วยโหมด --tray (เช่น เปิดอัตโนมัติพร้อม Windows) ให้ซ่อนหน้าต่างไว้ใน System Tray ทันที
         if splash:
             splash.update_progress(100, "เริ่มต้นระบบเสร็จสมบูรณ์ พร้อมเปิดใช้งาน!")
             splash.close()
@@ -1128,7 +1128,7 @@ class FaceSearchApp(ctk.CTk):
             logger.info("[TRAY] 🔽 เปิดโปรแกรมในโหมด System Tray เบื้องหลัง (--tray) ดับเบิลคลิกที่ไอคอนถาดระบบเพื่อเปิดหน้าต่างหลัก")
             status_init = self.scheduler.get_next_run_status() if hasattr(self, "scheduler") and self.scheduler else {}
             self.after(1200, lambda: self.show_desktop_toast(
-                "🟢 School Face Finder v6.70 พร้อมทำงานเบื้องหลัง",
+                "🟢 School Face Finder v6.71 พร้อมทำงานเบื้องหลัง",
                 f"เปิดระบบอัตโนมัติในถาด System Tray เรียบร้อยแล้ว\n{status_init.get('short_text', 'พร้อมรันตามตารางเวลาอัตโนมัติ')}",
                 status_type="info",
                 duration_ms=7000
@@ -1160,7 +1160,7 @@ class FaceSearchApp(ctk.CTk):
             pass
 
     def show_from_tray(self):
-        """ดึงหน้าต่างโปรแกรมเต็มกลับมาจากถาด System Tray เมื่อผู้ใช้ดับเบิลคลิกไอคอน (v6.70)"""
+        """ดึงหน้าต่างโปรแกรมเต็มกลับมาจากถาด System Tray เมื่อผู้ใช้ดับเบิลคลิกไอคอน (v6.71)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1183,7 +1183,7 @@ class FaceSearchApp(ctk.CTk):
 
     def show_desktop_toast(self, title: str, message: str, status_type: str = "info", duration_ms: int = 8000):
         """
-        แสดงการ์ดแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (เหนือแถบนาฬิกา/System Tray) (v6.70)
+        แสดงการ์ดแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (เหนือแถบนาฬิกา/System Tray) (v6.71)
         - แสดงผลชัดเจน 100% แม้หน้าต่างโปรแกรมหลักจะซ่อนอยู่ในถาด System Tray หรือเปิดโหมด Focus Assist
         - ไม่แย่งโฟกัสคีย์บอร์ดจากโปรแกรมอื่นที่ผู้ใช้กำลังพิมพ์งานอยู่
         - คลิกที่การ์ดเพื่อเปิดหน้าต่างโปรแกรมหลัก หรือกด ✕ เพื่อปิดทันที
@@ -1258,7 +1258,7 @@ class FaceSearchApp(ctk.CTk):
 
             lbl_app = tk.Label(
                 hdr,
-                text="✦ SCHOOL FACE FINDER v6.70",
+                text="✦ SCHOOL FACE FINDER v6.71",
                 font=("Segoe UI", 8, "bold"),
                 fg="#9AA0A6",
                 bg="#1E1F22",
@@ -1333,7 +1333,7 @@ class FaceSearchApp(ctk.CTk):
             return None
 
     def hide_to_tray(self):
-        """ย่อหน้าต่างโปรแกรมลงไปซ่อนในถาด System Tray (Show hidden icons) โดยไม่ปิดโปรเซสเบื้องหลัง (v6.70)"""
+        """ย่อหน้าต่างโปรแกรมลงไปซ่อนในถาด System Tray (Show hidden icons) โดยไม่ปิดโปรเซสเบื้องหลัง (v6.71)"""
         try:
             self.withdraw()
             logger.info("[TRAY] 🔽 ย่อหน้าต่างโปรแกรมลงใน System Tray เรียบร้อยแล้ว (ตารางเวลาอัตโนมัติยังทำงานต่อเนื่อง)")
@@ -1350,7 +1350,7 @@ class FaceSearchApp(ctk.CTk):
             logger.debug(f"[TRAY] Error hiding window to tray: {e}")
 
     def _check_startup_auto_run(self):
-        """ตรวจสอบและสั่งรัน Task 1, 2, 3 อัตโนมัติหลังเปิดโปรแกรม 5 วินาที หากผู้ใช้เปิดตั้งค่าไว้ (v6.70)"""
+        """ตรวจสอบและสั่งรัน Task 1, 2, 3 อัตโนมัติหลังเปิดโปรแกรม 5 วินาที หากผู้ใช้เปิดตั้งค่าไว้ (v6.71)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1362,7 +1362,7 @@ class FaceSearchApp(ctk.CTk):
             logger.debug(f"[AUTO-RUN] Startup auto-run check error: {e}")
 
     def _update_schedule_ui_status(self, reschedule=True):
-        """อัปเดตป้ายแสดงเวลารอบถัดไปบน Sidebar, หน้า Settings และ Tooltip ของ System Tray (v6.70)"""
+        """อัปเดตป้ายแสดงเวลารอบถัดไปบน Sidebar, หน้า Settings และ Tooltip ของ System Tray (v6.71)"""
         try:
             if not self.winfo_exists():
                 return
@@ -1393,7 +1393,7 @@ class FaceSearchApp(ctk.CTk):
                             text_color="#9AA0A6"
                         )
                 if self.tray_manager and self.tray_manager.is_running:
-                    self.tray_manager.update_tooltip(f"School Face Finder v6.70 | {status['short_text']}")
+                    self.tray_manager.update_tooltip(f"School Face Finder v6.71 | {status['short_text']}")
         except Exception:
             pass
         finally:
@@ -1415,7 +1415,7 @@ class FaceSearchApp(ctk.CTk):
         # โลโก้หรือหัวข้อโปรแกรมสไตล์ Google Photos
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.70",
+            text="✦ GOOGLE PHOTOS\nFACE FINDER v6.71",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#8AB4F8"
         )
@@ -1511,7 +1511,7 @@ class FaceSearchApp(ctk.CTk):
         )
         self.btn_stop_schedule.grid(row=12, column=0, padx=12, pady=(4, 6), sticky="ew")
 
-        # ป้ายแสดงสถานะตารางเวลาอัตโนมัติและรอบถัดไป (v6.70)
+        # ป้ายแสดงสถานะตารางเวลาอัตโนมัติและรอบถัดไป (v6.71)
         self.lbl_sidebar_schedule_status = ctk.CTkLabel(
             self.sidebar_frame,
             text="⏰ รอบเวลา: 05:00, 11:00, 17:00, 23:00\n⏳ กำลังคำนวณรอบถัดไป...",
@@ -5820,7 +5820,7 @@ class FaceSearchApp(ctk.CTk):
         )
         btn_clear_history.grid(row=1, column=0, padx=15, pady=(2, 10), sticky="ew")
 
-        # แถวที่ 2: โซนตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Automated Scheduler & System Tray v6.70)
+        # แถวที่ 2: โซนตั้งเวลาทำงานอัตโนมัติ & ถาดระบบ (Automated Scheduler & System Tray v6.71)
         sched_tray_frame = ctk.CTkFrame(self.frame_settings, fg_color="#1E1F22", corner_radius=10)
         sched_tray_frame.grid(row=2, column=0, sticky="ew", padx=2, pady=(0, 8))
         sched_tray_frame.grid_columnconfigure(0, weight=1)
@@ -6333,6 +6333,15 @@ class FaceSearchApp(ctk.CTk):
                     )
                     btn_sync_archive.pack(side="right", padx=4, pady=8)
 
+                # ปุ่มซิงค์ภาพให้ตรงกับ Google Drive จริง (v6.71)
+                btn_reconcile = ctk.CTkButton(
+                    row_card, text="🔄 ซิงค์ภาพตรง Drive", width=145, height=28,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    fg_color="#1A73E8", hover_color="#1557B0", text_color="white",
+                    command=lambda it=item: self.on_reconcile_root_folder_click(it)
+                )
+                btn_reconcile.pack(side="right", padx=4, pady=8)
+
                 # 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
                 lbl_cnt = ctk.CTkLabel(
                     row_card,
@@ -6391,6 +6400,102 @@ class FaceSearchApp(ctk.CTk):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def on_reconcile_root_folder_click(self, item):
+        """ตรวจสอบไฟล์รูปภาพสดบน Google Drive ในโฟลเดอร์นี้ และปรับยอดในฐานข้อมูล SQLite ให้ตรงกันทันที (v6.71)"""
+        f_id = item.get("id") or item.get("folder_id", "")
+        f_name = item.get("name") or item.get("folder_name", "")
+        f_year = str(item.get("academic_year") or "").strip()
+        p_count = item.get("photo_count", 0)
+
+        if not f_id:
+            messagebox.showwarning("คำเตือน", "ไม่พบ Folder ID สำหรับโฟลเดอร์นี้")
+            return
+
+        confirm_msg = (
+            f"คุณต้องการตรวจสอบไฟล์ภาพสดบน Google Drive ในโฟลเดอร์:\n"
+            f"📁 '{f_name}' (ปี {f_year})\n\n"
+            f"• ยอดปัจจุบันในระบบ: {p_count:,} รูป\n"
+            f"• ระบบจะสำรวจไฟล์ภาพสด และปรับสถานะภาพที่ย้ายออกให้ตรงกับสภาพจริงบน Drive\n"
+            f"• ข้อมูลเวกเตอร์ใบหน้าทั้งหมดจะคงอยู่ปลอดภัย (ไม่ลบข้อมูล AI)\n\n"
+            f"ต้องการดำเนินการต่อใช่หรือไม่?"
+        )
+        confirm = messagebox.askyesno(
+            "ยืนยันการซิงค์ภาพให้ตรงกับ Google Drive",
+            confirm_msg,
+            parent=self
+        )
+        if not confirm:
+            return
+
+        threading.Thread(
+            target=self._run_reconcile_root_folder_thread,
+            args=(f_id, f_name, f_year),
+            daemon=True
+        ).start()
+
+    def _run_reconcile_root_folder_thread(self, folder_id, folder_name, academic_year):
+        logger.info(f"[RECONCILE] 🚀 เริ่มต้นกระบวนการซิงค์ภาพตรง Drive สำหรับ '{folder_name}' (ID: {folder_id}, ปี {academic_year})")
+        if hasattr(self, 'show_toast'):
+            self.after(0, lambda: self.show_toast(f"⏳ กำลังสำรวจไฟล์สดบน Google Drive: {folder_name}...", status_type="info", duration_ms=6000))
+
+        try:
+            # 1. ตรวจสอบการเชื่อมต่อ Google Drive Service
+            if not self.sync_manager.connected or not getattr(self.sync_manager, 'drive_service', None):
+                cred_path = self.entry_cred_path.get().strip() if hasattr(self, 'entry_cred_path') else "config/service_account.json"
+                if cred_path and os.path.exists(cred_path):
+                    self.sync_manager.credentials_path = cred_path
+                if not self.sync_manager.connect(ensure_worksheets=False):
+                    raise RuntimeError("ไม่สามารถเชื่อมต่อ Google Drive API ได้ กรุณาตรวจสอบไฟล์ credentials")
+
+            # 2. ค้นหารูปภาพสดทั้งหมดในโฟลเดอร์นี้แบบ Recursive
+            live_images = self.sync_manager.fetch_drive_folder_images_recursive(folder_id)
+            live_file_ids = {img["file_id"] for img in live_images if img.get("file_id")}
+            logger.info(f"[RECONCILE] สำรวจ Google Drive สำเร็จ: พบภาพสดทั้งหมด {len(live_file_ids)} รูป")
+
+            # 3. สั่ง DatabaseManager ทำการปรับยอดและสกัดปีใหม่ให้ภาพที่ย้ายออก
+            res = self.db.reconcile_root_year_folder_with_drive(folder_id, academic_year, live_file_ids)
+
+            # 4. หากเป็นโฟลเดอร์ภาพในอดีต (25xx) ให้ซิงค์ archive_crowdsource_index.json ขึ้น Drive อัตโนมัติด้วย
+            json_synced_msg = ""
+            if academic_year == "25xx" or "25xx" in str(academic_year) or "อดีต" in str(folder_name):
+                try:
+                    logger.info("[RECONCILE] กำลังอัปเดตไฟล์ archive_crowdsource_index.json ขึ้น Google Drive...")
+                    json_folder_id = self.entry_json_folder_id.get().strip() if hasattr(self, 'entry_json_folder_id') else ""
+                    if not json_folder_id:
+                        json_folder_id = "1X0vHO47LMVSxp5wyVQEN7xU6A7lAUq0L"
+                    sync_data = self.db.get_all_sync_data()
+                    self.sync_manager.update_json_indexes_on_drive(sync_data, json_folder_id, scan_mode="all")
+                    json_synced_msg = "\n⚡ อัปเดตดัชนี JSON บน Google Drive เรียบร้อยแล้ว"
+                except Exception as sync_err:
+                    logger.warning(f"[RECONCILE] Sync archive JSON warning: {sync_err}")
+                    json_synced_msg = f"\n⚠️ อัปเดตดัชนี JSON ไม่สำเร็จ: {sync_err}"
+
+            # 5. รีเฟรชหน้าจอ UI
+            self.after(0, self.refresh_root_folders_table)
+
+            # 6. แจ้งเตือนความสำเร็จ
+            msg = (
+                f"✅ ซิงค์ภาพตรงกับ Google Drive สำเร็จสมบูรณ์!\n\n"
+                f"📁 โฟลเดอร์: {folder_name} (ปี {academic_year})\n"
+                f"📸 ภาพที่มีอยู่จริงบน Drive: {res['total_live_drive']:,} รูป\n"
+                f"📊 ยอดในระบบ: ปรับจาก {res['total_db_before']:,} รูป เป็น {res['total_db_after']:,} รูป\n"
+                f"🔄 ภาพที่ย้ายออกจากโฟลเดอร์นี้: {res['moved_out_count']:,} รูป (รีแท็กปีใหม่อัตโนมัติ)\n"
+                f"🆕 ภาพใหม่บน Drive ที่ยังไม่เคยสแกน: {res['new_unscanned_count']:,} รูป"
+                f"{json_synced_msg}"
+            )
+            self.after(0, lambda: messagebox.showinfo("ซิงค์ภาพสำเร็จ", msg, parent=self))
+            if hasattr(self, 'show_toast'):
+                toast_txt = f"✅ ซิงค์ {folder_name} ตรง Drive แล้ว! (ยอด: {res['total_db_after']:,} รูป)"
+                self.after(0, lambda: self.show_toast(toast_txt, status_type="success", duration_ms=7000))
+
+        except Exception as e:
+            logger.error(f"[RECONCILE] Error during reconciliation: {e}", exc_info=True)
+            err_msg = f"เกิดข้อผิดพลาดในการซิงค์ข้อมูลกับ Drive: {e}"
+            self.after(0, lambda: messagebox.showerror("เกิดข้อผิดพลาด", err_msg, parent=self))
+            if hasattr(self, 'show_toast'):
+                self.after(0, lambda: self.show_toast(f"❌ ซิงค์ข้อมูลล้มเหลว: {e}", status_type="error", duration_ms=8000))
+
+
     def select_cred_file(self):
         file_path = filedialog.askopenfilename(
             title="เลือกไฟล์ Google Service Account JSON",
@@ -6423,20 +6528,20 @@ class FaceSearchApp(ctk.CTk):
         return s
 
     def on_toggle_win_autostart(self):
-        """เปิด/ปิดการลงทะเบียนรันโปรแกรมอัตโนมัติเมื่อเปิด Windows (Start with Windows) (v6.70)"""
+        """เปิด/ปิดการลงทะเบียนรันโปรแกรมอัตโนมัติเมื่อเปิด Windows (Start with Windows) (v6.71)"""
         if hasattr(self, "sw_win_autostart"):
             enabled = bool(self.sw_win_autostart.get())
             set_autostart(enabled)
             self.save_settings()
 
     def on_schedule_option_change(self, _=None):
-        """คำนวณรอบเวลาอัตโนมัติและปรับตัวเลือกเวลาเริ่มครั้งแรกแบบไดนามิก (v6.70)"""
+        """คำนวณรอบเวลาอัตโนมัติและปรับตัวเลือกเวลาเริ่มครั้งแรกแบบไดนามิก (v6.71)"""
         try:
             enabled = bool(self.sw_schedule_enabled.get()) if hasattr(self, "sw_schedule_enabled") else True
             interval_label = self.combo_sched_interval.get() if hasattr(self, "combo_sched_interval") else ""
             interval_mins = INTERVAL_OPTIONS_MAP.get(interval_label, 360)
 
-            # ปรับเปลี่ยนรายการเวลาเริ่มครั้งแรก (Anchor Time Choices) ให้สอดคล้องกับคาบเวลาใหม่ทันที (v6.70)
+            # ปรับเปลี่ยนรายการเวลาเริ่มครั้งแรก (Anchor Time Choices) ให้สอดคล้องกับคาบเวลาใหม่ทันที (v6.71)
             if hasattr(self, "combo_sched_anchor"):
                 current_anchor = self.combo_sched_anchor.get().strip()
                 valid_choices = get_anchor_time_choices(interval_mins)
@@ -6479,7 +6584,7 @@ class FaceSearchApp(ctk.CTk):
             logger.debug(f"[SCHEDULE] Error updating schedule option preview: {e}")
 
     def on_save_schedule_settings_click(self):
-        """บันทึกการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบลงไฟล์ app_settings.json (v6.70)"""
+        """บันทึกการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบลงไฟล์ app_settings.json (v6.71)"""
         self.on_schedule_option_change()
         self.save_settings()
         slots = self.scheduler.schedule_slots if hasattr(self, "scheduler") and self.scheduler else []
@@ -6588,7 +6693,7 @@ class FaceSearchApp(ctk.CTk):
                 else:
                     self.chk_fast_rescan.deselect()
 
-            # โหลดการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบ (v6.70)
+            # โหลดการตั้งค่าตารางเวลาอัตโนมัติและถาดระบบ (v6.71)
             sched_enabled = bool(settings.get("schedule_enabled", True))
             sched_anchor = str(settings.get("schedule_anchor_time", "05:00")).strip() or "05:00"
             try:
@@ -9779,7 +9884,7 @@ class FaceSearchApp(ctk.CTk):
             return False
 
     def on_app_close(self, force_exit=False):
-        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.70)"""
+        """จัดการกดปิดหน้าต่าง [X]: ย่อลงถาด System Tray หรือปิดโปรเซสสมบูรณ์ 100% ไร้ซอมบี้ (v6.71)"""
         if (
             not force_exit
             and getattr(self, "enable_tray", False)
@@ -9792,7 +9897,7 @@ class FaceSearchApp(ctk.CTk):
             return
 
         try:
-            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.70)...")
+            logger.info("[SYSTEM] 🛑 กำลังปิดโปรแกรมและเคลียร์ทรัพยากร (Clean Teardown Protocol v6.71)...")
             if hasattr(self, "tray_manager") and self.tray_manager:
                 try:
                     self.tray_manager.stop()

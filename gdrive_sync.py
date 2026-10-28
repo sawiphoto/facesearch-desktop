@@ -804,7 +804,7 @@ class GoogleSyncManager:
                 # Legacy Photo Index (Dual-Write)
                 sync_results["photo_index.json"] = upload_overwrite_json("photo_index.json", legacy_photo_index, use_compact=True)
 
-                # 4. ดัชนีภาพกิจกรรมในอดีต (2562-25xx) แบบข้อมูลทั่วไป (v6.70)
+                # 4. ดัชนีภาพกิจกรรมในอดีต (2562-25xx) แบบข้อมูลทั่วไป (v6.71)
                 try:
                     archive_crowdsource_data = db.get_archive_crowdsource_data(academic_year="25xx", sync_manager=self)
                     arc_photos = archive_crowdsource_data.get("photos", {}) if archive_crowdsource_data else {}
@@ -816,7 +816,7 @@ class GoogleSyncManager:
                         )
                         manifest["archive_crowdsource_file"] = "archive_crowdsource_index.json"
                         manifest["archive_crowdsource_photos"] = arc_total_photos
-                        # ตัดการนับจำนวนใบหน้าออกทั้งหมดตามความต้องการของผู้ใช้ (v6.70)
+                        # ตัดการนับจำนวนใบหน้าออกทั้งหมดตามความต้องการของผู้ใช้ (v6.71)
                         manifest.pop("archive_crowdsource_faces", None)
                         # อัปเดต photo_manifest.json ให้มีคีย์ของไฟล์ภาพในอดีตนี้ด้วย
                         sync_results["photo_manifest.json"] = upload_overwrite_json("photo_manifest.json", manifest, use_compact=False)

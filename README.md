@@ -1,4 +1,137 @@
-# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.70 (Archive General Photo Index & Zero-Face Removal Suite)
+# ระบบค้นหาและวิเคราะห์ใบหน้าบุคลากร (แอดมิน) v6.71 (Drive-to-DB Photo Reconciliation Suite)
+
+## 📋 Version 6.71 Changelog (Drive-to-DB Photo Reconciliation Suite)
+
+**Date:** 28 ตุลาคม 2026 (23:30 น.)  
+**AI Agent:** Antigravity (Google DeepMind Team - Advanced Agentic Coding)  
+**Model:** Gemini 3.8 Flash  
+**Version:** v6.71 (Drive-to-DB Photo Reconciliation Suite)  
+**Core Technologies:** Real-time Google Drive Scanning & SQLite Reconciliation (`reconcile_root_year_folder_with_drive`), Zero-Lag Background Daemon Threading, Multi-Decade Thai BE Year Regex Parser (`25[2-9]\d`), UI Interactive Reconciliation Button (`[ 🔄 ซิงค์ภาพตรง Drive ]`), Normal Scheduler Sync Badge Status Correction, 100% Unit Test Pass (`tests/test_reconcile_with_drive.py`), Desktop Shortcut (`School Face Finder v6.71.lnk`).
+
+---
+
+### 📌 ปัญหาที่พบ หรือความต้องการที่ต้องปรับปรุง (Issues / Requirements):
+1. **ยอดจำนวนรูปภาพในฐานข้อมูลไม่ตรงกับ Google Drive หลังผู้ใช้ย้ายโฟลเดอร์หรือจัดระเบียบไฟล์:**
+   - ผู้ใช้ทำการจัดระเบียบไฟล์บน Google Drive โดยย้ายโฟลเดอร์ภาพกิจกรรมปี 2550 (จำนวน 3,402 รูป) ออกจากโฟลเดอร์ภาพกิจกรรมอดีต (2549-25xx ในอดีต) ทำให้ไฟล์จริงบน Google Drive ลดลงเหลือ 1,695 รูป
+   - แต่ฐานข้อมูล SQLite ในเครื่อง (`faces_db.db`) ยังคงจำรายการรูปภาพพวกนั้นผูกติดกับปี `25xx` ส่งผลให้หน้าจอ UI ยังคงแสดงตัวเลขเก่า 5,069 รูป
+2. **ต้องการปุ่มบนหน้าจอ GUI สำหรับสั่งอัปเดตยอดภาพให้ตรงกันทันที:**
+   - ผู้ใช้สั่งการ: *"ทำเป้น button เลยได้มั้ย อัพเดตภาพให้ตรงกันหนะ"* โดยต้องการให้มีปุ่มบนหน้าจอ GUI เพื่อสั่งตรวจเช็กไฟล์จริงบน Google Drive และปรับปรุงยอดในฐานข้อมูลให้ตรงกับสภาพความเป็นจริงบนคลาวด์ในคลิกเดียว
+
+---
+
+### 🛠️ วิธีการแก้ไข (Solution):
+1. **เพิ่มเมธอด `reconcile_root_year_folder_with_drive` ใน `db_manager.py`:**
+   - เปรียบเทียบรายการรูปภาพในฐานข้อมูลของปีนั้น กับ `live_drive_file_ids` ที่ตรวจพบสดจาก Google Drive แบบ Real-time
+   - รูปภาพที่ยังคงอยู่ในโฟลเดอร์บน Drive: ยืนยันสถานะ `academic_year` เดิม
+   - รูปภาพที่ถูกย้ายออกไปแล้ว: สกัดเลขปี พ.ศ. จาก `event_name` เดิมโดยอัตโนมัติ (เช่น โฟลเดอร์ `2550 ...` จะถูกรีแท็กเป็นปี `'2550'`) ส่งผลให้ยอดภาพของปี 25xx ในระบบลดลงมาตรงกับ Google Drive ทันที โดยที่ข้อมูลเวกเตอร์ใบหน้า AI (embeddings / matches) ยังคงถูกเก็บรักษาไว้ครบถ้วน 100% ไม่สูญหาย
+2. **ขยายความสามารถ Regex สกัดปี พ.ศ. ใน `extract_year_from_text`:**
+   - ขยายจากเดิม `25[5-8]\d` เป็น `25[2-9]\d` และรองรับ ค.ศ. `19[7-9]\d|20[0-4]\d` เพื่อรองรับกิจกรรมโรงเรียนย้อนหลังตั้งแต่ปี 2520 ถึง 2599 อย่างครอบคลุม
+3. **เพิ่มปุ่มบนหน้าจอ GUI ใน `app_gui.py`:**
+   - เพิ่มปุ่ม `[ 🔄 ซิงค์ภาพตรง Drive ]` (สีน้ำเงิน `#1A73E8`) บนแถวของแต่ละโฟลเดอร์หลักในตารางจัดการโฟลเดอร์ปีการศึกษา
+   - รันใน Background Daemon Thread (Zero-Lag ไร้การหน่วง ไม่ทำให้ GUI ค้าง ตามกฎข้อ 8)
+   - หากเป็นโฟลเดอร์ภาพในอดีต (25xx) ให้ซิงค์ไฟล์ `archive_crowdsource_index.json` ขึ้น Google Drive อัตโนมัติด้วย
+   - รีเฟรชตาราง `refresh_root_folders_table()` ทันทีเมื่อเสร็จสิ้น พร้อมแสดง Toast และ Popup รายงานผลสรุป
+4. **แก้ไขการแสดงผลป้ายสถานะ Sync JSON ในรอบการสแกนปกติ (`scheduler_task.py`):**
+   - แก้ไขการส่งพารามิเตอร์ `json_synced` ในการเรียก `tracker.finalize` เมื่อการทำงานเสร็จสิ้นสมบูรณ์ เพื่อไม่ให้แสดงป้ายเตือนสีส้มผิดพลาด
+5. **สร้างชุดทดสอบและจำลองการทำงานจริง (`tests/test_reconcile_with_drive.py`):**
+   - จำลองกรณีทดสอบครอบคลุมทั้งภาพที่คงอยู่, ภาพที่ย้ายออกหลายปีการศึกษา, ภาพที่ไม่มีปี, และการตรวจนับภาพใหม่ ผ่านฉลุย 100%
+6. **ซิงค์โค้ดไปยังโปรเจกต์รุ่นแจกจ่าย (`D:\Projects\ระบบค้นหาใบหน้า GoogleDrive`):**
+   - อัปเดต `db_manager.py` และ `app_gui.py` ของรุ่นแจกจ่ายให้มีปุ่มและตรรกะเดียวกัน
+7. **อัปเดตเวอร์ชันและ Desktop Shortcut:**
+   - ปรับเลขเวอร์ชันเป็น `v6.71` ทั่วทั้งระบบ และสร้างไอคอนทางลัดหน้าจอเดสก์ท็อปใหม่ `School Face Finder v6.71.lnk`
+
+---
+
+### 💻 รายละเอียด Code / Function ส่วนสำคัญที่แก้ไข (Before & After):
+
+#### 1. `db_manager.py` — ฟังก์ชัน `extract_year_from_text` และ `reconcile_root_year_folder_with_drive`
+**ก่อนแก้ไข (Before):**
+```python
+@staticmethod
+def extract_year_from_text(text):
+    if not text:
+        return ""
+    text_str = str(text)
+    m_be = re.search(r'(?<!\d)(25[5-8]\d)(?!\d)', text_str)
+    if m_be:
+        return m_be.group(1)
+    m_ce = re.search(r'(?<!\d)(20[1-4]\d)(?!\d)', text_str)
+    if m_ce:
+        return str(int(m_ce.group(1)) + 543)
+    return ""
+```
+
+**หลังแก้ไข (After):**
+```python
+@staticmethod
+def extract_year_from_text(text):
+    if not text:
+        return ""
+    text_str = str(text)
+    m_be = re.search(r'(?<!\d)(25[2-9]\d)(?!\d)', text_str)
+    if m_be:
+        return m_be.group(1)
+    m_ce = re.search(r'(?<!\d)(19[7-9]\d|20[0-4]\d)(?!\d)', text_str)
+    if m_ce:
+        return str(int(m_ce.group(1)) + 543)
+    return ""
+
+def reconcile_root_year_folder_with_drive(self, folder_id, academic_year, live_drive_file_ids, live_files_meta=None):
+    """ปรับปรุงความสอดคล้องระหว่างข้อมูลใน scanned_photos กับไฟล์ที่มีอยู่จริงใน Google Drive (v6.71)"""
+    target_year = str(academic_year or "").strip()
+    live_set = set(str(fid).strip() for fid in live_drive_file_ids if fid)
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT photo_id, drive_file_id, event_name FROM scanned_photos WHERE academic_year = ?", (target_year,))
+        current_photos = cursor.fetchall()
+        
+        # ภาพที่ย้ายออก: สกัดปีใหม่จาก event_name แล้วอัปเดต academic_year อัตโนมัติ
+        updates_moved = []
+        for pid, fid, ev_name in current_photos:
+            if fid not in live_set:
+                new_yr = self.extract_year_from_text(ev_name or "") or "unassigned"
+                updates_moved.append((new_yr, pid))
+        if updates_moved:
+            cursor.executemany("UPDATE scanned_photos SET academic_year = ? WHERE photo_id = ?", updates_moved)
+        conn.commit()
+```
+
+#### 2. `app_gui.py` — ปุ่มและ Action Handler บน GUI
+**ก่อนแก้ไข (Before):**
+```python
+if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
+    btn_sync_archive = ctk.CTkButton(
+        row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
+        fg_color="#D35400", hover_color="#BA4A00",
+        command=self.sync_archive_crowdsource_json_manual
+    )
+    btn_sync_archive.pack(side="right", padx=4, pady=8)
+
+# 5. จำนวนรูปภาพในฐานข้อมูลของปีนั้น
+lbl_cnt = ctk.CTkLabel(row_card, text=f"📸 {p_count:,} รูป", ...)
+```
+
+**หลังแก้ไข (After):**
+```python
+if f_year == "25xx" or "25xx" in str(f_year) or "อดีต" in str(f_name):
+    btn_sync_archive = ctk.CTkButton(
+        row_card, text="⚡ ซิงค์ JSON อดีต", width=145, height=28,
+        fg_color="#D35400", hover_color="#BA4A00",
+        command=self.sync_archive_crowdsource_json_manual
+    )
+    btn_sync_archive.pack(side="right", padx=4, pady=8)
+
+# ปุ่มซิงค์ภาพให้ตรงกับ Google Drive จริง (v6.71)
+btn_reconcile = ctk.CTkButton(
+    row_card, text="🔄 ซิงค์ภาพตรง Drive", width=145, height=28,
+    font=ctk.CTkFont(size=12, weight="bold"),
+    fg_color="#1A73E8", hover_color="#1557B0", text_color="white",
+    command=lambda it=item: self.on_reconcile_root_folder_click(it)
+)
+btn_reconcile.pack(side="right", padx=4, pady=8)
+```
+
+---
 
 ## 📋 Version 6.70 Changelog (Archive General Photo Index & Zero-Face Removal Suite)
 

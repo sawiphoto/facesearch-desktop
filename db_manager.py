@@ -2142,7 +2142,7 @@ class DatabaseManager:
                 year_file_map["archive"] = "photo_index_archive.json"
 
             manifest = {
-                "version": "v6.70",
+                "version": "v6.71",
                 "updated_at": datetime.now().isoformat(),
                 "available_years": available_shards,
                 "year_file_map": year_file_map,
@@ -2179,7 +2179,7 @@ class DatabaseManager:
 
     def get_archive_crowdsource_data(self, academic_year="25xx", sync_manager=None):
         """
-        ดึงข้อมูลภาพกิจกรรมในอดีต (2562-25xx/2568) แบบข้อมูลทั่วไปของรูปภาพ (v6.70):
+        ดึงข้อมูลภาพกิจกรรมในอดีต (2562-25xx/2568) แบบข้อมูลทั่วไปของรูปภาพ (v6.71):
         - ตัดตำแหน่งพิกัดกรอบใบหน้า (box_pct/bbox) และการนับจำนวนใบหน้าออกทั้งหมดตามความต้องการของผู้ใช้
         - คงเหลือเฉพาะข้อมูลทั่วไปของรูปภาพ: photo_id, drive_file_id, drive_link, event, file_name, date, year
         """
@@ -2802,10 +2802,10 @@ class DatabaseManager:
         if not text:
             return ""
         text_str = str(text)
-        m_be = re.search(r'(?<!\d)(25[5-8]\d)(?!\d)', text_str)
+        m_be = re.search(r'(?<!\d)(25[2-9]\d)(?!\d)', text_str)
         if m_be:
             return m_be.group(1)
-        m_ce = re.search(r'(?<!\d)(20[1-4]\d)(?!\d)', text_str)
+        m_ce = re.search(r'(?<!\d)(19[7-9]\d|20[0-4]\d)(?!\d)', text_str)
         if m_ce:
             return str(int(m_ce.group(1)) + 543)
         return ""
@@ -3010,6 +3010,101 @@ class DatabaseManager:
             self._sync_root_folders_to_json()
             logger.info(f"[ROOT_FOLDERS] Deleted root folder ID={f_id}")
         return deleted
+
+    def reconcile_root_year_folder_with_drive(self, folder_id, academic_year, live_drive_file_ids, live_files_meta=None):
+        """
+        ปรับปรุงความสอดคล้องระหว่างข้อมูลใน scanned_photos กับไฟล์ที่มีอยู่จริงใน Google Drive (v6.71)
+        
+        พารามิเตอร์:
+        - folder_id: Google Drive Folder ID ของโฟลเดอร์หลัก
+        - academic_year: ปีการศึกษาเป้าหมาย (เช่น '25xx', '2568')
+        - live_drive_file_ids: iterable/set ของ drive_file_id ที่พบสดใน Google Drive โฟลเดอร์นี้
+        - live_files_meta: dict เสริม {file_id: {name, folder_name}} (ถ้ามี)
+        
+        การทำงาน:
+        1. ดึงภาพทั้งหมดใน scanned_photos ที่บันทึกไว้ใน academic_year นี้
+        2. เปรียบเทียบ:
+           - ภาพที่ยังอยู่ใน live_drive_file_ids -> คงสถานะ academic_year ไว้
+           - ภาพที่ไม่อยู่ใน live_drive_file_ids (ถูกย้ายออก) -> สกัดปีจาก event_name แล้วปรับ academic_year ไปเป็นปีที่สกัดได้
+             (เช่น โฟลเดอร์ปี 2550 จะถูกเปลี่ยนเป็น '2550' หรือหากไม่พบปีให้เป็น 'unassigned')
+        3. ตรวจสอบว่ามีภาพใน live_drive_file_ids ที่เคยบันทึกใน DB แต่เป็นปีอื่นหรือไม่ -> ปรับมาเป็น academic_year นี้
+        4. ตรวจนับภาพใหม่บน Drive ที่ยังไม่เคยสแกนลง DB เลย
+        """
+        target_year = str(academic_year or "").strip()
+        live_set = set(str(fid).strip() for fid in live_drive_file_ids if fid)
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 1. ภาพทั้งหมดใน scanned_photos ที่เป็น academic_year นี้ในปัจจุบัน
+            cursor.execute("SELECT photo_id, drive_file_id, event_name FROM scanned_photos WHERE academic_year = ?", (target_year,))
+            current_photos = cursor.fetchall()
+            total_db_before = len(current_photos)
+            
+            # 2. คัดแยกภาพที่ย้ายออก (มีใน DB ปีนี้ แต่ไม่อยู่ใน live_set บน Drive)
+            moved_out_items = []
+            matched_live_ids = set()
+            for pid, fid, ev_name in current_photos:
+                if fid in live_set:
+                    matched_live_ids.add(fid)
+                else:
+                    moved_out_items.append((pid, fid, ev_name))
+            
+            # 3. สำหรับภาพที่ถูกย้ายออก: สกัดปีใหม่จาก event_name แล้วอัปเดต academic_year
+            # เพื่อเอาออกจากยอดของ academic_year นี้ โดยไม่ลบเวกเตอร์ใบหน้า
+            moved_out_breakdown = {}
+            updates_moved = []
+            for pid, fid, ev_name in moved_out_items:
+                extracted = self.extract_year_from_text(ev_name or "")
+                new_yr = extracted if extracted and extracted != target_year else "unassigned"
+                updates_moved.append((new_yr, pid))
+                moved_out_breakdown[new_yr] = moved_out_breakdown.get(new_yr, 0) + 1
+            
+            if updates_moved:
+                cursor.executemany("UPDATE scanned_photos SET academic_year = ? WHERE photo_id = ?", updates_moved)
+            
+            # 4. ภาพใน live_set ที่เคยสแกนไว้ใน DB แล้วแต่ยังไม่ได้เป็น target_year (เช่น เคยเป็น unassigned หรือปีอื่น)
+            # ดึงรายการภาพใน DB ที่มี drive_file_id อยู่ใน live_set
+            live_list = list(live_set)
+            all_known_fids_in_db = set()
+            chunk_size = 900
+            for i in range(0, len(live_list), chunk_size):
+                chunk = live_list[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(f"SELECT photo_id, drive_file_id, academic_year FROM scanned_photos WHERE drive_file_id IN ({placeholders})", chunk)
+                for pid, fid, a_year in cursor.fetchall():
+                    all_known_fids_in_db.add(fid)
+                    if str(a_year or "").strip() != target_year:
+                        cursor.execute("UPDATE scanned_photos SET academic_year = ? WHERE photo_id = ?", (target_year, pid))
+                        matched_live_ids.add(fid)
+            
+            conn.commit()
+            
+            # 5. คำนวณยอดหลังการปรับปรุง
+            cursor.execute("SELECT COUNT(*) FROM scanned_photos WHERE academic_year = ?", (target_year,))
+            total_db_after = cursor.fetchone()[0]
+            
+            # 6. จำนวนภาพใหม่บน Drive ที่ยังไม่เคยสแกนลง DB
+            new_unscanned_count = len(live_set - all_known_fids_in_db)
+            
+            logger.info(
+                f"[RECONCILE] Academic Year '{target_year}': "
+                f"Live on Drive={len(live_set)}, DB Before={total_db_before}, "
+                f"Moved Out={len(moved_out_items)}, DB After={total_db_after}, "
+                f"New Unscanned={new_unscanned_count}"
+            )
+            
+            return {
+                "academic_year": target_year,
+                "total_live_drive": len(live_set),
+                "total_db_before": total_db_before,
+                "matched_count": len(matched_live_ids),
+                "moved_out_count": len(moved_out_items),
+                "moved_out_breakdown": moved_out_breakdown,
+                "new_unscanned_count": new_unscanned_count,
+                "total_db_after": total_db_after
+            }
+
 
 
     # =========================================================================

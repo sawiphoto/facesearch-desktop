@@ -265,7 +265,7 @@ INTERVAL_OPTIONS_MAP = {
 
 def get_anchor_time_choices(interval_minutes: int = 30) -> list:
     """
-    คำนวณตัวเลือกเวลาเริ่มครั้งแรก (Anchor Time Choices) ให้สอดคล้องกับคาบเวลาทำงาน (v6.70)
+    คำนวณตัวเลือกเวลาเริ่มครั้งแรก (Anchor Time Choices) ให้สอดคล้องกับคาบเวลาทำงาน (v6.71)
     - คาบเวลา <= 10 นาที -> แสดงตัวเลือกทุกๆ 10 นาที (144 ตัวเลือก: 00:00, 00:10, 00:20, ...)
     - คาบเวลา == 15 นาที -> แสดงตัวเลือกทุกๆ 15 นาที (96 ตัวเลือก: 00:00, 00:15, 00:30, ...)
     - คาบเวลา >= 30 นาที -> แสดงตัวเลือกทุกๆ 30 นาที (48 ตัวเลือก: 00:00, 00:30, 01:00, ...)
@@ -444,7 +444,7 @@ class SchedulerTask:
         return get_next_run_info(self.schedule_slots, enabled=self.schedule_enabled, now_dt=now_dt)
 
     def _notify_desktop(self, title: str, message: str, status_type: str = "info", duration_ms: int = 8000):
-        """ส่งแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (Bottom-Right Toast Notification) (v6.70)"""
+        """ส่งแจ้งเตือนป๊อปอัปที่มุมขวาล่างของหน้าจอ Desktop (Bottom-Right Toast Notification) (v6.71)"""
         try:
             if self.app_gui and hasattr(self.app_gui, "show_desktop_toast"):
                 self.app_gui.after(
@@ -623,7 +623,7 @@ class SchedulerTask:
 
         try:
             logger.info("="*50)
-            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.70 - High Speed & Desktop Toast Notification)")
+            logger.info("[SCHEDULE] เริ่มทำงาน Task อัตโนมัติ (v6.71 - High Speed & Desktop Toast Notification)")
             logger.info("="*50)
             now_str_sched = datetime.now().strftime("%H:%M")
             self._notify_desktop(
@@ -704,10 +704,10 @@ class SchedulerTask:
                 self._safe_sync_json_on_stop()
 
             summary = None
-            # สรุปผลและส่งออกรายงาน พร้อมแจ้งเตือน Popup สรุปผลบน GUI (v6.70)
+            # สรุปผลและส่งออกรายงาน พร้อมแจ้งเตือน Popup สรุปผลบน GUI (v6.71)
             if hasattr(self, 'tracker') and self.tracker:
                 try:
-                    summary = self.tracker.finalize(stopped_by_user=was_stopped, json_synced=self._stopped_json_synced)
+                    summary = self.tracker.finalize(stopped_by_user=was_stopped, json_synced=(self._stopped_json_synced if was_stopped else True))
                     if self.tracker.has_scanned_items() or was_stopped:
                         project_root = get_project_root()
                         saved_path = self.tracker.save_report_to_disk(project_root)
@@ -716,7 +716,7 @@ class SchedulerTask:
                 except Exception as rep_err:
                     logger.error(f"[SCHEDULE] ❌ Error generating scan report summary: {rep_err}", exc_info=True)
 
-            # v6.70: แจ้งเตือนมุมขวาล่างของ Desktop เมื่อเสร็จสิ้นรอบการทำงานอัตโนมัติเสมอ
+            # v6.71: แจ้งเตือนมุมขวาล่างของ Desktop เมื่อเสร็จสิ้นรอบการทำงานอัตโนมัติเสมอ
             try:
                 end_str_sched = datetime.now().strftime("%H:%M")
                 next_info_sched = self.get_next_run_status()
